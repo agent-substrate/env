@@ -12,7 +12,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/rakyll/substrate-sandbox/sandbox"
+	"github.com/agent-substrate/sandbox/sandbox"
 	"github.com/spf13/cobra"
 )
 

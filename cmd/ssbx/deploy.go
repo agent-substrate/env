@@ -6,7 +6,7 @@ import (
 	"io"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/rakyll/substrate-sandbox/internal/service"
+	"github.com/agent-substrate/sandbox/internal/service"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -54,9 +54,9 @@ Each release publishes digest-pinned images and records them in the
 README quickstart, so the full command can be copied from there:
 
   ssbx deploy \
-    --guest-image ghcr.io/rakyll/substrate-sandbox/ssbx-guest@sha256:... \
-    --api-image   ghcr.io/rakyll/substrate-sandbox/ssbx-api@sha256:... \
-    --ateom-image ghcr.io/rakyll/substrate-sandbox/ateom-gvisor@sha256:... \
+    --guest-image ghcr.io/agent-substrate/sandbox/ssbx-guest@sha256:... \
+    --api-image   ghcr.io/agent-substrate/sandbox/ssbx-api@sha256:... \
+    --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:... \
     --snapshots-bucket gs://<bucket>/substrate-sandbox/ | kubectl apply -f -
 
 Images must be pinned by digest (repo@sha256:...); Substrate rejects
@@ -65,8 +65,8 @@ your own images, build and push them with ko:
 
   export KO_DOCKER_REPO=gcr.io/<your-project>
   ssbx deploy \
-    --guest-image $(ko build github.com/rakyll/substrate-sandbox/cmd/ssbx-guest) \
-    --api-image   $(ko build github.com/rakyll/substrate-sandbox/cmd/ssbx-api) \
+    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-guest) \
+    --api-image   $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-api) \
     --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
     --snapshots-bucket gs://<bucket>/substrate-sandbox/ \
     --template sandbox --namespace substrate-sandbox | kubectl apply -f -`,
@@ -116,8 +116,8 @@ quickstart records them), or build and push your own with ko:
 
   export KO_DOCKER_REPO=<your-registry>
   ssbx deploy \
-    --guest-image $(ko build github.com/rakyll/substrate-sandbox/cmd/ssbx-guest) \
-    --api-image    $(ko build github.com/rakyll/substrate-sandbox/cmd/ssbx-api) \
+    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-guest) \
+    --api-image    $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-api) \
     --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
     ...`)
 }

@@ -15,8 +15,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/rakyll/substrate-sandbox/internal/guest"
-	"github.com/rakyll/substrate-sandbox/internal/service"
+	"github.com/agent-substrate/sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/service"
 )
 
 // ErrNotFound is returned when a sandbox, file, or directory does not exist.

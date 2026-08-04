@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/rakyll/substrate-sandbox/internal/direct"
-	"github.com/rakyll/substrate-sandbox/internal/service"
+	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/service"
 )
 
 func main() {

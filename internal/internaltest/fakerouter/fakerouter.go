@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rakyll/substrate-sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/direct"
 )
 
 // Router is a fake atenet router.

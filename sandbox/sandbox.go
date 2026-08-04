@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/rakyll/substrate-sandbox/internal/guest"
-	"github.com/rakyll/substrate-sandbox/internal/service"
+	"github.com/agent-substrate/sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/service"
 )
 
 // Status is the lifecycle state of a sandbox.

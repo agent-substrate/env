@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/rakyll/substrate-sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/guest"
 )
 
 // CmdRequest describes a command to run inside a sandbox.

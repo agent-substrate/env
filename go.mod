@@ -1,4 +1,4 @@
-module github.com/rakyll/substrate-sandbox
+module github.com/agent-substrate/sandbox
 
 go 1.26.3
 

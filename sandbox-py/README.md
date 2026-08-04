@@ -1,6 +1,6 @@
 # substrate-sandbox (Python SDK)
 
-Python SDK for [substrate-sandbox](https://github.com/rakyll/substrate-sandbox):
+Python SDK for [substrate-sandbox](https://github.com/agent-substrate/sandbox):
 isolated, stateful execution environments on
 [Agent Substrate](https://github.com/agent-substrate/substrate) that can be
 suspended, resumed on any available worker, and driven remotely with command

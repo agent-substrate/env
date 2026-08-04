@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/rakyll/substrate-sandbox/internal/direct"
-	"github.com/rakyll/substrate-sandbox/internal/internaltest/fakecontrol"
-	"github.com/rakyll/substrate-sandbox/internal/internaltest/fakerouter"
-	"github.com/rakyll/substrate-sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
+	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
+	"github.com/agent-substrate/sandbox/internal/guest"
 )
 
 type fixture struct {

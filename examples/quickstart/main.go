@@ -14,7 +14,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/rakyll/substrate-sandbox/sandbox"
+	"github.com/agent-substrate/sandbox/sandbox"
 )
 
 func main() {

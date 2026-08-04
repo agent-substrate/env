@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/rakyll/substrate-sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/guest"
 )
 
 func main() {

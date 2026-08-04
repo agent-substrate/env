@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/rakyll/substrate-sandbox/internal/direct"
-	"github.com/rakyll/substrate-sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/guest"
 )
 
 // DefaultTemplate is the ActorTemplate name used when a create request

@@ -40,7 +40,7 @@ commands on the sandboxes.
 ## Installation
 
 ```bash
-go install github.com/rakyll/substrate-sandbox/cmd/ssbx@latest
+go install github.com/agent-substrate/sandbox/cmd/ssbx@latest
 ```
 
 ## Quickstart
@@ -55,9 +55,9 @@ API — using the digest-pinned images published by the latest release:
 ```bash
 # Images are pinned by release v0.0.7.
 ssbx deploy \
-  --guest-image ghcr.io/rakyll/substrate-sandbox/ssbx-guest@sha256:f072df0649f5d7d88cebfad0886cb606f8e6139d5a14915ad2ef60f1e4813763 \
-  --api-image   ghcr.io/rakyll/substrate-sandbox/ssbx-api@sha256:6aa9064a8f0d6e228afa52b16515e2471ecd4afc6cbad4caaa19f9775ca84b51 \
-  --ateom-image ghcr.io/rakyll/substrate-sandbox/ateom-gvisor@sha256:ac0175e6cb1617140e9afd83416da05cd924aadac48aae847483ecab4d241627 \
+  --guest-image ghcr.io/agent-substrate/sandbox/ssbx-guest@sha256:f072df0649f5d7d88cebfad0886cb606f8e6139d5a14915ad2ef60f1e4813763 \
+  --api-image   ghcr.io/agent-substrate/sandbox/ssbx-api@sha256:6aa9064a8f0d6e228afa52b16515e2471ecd4afc6cbad4caaa19f9775ca84b51 \
+  --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:ac0175e6cb1617140e9afd83416da05cd924aadac48aae847483ecab4d241627 \
   --snapshots-bucket gs://$GCS_BUCKET/substrate-sandbox/ | kubectl apply -f -
 ```
 <!-- release-deploy:end -->

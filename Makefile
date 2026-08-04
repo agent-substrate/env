@@ -7,7 +7,7 @@ build:
 
 # Install ssbx and ssbx-api to $GOBIN (or $GOPATH/bin).
 install:
-	go install github.com/rakyll/substrate-sandbox/cmd/ssbx github.com/rakyll/substrate-sandbox/cmd/ssbx-api
+	go install github.com/agent-substrate/sandbox/cmd/ssbx github.com/agent-substrate/sandbox/cmd/ssbx-api
 
 test:
 	go test ./...
