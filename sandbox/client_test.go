@@ -168,14 +168,10 @@ func TestCmdAndFilesystem(t *testing.T) {
 	if err := sb.Mkdir(ctx, "project/sub", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Remove targets files only; RemoveDir removes the tree.
-	if err := sb.Remove(ctx, "project"); err == nil {
-		t.Error("Remove on a directory: want error, got nil")
-	}
 	if err := sb.Remove(ctx, "project/hello.txt"); err != nil {
 		t.Fatal(err)
 	}
-	if err := sb.RemoveDir(ctx, "project"); err != nil {
+	if err := sb.Remove(ctx, "project"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, sandbox.ErrNotFound) {

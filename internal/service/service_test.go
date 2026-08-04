@@ -131,24 +131,6 @@ func TestLifecycleAndExec(t *testing.T) {
 		t.Fatalf("listing = %+v, want [main.txt]", listing.Entries)
 	}
 
-	// Deleting a file through the directory endpoint is refused.
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/dir?path=app/main.txt", "")
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("delete file via dir status = %d, want 400", resp.StatusCode)
-	}
-	if got := decode[guest.Error](t, resp).Code; got != guest.CodeNotDirectory {
-		t.Fatalf("delete file via dir code = %q, want %q", got, guest.CodeNotDirectory)
-	}
-
-	// Deleting a directory through the file endpoint is refused.
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/file?path=app", "")
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("delete dir via file status = %d, want 400", resp.StatusCode)
-	}
-	if got := decode[guest.Error](t, resp).Code; got != guest.CodeNotFile {
-		t.Fatalf("delete dir via file code = %q, want %q", got, guest.CodeNotFile)
-	}
-
 	// A file deletes cleanly through the file endpoint.
 	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/file?path=app/main.txt", "")
 	if resp.StatusCode != http.StatusNoContent {

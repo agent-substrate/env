@@ -57,7 +57,7 @@ func Handler(client *direct.Client) http.Handler {
 	mux.HandleFunc("DELETE /v1/sandboxes/{id}/file", s.removePath)
 	mux.HandleFunc("GET /v1/sandboxes/{id}/dir", s.listDir)
 	mux.HandleFunc("POST /v1/sandboxes/{id}/dir", s.mkdir)
-	mux.HandleFunc("DELETE /v1/sandboxes/{id}/dir", s.removeDir)
+	mux.HandleFunc("DELETE /v1/sandboxes/{id}/dir", s.removePath)
 	mux.HandleFunc("GET /v1/sandboxes/{id}/stat", s.stat)
 	return mux
 }
@@ -247,20 +247,7 @@ func (s *server) removePath(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sb := s.client.Sandbox(r.PathValue("id"))
-	entry, err := sb.Stat(r.Context(), path)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if entry.IsDir {
-		writeJSON(w, http.StatusBadRequest, guest.Error{
-			Code:    guest.CodeNotFile,
-			Message: fmt.Sprintf("%s is a directory; use the directory endpoint", path),
-		})
-		return
-	}
-	if err := sb.Remove(r.Context(), path); err != nil {
+	if err := s.client.Sandbox(r.PathValue("id")).Remove(r.Context(), path); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -290,31 +277,6 @@ func (s *server) mkdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.client.Sandbox(r.PathValue("id")).Mkdir(r.Context(), req.Path, mode); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) removeDir(w http.ResponseWriter, r *http.Request) {
-	path, ok := queryPath(w, r)
-	if !ok {
-		return
-	}
-	sb := s.client.Sandbox(r.PathValue("id"))
-	entry, err := sb.Stat(r.Context(), path)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if !entry.IsDir {
-		writeJSON(w, http.StatusBadRequest, guest.Error{
-			Code:    guest.CodeNotDirectory,
-			Message: fmt.Sprintf("%s is not a directory", path),
-		})
-		return
-	}
-	if err := sb.Remove(r.Context(), path); err != nil {
 		writeErr(w, err)
 		return
 	}
