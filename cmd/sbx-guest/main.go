@@ -1,4 +1,4 @@
-// Command ssbx-guest is the daemon that runs inside a Substrate actor
+// Command sbx-guest is the daemon that runs inside a Substrate actor
 // and exposes command execution and filesystem access over HTTP. It is the
 // in-sandbox half of the sandbox service; the atenet router forwards
 // per-sandbox traffic to it.
@@ -33,6 +33,6 @@ func main() {
 	}
 
 	srv := &guest.Server{Workdir: *workdir}
-	log.Printf("ssbx-guest listening on %s (workdir %s)", *addr, *workdir)
+	log.Printf("sbx-guest listening on %s (workdir %s)", *addr, *workdir)
 	log.Fatal(http.ListenAndServe(*addr, srv.Handler()))
 }

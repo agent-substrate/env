@@ -17,10 +17,10 @@ while this project adds the sandbox-shaped API on top.
 ```
  ╭──────────╮   ╭──────────────╮  lifecycle ╭────────────╮
  │   SDK    │   │              ├───────────▶│   ateapi   │  Substrate control plane
- │ ssbx CLI ├──▶│   ssbx-api   │            ╰────────────╯
+ │  sbx CLI ├──▶│   sbx-api    │            ╰────────────╯
  ╰──────────╯   │ (API server) │  cmd/fs    ╭────────────╮     ╭──────────────────────╮
                 │              ├───────────▶│   atenet   ├────▶│ actor                │
-                ╰──────────────╯            │   router   │     │  └ ssbx-guest        │
+                ╰──────────────╯            │   router   │     │  └ sbx-guest         │
                                             ╰────────────╯     │    /v1/cmd, /v1/fs/* │
                                                                ╰──────────────────────╯
 ```
@@ -28,17 +28,17 @@ while this project adds the sandbox-shaped API on top.
 - **`sandbox`** — The Go client library that allows creation, suspension,
 resumption, and deletion of sandboxes; as well as file operations and running remote
 commands on the sandboxes.
-- **`cmd/ssbx`** — Provides a CLI over the API, and utilies to
+- **`cmd/sbx`** — Provides a CLI over the API, and utilies to
   make it easier to deploy Substrate Sandbox.
-- **`cmd/ssbx-api`** — The API service that bridges clients to
+- **`cmd/sbx-api`** — The API service that bridges clients to
   the Substrate control plane and router.
-- **`cmd/ssbx-guest`** — The daemon server available in the sandbox. It runs
+- **`cmd/sbx-guest`** — The daemon server available in the sandbox. It runs
   inside every actor and serves command executions and filesystem operations.
 
 ## Installation
 
 ```bash
-go install github.com/agent-substrate/sandbox/cmd/ssbx@latest
+go install github.com/agent-substrate/sandbox/cmd/sbx@latest
 ```
 
 ## Quickstart
@@ -52,9 +52,9 @@ API — using the digest-pinned images published by the latest release:
 <!-- release-deploy:begin (rewritten by the release workflow; do not edit) -->
 ```bash
 # Images are pinned by release v0.0.7.
-ssbx deploy \
-  --guest-image ghcr.io/agent-substrate/sandbox/ssbx-guest@sha256:f072df0649f5d7d88cebfad0886cb606f8e6139d5a14915ad2ef60f1e4813763 \
-  --api-image   ghcr.io/agent-substrate/sandbox/ssbx-api@sha256:6aa9064a8f0d6e228afa52b16515e2471ecd4afc6cbad4caaa19f9775ca84b51 \
+sbx deploy \
+  --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest@sha256:f072df0649f5d7d88cebfad0886cb606f8e6139d5a14915ad2ef60f1e4813763 \
+  --api-image   ghcr.io/agent-substrate/sandbox/sbx-api@sha256:6aa9064a8f0d6e228afa52b16515e2471ecd4afc6cbad4caaa19f9775ca84b51 \
   --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:ac0175e6cb1617140e9afd83416da05cd924aadac48aae847483ecab4d241627 \
   --snapshots-bucket gs://$GCS_BUCKET/substrate-sandbox/ | kubectl apply -f -
 ```
@@ -64,14 +64,14 @@ Then create and use a sandbox:
 
 ```bash
 # Port-forward the sandbox API.
-kubectl port-forward -n substrate-sandbox svc/ssbx-api 7777:7777 &
+kubectl port-forward -n substrate-sandbox svc/sbx-api 7777:7777 &
 
 # Create and use a sandbox.
-ssbx create dev1
-ssbx cmd dev1 'echo hello > /workspace/note.txt'
-ssbx suspend dev1
-ssbx cmd dev1 'cat /workspace/note.txt' # auto-resumes; prints hello
-ssbx delete dev1
+sbx create dev1
+sbx cmd dev1 'echo hello > /workspace/note.txt'
+sbx suspend dev1
+sbx cmd dev1 'cat /workspace/note.txt' # auto-resumes; prints hello
+sbx delete dev1
 ```
 
 Or use the API directly:
@@ -89,7 +89,7 @@ grouped under `fs`; `deploy` generates the manifests that set up the system
 on a cluster:
 
 ```bash
-$ ssbx
+$ sbx
 Manage sandboxes on Agent Substrate
 
 Available Commands:
@@ -103,7 +103,7 @@ Available Commands:
   resume      Resume from the latest snapshot
   suspend     Snapshot to external storage and free the worker
 
-$ ssbx fs
+$ sbx fs
 Operate on files and directories in a sandbox
 
 Available Commands:
@@ -115,11 +115,11 @@ Available Commands:
   stat        Stat a sandbox path
   write       Write stdin to a sandbox file
 
-$ ssbx deploy --help
+$ sbx deploy --help
 Deploy generates Kubernetes manifests for everything sandboxes need on
 a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
-sandboxes are created from, and the ssbx-api service. It prints YAML to
+sandboxes are created from, and the sbx-api service. It prints YAML to
 stdout without touching the cluster; apply it with kubectl.
 ```
 
@@ -127,7 +127,7 @@ stdout without touching the cluster; apply it with kubectl.
 
 ```go
 client, err := sandbox.NewClient(sandbox.ClientOptions{
-    Endpoint: "http://localhost:7777",          // ssbx-api
+    Endpoint: "http://localhost:7777",          // sbx-api
     Template: "sandbox",                        // ActorTemplate name
 })
 if err != nil {
@@ -158,8 +158,8 @@ program.
 
 ## API
 
-`ssbx-api` serves the API. `ssbx deploy` runs it in-cluster as the
-`ssbx-api` service (port 7777 by default; adjust with `--api-port`); it
+`sbx-api` serves the API. `sbx deploy` runs it in-cluster as the
+`sbx-api` service (port 7777 by default; adjust with `--api-port`); it
 can also be run standalone (default `0.0.0.0:7777`). Responses are JSON
 unless noted.
 

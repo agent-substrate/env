@@ -1,5 +1,5 @@
-// Command ssbx is a CLI for the sandbox service. Sandbox commands go
-// through the ssbx-api service using the sandbox SDK; deploy generates
+// Command sbx is a CLI for the sandbox service. Sandbox commands go
+// through the sbx-api service using the sandbox SDK; deploy generates
 // Kubernetes manifests for setting up the system on a cluster.
 //
 // The API endpoint can be set with the --api flag or the
@@ -33,7 +33,7 @@ func main() {
 	)
 
 	root := &cobra.Command{
-		Use:           "ssbx",
+		Use:           "sbx",
 		Short:         "Manage sandboxes on Agent Substrate",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -56,7 +56,7 @@ func main() {
 			}
 		},
 	}
-	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_SANDBOX_API", "http://127.0.0.1:7777"), "base URL of the ssbx-api service")
+	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_SANDBOX_API", "http://127.0.0.1:7777"), "base URL of the sbx-api service")
 	root.PersistentFlags().StringVar(&template, "template", "sandbox", "ActorTemplate name (for create)")
 	root.PersistentFlags().StringVar(&namespace, "namespace", "substrate-sandbox", "Kubernetes namespace of the ActorTemplate")
 
@@ -148,7 +148,7 @@ func main() {
 			os.Stdout.WriteString(res.Stdout)
 			os.Stderr.WriteString(res.Stderr)
 			if res.TimedOut {
-				fmt.Fprintln(os.Stderr, "ssbx: command timed out")
+				fmt.Fprintln(os.Stderr, "sbx: command timed out")
 			}
 			if res.ExitCode != 0 {
 				os.Exit(res.ExitCode)
@@ -240,7 +240,7 @@ func main() {
 	})
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "ssbx:", err)
+		fmt.Fprintln(os.Stderr, "sbx:", err)
 		os.Exit(1)
 	}
 }

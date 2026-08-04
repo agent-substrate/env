@@ -1,16 +1,16 @@
 // Package direct implements the sandbox abstraction directly on top of
-// Agent Substrate; it backs the ssbx-api service. A
+// Agent Substrate; it backs the sbx-api service. A
 // Sandbox wraps a Substrate actor: it can be created, suspended (full
 // snapshot to object storage), resumed, and deleted, and while running it
 // accepts remote command execution and filesystem operations served by the
-// ssbx-guest daemon inside the actor.
+// sbx-guest daemon inside the actor.
 //
 // Lifecycle operations go to the ateapi gRPC control plane; command and
 // filesystem operations go through the atenet HTTP router, which routes
 // requests by Host header to the actor's guest daemon.
 //
 // Clients outside this repository use the sandbox package, which talks to
-// the ssbx-api service instead.
+// the sbx-api service instead.
 package direct
 
 import (
@@ -33,7 +33,7 @@ const DefaultHostSuffix = "actors.resources.substrate.ate.dev"
 
 // DefaultControlAddr and DefaultRouterAddr are the in-cluster addresses of
 // the Substrate control plane and router, as installed by Agent Substrate
-// in the ate-system namespace. They are the defaults for a ssbx-api running
+// in the ate-system namespace. They are the defaults for a sbx-api running
 // inside the cluster.
 const (
 	DefaultControlAddr = "ateapi.ate-system.svc:443"

@@ -86,7 +86,7 @@ const (
 )
 
 // Error is the JSON error envelope returned by the guest daemon and the
-// ssbx-api service on non-2xx responses.
+// sbx-api service on non-2xx responses.
 type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"error"`

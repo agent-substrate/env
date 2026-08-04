@@ -23,7 +23,7 @@ const DefaultTemplate = "sandbox"
 
 // DefaultNamespace is the Kubernetes namespace the ActorTemplate is
 // looked up in when a create request does not specify one. It matches the
-// default namespace of `ssbx deploy`.
+// default namespace of `sbx deploy`.
 const DefaultNamespace = "substrate-sandbox"
 
 func toSandboxInfo(info direct.Info) SandboxInfo {

@@ -11,7 +11,7 @@ type CreateSandboxRequest struct {
 
 	// Namespace is the Kubernetes namespace the ActorTemplate lives in.
 	// Defaults to "substrate-sandbox", the default namespace of
-	// `ssbx deploy`.
+	// `sbx deploy`.
 	Namespace string `json:"namespace,omitempty"`
 
 	// WorkerSelector constrains which worker pools can host the sandbox.

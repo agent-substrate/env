@@ -23,7 +23,7 @@ func testDeployConfig() deployConfig {
 		replicas:        3,
 		apiReplicas:     1,
 		apiPort:         7777,
-		guestCommand:    []string{"/ko-app/ssbx-guest", "-workdir", "/workspace"},
+		guestCommand:    []string{"/ko-app/sbx-guest", "-workdir", "/workspace"},
 		poolLabels:      map[string]string{"workload": "sandbox"},
 	}
 }

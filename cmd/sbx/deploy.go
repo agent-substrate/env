@@ -20,7 +20,7 @@ import (
 const defaultPauseImage = "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
 
 // apiName is the name of the API service Deployment and Service.
-const apiName = "ssbx-api"
+const apiName = "sbx-api"
 
 type deployConfig struct {
 	namespace       string
@@ -47,15 +47,15 @@ func newDeployCommand(template *string) *cobra.Command {
 		Long: `Deploy generates Kubernetes manifests for everything sandboxes need on
 a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
-sandboxes are created from, and the ssbx-api service. It prints YAML to
+sandboxes are created from, and the sbx-api service. It prints YAML to
 stdout without touching the cluster; apply it with kubectl.
 
 Each release publishes digest-pinned images and records them in the
 README quickstart, so the full command can be copied from there:
 
-  ssbx deploy \
-    --guest-image ghcr.io/agent-substrate/sandbox/ssbx-guest@sha256:... \
-    --api-image   ghcr.io/agent-substrate/sandbox/ssbx-api@sha256:... \
+  sbx deploy \
+    --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest@sha256:... \
+    --api-image   ghcr.io/agent-substrate/sandbox/sbx-api@sha256:... \
     --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:... \
     --snapshots-bucket gs://<bucket>/substrate-sandbox/ | kubectl apply -f -
 
@@ -64,9 +64,9 @@ unpinned images because changing an image invalidates snapshots. To use
 your own images, build and push them with ko:
 
   export KO_DOCKER_REPO=gcr.io/<your-project>
-  ssbx deploy \
-    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-guest) \
-    --api-image   $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-api) \
+  sbx deploy \
+    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/sbx-guest) \
+    --api-image   $(ko build github.com/agent-substrate/sandbox/cmd/sbx-api) \
     --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
     --snapshots-bucket gs://<bucket>/substrate-sandbox/ \
     --template sandbox --namespace substrate-sandbox | kubectl apply -f -`,
@@ -89,16 +89,16 @@ your own images, build and push them with ko:
 	}
 
 	cmd.Flags().StringVar(&cfg.namespace, "namespace", service.DefaultNamespace, "Kubernetes namespace to deploy into")
-	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ssbx-guest image (repo@sha256:...)")
+	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned sbx-guest image (repo@sha256:...)")
 	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
 	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for suspend snapshots, e.g. gs://bucket/prefix/")
 	cmd.Flags().StringVar(&cfg.pauseImage, "pause-image", defaultPauseImage, "digest-pinned pause image for the root sandbox container")
-	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ssbx-api image for the API service")
+	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned sbx-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
-	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the ssbx-api service listens on")
+	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the sbx-api service listens on")
 	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
 	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 2, "number of pre-warmed worker pods")
-	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/ssbx-guest", "-workdir", "/workspace"}, "guest container entrypoint")
+	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/sbx-guest", "-workdir", "/workspace"}, "guest container entrypoint")
 	cmd.MarkFlagRequired("snapshots-bucket")
 
 	return cmd
@@ -115,9 +115,9 @@ digest-pinned images published by the latest release (the README
 quickstart records them), or build and push your own with ko:
 
   export KO_DOCKER_REPO=<your-registry>
-  ssbx deploy \
-    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-guest) \
-    --api-image    $(ko build github.com/agent-substrate/sandbox/cmd/ssbx-api) \
+  sbx deploy \
+    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/sbx-guest) \
+    --api-image    $(ko build github.com/agent-substrate/sandbox/cmd/sbx-api) \
     --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
     ...`)
 }
@@ -216,7 +216,7 @@ func buildActorTemplate(cfg deployConfig) *atev1alpha1.ActorTemplate {
 	}
 }
 
-// buildAPIDeployment returns the ssbx-api Deployment, pointed at the
+// buildAPIDeployment returns the sbx-api Deployment, pointed at the
 // in-cluster Substrate endpoints.
 func buildAPIDeployment(cfg deployConfig) *appsv1.Deployment {
 	labels := map[string]string{"app": apiName}
