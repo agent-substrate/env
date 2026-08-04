@@ -28,6 +28,7 @@ func main() {
 		endpoint  string
 		template  string
 		namespace string
+		workdir   string
 
 		client *sandbox.Client
 	)
@@ -47,6 +48,7 @@ func main() {
 				Endpoint:  endpoint,
 				Template:  template,
 				Namespace: namespace,
+				Workdir:   workdir,
 			})
 			return err
 		},
@@ -59,6 +61,7 @@ func main() {
 	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_SANDBOX_API", "http://127.0.0.1:7777"), "base URL of the sbx-api service")
 	root.PersistentFlags().StringVar(&template, "template", "sandbox", "ActorTemplate name (for create)")
 	root.PersistentFlags().StringVar(&namespace, "namespace", "substrate-sandbox", "Kubernetes namespace of the ActorTemplate")
+	root.PersistentFlags().StringVar(&workdir, "workdir", envOr("SUBSTRATE_SANDBOX_WORKDIR", ""), "default base directory for relative file paths")
 
 	fsCmd := &cobra.Command{
 		Use:   "fs",

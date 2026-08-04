@@ -2,9 +2,9 @@
 // sandbox, write and run code in it, suspend it, then resume and observe
 // that its filesystem survived the hibernation cycle.
 //
-// It expects a port-forward to the substrate-sandbox service:
+// It expects a port-forward to the sbx-api service:
 //
-//	kubectl port-forward svc/substrate-sandbox 7777:7777
+//	kubectl port-forward -n substrate-sandbox svc/sbx-api 7777:7777
 package main
 
 import (
@@ -23,6 +23,7 @@ func main() {
 	client, err := sandbox.NewClient(sandbox.ClientOptions{
 		Endpoint: "http://localhost:7777",
 		Template: "sandbox",
+		Workdir:  "/workspace",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -36,11 +37,11 @@ func main() {
 	defer sb.Delete(ctx)
 
 	// Write a script into the sandbox and run it.
-	script := "#!/bin/sh\necho \"hello from $(hostname)\"\ndate > /workspace/last-run\n"
-	if err := sb.WriteFile(ctx, "/workspace/hello.sh", strings.NewReader(script), 0o755); err != nil {
+	script := "#!/bin/sh\necho \"hello from $(hostname)\"\ndate > last-run\n"
+	if err := sb.WriteFile(ctx, "hello.sh", strings.NewReader(script), 0o755); err != nil {
 		log.Fatal(err)
 	}
-	res, err := sb.Cmd(ctx, "/workspace/hello.sh")
+	res, err := sb.Cmd(ctx, "cd /workspace && ./hello.sh")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func main() {
 	if err := sb.Resume(ctx); err != nil {
 		log.Fatal(err)
 	}
-	rc, err := sb.ReadFile(ctx, "/workspace/last-run")
+	rc, err := sb.ReadFile(ctx, "last-run")
 	if err != nil {
 		log.Fatal(err)
 	}

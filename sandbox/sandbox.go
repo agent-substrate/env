@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"time"
 
@@ -79,6 +80,14 @@ func (s *Sandbox) path(suffix string) string {
 	return "/v1/sandboxes/" + url.PathEscape(s.id) + suffix
 }
 
+// resolvePath prefixes p with the client's Workdir if p is a relative path.
+func (s *Sandbox) resolvePath(p string) string {
+	if s.client.opts.Workdir == "" || path.IsAbs(p) {
+		return p
+	}
+	return path.Join(s.client.opts.Workdir, p)
+}
+
 // Info fetches the sandbox's current state.
 func (s *Sandbox) Info(ctx context.Context) (Info, error) {
 	var out service.SandboxInfo
@@ -132,8 +141,8 @@ func (s *Sandbox) Cmd(ctx context.Context, commandLine string) (*CmdResult, erro
 
 // ReadFile streams the contents of the file at path inside the sandbox.
 // The caller must close the returned reader.
-func (s *Sandbox) ReadFile(ctx context.Context, path string) (io.ReadCloser, error) {
-	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), url.Values{"path": {path}}, "", nil)
+func (s *Sandbox) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
+	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), url.Values{"path": {s.resolvePath(p)}}, "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -143,13 +152,13 @@ func (s *Sandbox) ReadFile(ctx context.Context, path string) (io.ReadCloser, err
 // WriteFile writes the contents of r to the file at path inside the
 // sandbox with the given permissions, creating parent directories as
 // needed. The contents are buffered in memory.
-func (s *Sandbox) WriteFile(ctx context.Context, path string, r io.Reader, mode fs.FileMode) error {
+func (s *Sandbox) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.FileMode) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return fmt.Errorf("sandbox: reading data for %q: %w", path, err)
+		return fmt.Errorf("sandbox: reading data for %q: %w", p, err)
 	}
 	req := service.FSRequest{
-		Path:    path,
+		Path:    s.resolvePath(p),
 		Mode:    strconv.FormatUint(uint64(mode.Perm()), 8),
 		Content: data,
 	}
@@ -157,35 +166,35 @@ func (s *Sandbox) WriteFile(ctx context.Context, path string, r io.Reader, mode 
 }
 
 // ListDir lists the entries of the directory at path inside the sandbox.
-func (s *Sandbox) ListDir(ctx context.Context, path string) ([]DirEntry, error) {
+func (s *Sandbox) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 	var out guest.ListDirResponse
-	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/dir"), url.Values{"path": {path}}, nil, &out); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/dir"), url.Values{"path": {s.resolvePath(p)}}, nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Entries, nil
 }
 
 // Stat returns information about the file or directory at path.
-func (s *Sandbox) Stat(ctx context.Context, path string) (DirEntry, error) {
+func (s *Sandbox) Stat(ctx context.Context, p string) (DirEntry, error) {
 	var entry DirEntry
-	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/stat"), url.Values{"path": {path}}, nil, &entry); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/stat"), url.Values{"path": {s.resolvePath(p)}}, nil, &entry); err != nil {
 		return DirEntry{}, err
 	}
 	return entry, nil
 }
 
 // Mkdir creates the directory at path, along with any missing parents.
-func (s *Sandbox) Mkdir(ctx context.Context, path string, mode fs.FileMode) error {
+func (s *Sandbox) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
 	req := service.FSRequest{
-		Path: path,
+		Path: s.resolvePath(p),
 		Mode: strconv.FormatUint(uint64(mode.Perm()), 8),
 	}
 	return s.client.doJSON(ctx, http.MethodPost, s.path("/dir"), nil, req, nil)
 }
 
 // Remove deletes the file or directory tree at path.
-func (s *Sandbox) Remove(ctx context.Context, path string) error {
-	return s.client.doJSON(ctx, http.MethodDelete, s.path("/file"), url.Values{"path": {path}}, nil, nil)
+func (s *Sandbox) Remove(ctx context.Context, p string) error {
+	return s.client.doJSON(ctx, http.MethodDelete, s.path("/file"), url.Values{"path": {s.resolvePath(p)}}, nil, nil)
 }
 
 // WaitStatus polls until the sandbox reaches the given status or ctx is

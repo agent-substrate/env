@@ -128,6 +128,7 @@ stdout without touching the cluster; apply it with kubectl.
 client, err := sandbox.NewClient(sandbox.ClientOptions{
     Endpoint: "http://localhost:7777",          // sbx-api
     Template: "sandbox",                        // ActorTemplate name
+    Workdir:  "/workspace",                     // default base directory for relative paths
 })
 if err != nil {
     log.Fatalf("connecting to Substrate: %v", err)
@@ -138,7 +139,7 @@ sb, err := client.Create(ctx, "dev1")
 if err != nil {
     log.Fatalf("creating sandbox: %v", err)
 }
-if err := sb.WriteFile(ctx, "/workspace/main.go", src, 0o644); err != nil {
+if err := sb.WriteFile(ctx, "main.go", src, 0o644); err != nil {
     log.Fatalf("writing main.go: %v", err)
 }
 res, err := sb.Cmd(ctx, "cd /workspace && go run main.go")

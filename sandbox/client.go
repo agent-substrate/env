@@ -38,6 +38,9 @@ type ClientOptions struct {
 	// Empty means the service's default ("substrate-sandbox").
 	Namespace string
 
+	// Workdir is the default base directory for relative paths in file operations.
+	Workdir string
+
 	// HTTPClient overrides the HTTP client used for API traffic.
 	HTTPClient *http.Client
 }

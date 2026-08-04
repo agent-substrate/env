@@ -22,6 +22,7 @@ type fixture struct {
 	router *fakerouter.Router
 	client *sandbox.Client
 	guest  string // guest workdir
+	apiURL string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -65,7 +66,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	return &fixture{router: router, client: client, guest: t.TempDir()}
+	return &fixture{router: router, client: client, guest: t.TempDir(), apiURL: srv.URL}
 }
 
 // create makes a sandbox whose guest handler serves from a temp dir.
@@ -176,6 +177,48 @@ func TestCmdAndFilesystem(t *testing.T) {
 	}
 	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, sandbox.ErrNotFound) {
 		t.Errorf("stat after remove = %v, want ErrNotFound", err)
+	}
+}
+
+func TestWorkdirOption(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-workdir")
+
+	client, err := sandbox.NewClient(sandbox.ClientOptions{
+		Endpoint: f.apiURL,
+		Workdir:  "workspace",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	ctx := t.Context()
+	sb = client.Sandbox(sb.ID())
+
+	if err := sb.WriteFile(ctx, "test.txt", strings.NewReader("hello workdir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rc, err := sb.ReadFile(ctx, "test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "hello workdir" {
+		t.Errorf("content = %q, want %q", string(content), "hello workdir")
+	}
+
+	entry, err := sb.Stat(ctx, "test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Name != "test.txt" {
+		t.Errorf("entry.Name = %q, want %q", entry.Name, "test.txt")
 	}
 }
 
