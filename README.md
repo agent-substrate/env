@@ -1,4 +1,4 @@
-# 📦 substrate-sandbox
+# 📦 Agent Sandbox
 
 > [!WARNING]
 > This is an alpha API and is likely to change until v1.0 is released.
@@ -29,7 +29,7 @@ while this project adds the sandbox-shaped API on top.
 resumption, and deletion of sandboxes; as well as file operations and running remote
 commands on the sandboxes.
 - **`cmd/sbx`** — Provides a CLI over the API, and utilies to
-  make it easier to deploy Substrate Sandbox.
+  make it easier to deploy Agent Substrate.
 - **`cmd/sbx-api`** — The API service that bridges clients to
   the Substrate control plane and router.
 - **`cmd/sbx-guest`** — The daemon server available in the sandbox. It runs
