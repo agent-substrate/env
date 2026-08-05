@@ -1,4 +1,4 @@
-# 📦 Agent Sandbox
+# 📦 Agent Substrate Sandbox
 
 > [!WARNING]
 > This is an alpha API and is likely to change until v1.0 is released.
