@@ -351,7 +351,7 @@ func TestToolsEndpoints(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST /v1/tools status = %d, want 200", resp.StatusCode)
 	}
-	var resStep functionResultStep
+	var resStep FunctionResult
 	if err := json.NewDecoder(resp.Body).Decode(&resStep); err != nil {
 		t.Fatalf("decoding function_result: %v", err)
 	}

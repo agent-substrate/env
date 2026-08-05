@@ -396,31 +396,8 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, toolsResponse{Tools: s.reg.Definitions()})
 }
 
-type functionCallStep struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id"`
-	CallID    string          `json:"call_id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
-	Args      json.RawMessage `json:"args"`
-	Input     json.RawMessage `json:"input"`
-}
-
-type interactionContentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type functionResultStep struct {
-	Type    string                   `json:"type"`
-	Name    string                   `json:"name"`
-	CallID  string                   `json:"call_id"`
-	Result  []interactionContentPart `json:"result"`
-	IsError bool                     `json:"is_error,omitempty"`
-}
-
 func (s *Server) handleToolUse(w http.ResponseWriter, r *http.Request) {
-	var step functionCallStep
+	var step FunctionCall
 	if err := json.NewDecoder(r.Body).Decode(&step); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -458,15 +435,15 @@ func (s *Server) handleToolUse(w http.ResponseWriter, r *http.Request) {
 
 	res := s.reg.Invoke(r.Context(), tu)
 
-	parts := make([]interactionContentPart, len(res.Content))
+	parts := make([]InteractionContent, len(res.Content))
 	for i, c := range res.Content {
-		parts[i] = interactionContentPart{
+		parts[i] = InteractionContent{
 			Type: c.Type,
 			Text: c.Text,
 		}
 	}
 
-	out := functionResultStep{
+	out := FunctionResult{
 		Type:    "function_result",
 		Name:    step.Name,
 		CallID:  callID,
