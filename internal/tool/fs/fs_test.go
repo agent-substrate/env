@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/tool"
 	fstool "github.com/agent-substrate/sandbox/internal/tool/fs"
 )
@@ -28,13 +29,13 @@ func invokeTool(t *testing.T, reg *tool.Registry, toolName, callID string, input
 
 func TestFSTools(t *testing.T) {
 	dir := t.TempDir()
-	sb, err := tool.NewSandbox(dir)
+	fsSys, err := guestsys.New(dir)
 	if err != nil {
-		t.Fatalf("NewSandbox: %v", err)
+		t.Fatalf("guestsys.New: %v", err)
 	}
 
 	reg := tool.NewRegistry()
-	if err := reg.Register(fstool.New(sb, fstool.Config{})...); err != nil {
+	if err := reg.Register(fstool.New(fsSys, fstool.Config{})...); err != nil {
 		t.Fatalf("Register fs tools: %v", err)
 	}
 

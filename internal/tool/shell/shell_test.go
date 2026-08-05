@@ -6,19 +6,20 @@ import (
 	"strings"
 	"testing"
 
+	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/tool"
 	"github.com/agent-substrate/sandbox/internal/tool/shell"
 )
 
 func TestShellTool(t *testing.T) {
 	dir := t.TempDir()
-	sb, err := tool.NewSandbox(dir)
+	fsSys, err := guestsys.New(dir)
 	if err != nil {
-		t.Fatalf("NewSandbox: %v", err)
+		t.Fatalf("guestfs.New: %v", err)
 	}
 
 	reg := tool.NewRegistry()
-	if err := reg.Register(shell.New(sb, shell.Config{Workdir: dir})); err != nil {
+	if err := reg.Register(shell.New(fsSys, shell.Config{Workdir: dir})); err != nil {
 		t.Fatalf("Register shell tool: %v", err)
 	}
 

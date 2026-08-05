@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/tool"
 	fstool "github.com/agent-substrate/sandbox/internal/tool/fs"
 	"github.com/agent-substrate/sandbox/internal/tool/shell"
@@ -45,25 +46,39 @@ type Server struct {
 	// MaxFileBytes caps file content size for reads and writes.
 	MaxFileBytes int64
 
+	fsOnce    sync.Once
+	fs        *guestsys.FS
 	toolsOnce sync.Once
 	reg       *tool.Registry
 }
 
-func (s *Server) initTools() {
-	s.toolsOnce.Do(func() {
+func (s *Server) getFS() *guestsys.FS {
+	s.fsOnce.Do(func() {
 		dir := s.Workdir
 		if dir == "" {
 			dir = "/"
 		}
-		sb, err := tool.NewSandbox(dir)
+		fsSys, err := guestsys.New(dir)
 		if err != nil {
 			_ = os.MkdirAll(dir, 0o755)
-			sb, _ = tool.NewSandbox(dir)
+			fsSys, _ = guestsys.New(dir)
 		}
+		s.fs = fsSys
+	})
+	return s.fs
+}
+
+func (s *Server) initTools() {
+	s.toolsOnce.Do(func() {
+		fsSys := s.getFS()
 		reg := tool.NewRegistry()
-		if sb != nil {
-			_ = reg.Register(fstool.New(sb, fstool.Config{})...)
-			_ = reg.Register(shell.New(sb, shell.Config{Workdir: dir}))
+		if fsSys != nil {
+			dir := s.Workdir
+			if dir == "" {
+				dir = "/"
+			}
+			_ = reg.Register(fstool.New(fsSys, fstool.Config{})...)
+			_ = reg.Register(shell.New(fsSys, shell.Config{Workdir: dir}))
 		}
 		s.reg = reg
 	})
@@ -269,26 +284,12 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	f, err := os.Open(path)
+	f, fi, err := s.getFS().ReadFileRaw(path, s.maxFile())
 	if err != nil {
 		writeFSError(w, err)
 		return
 	}
 	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		writeFSError(w, err)
-		return
-	}
-	if fi.IsDir() {
-		writeError(w, http.StatusBadRequest, CodeNotFile, "%s is a directory", path)
-		return
-	}
-	if fi.Size() > s.maxFile() {
-		writeError(w, http.StatusRequestEntityTooLarge, CodeInvalidArgument,
-			"file is %d bytes, exceeds the %d byte limit", fi.Size(), s.maxFile())
-		return
-	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-File-Mode", "0"+strconv.FormatUint(uint64(fi.Mode().Perm()), 8))
 	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
@@ -297,9 +298,9 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	path, err := s.resolvePath(q.Get("path"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
+	p := q.Get("path")
+	if p == "" {
+		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "path is required")
 		return
 	}
 	mode := fs.FileMode(0o644)
@@ -323,19 +324,8 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if q.Get("mkdirs") == "true" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			writeFSError(w, err)
-			return
-		}
-	}
-	if err := os.WriteFile(path, data, mode); err != nil {
-		writeFSError(w, err)
-		return
-	}
-	// os.WriteFile applies mode only at creation; enforce it for
-	// pre-existing files too.
-	if err := os.Chmod(path, mode); err != nil {
+	_, _, err = s.getFS().WriteFile(p, data, mode, q.Get("mkdirs") == "true", false, s.maxFile())
+	if err != nil {
 		writeFSError(w, err)
 		return
 	}
@@ -348,15 +338,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	if path == "/" {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "refusing to delete /")
-		return
-	}
-	if _, err := os.Lstat(path); err != nil {
-		writeFSError(w, err)
-		return
-	}
-	if err := os.RemoveAll(path); err != nil {
+	if err := s.getFS().Remove(path, true); err != nil {
 		writeFSError(w, err)
 		return
 	}
@@ -369,21 +351,12 @@ func (s *Server) handleListDir(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	entries, err := os.ReadDir(path)
+	entries, _, err := s.getFS().ListDir(path, false, true, 0, nil)
 	if err != nil {
 		writeFSError(w, err)
 		return
 	}
-	resp := ListDirResponse{Entries: make([]DirEntry, 0, len(entries))}
-	for _, e := range entries {
-		fi, err := e.Info()
-		if err != nil {
-			// The entry disappeared between ReadDir and Info; skip it.
-			continue
-		}
-		resp.Entries = append(resp.Entries, dirEntry(filepath.Join(path, e.Name()), fi))
-	}
-	writeJSON(w, resp)
+	writeJSON(w, ListDirResponse{Entries: entries})
 }
 
 type mkdirRequest struct {
@@ -397,9 +370,8 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "decoding request body: %v", err)
 		return
 	}
-	path, err := s.resolvePath(req.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "path is required")
 		return
 	}
 	mode := fs.FileMode(0o755)
@@ -411,7 +383,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		}
 		mode = fs.FileMode(v).Perm()
 	}
-	if err := os.MkdirAll(path, mode); err != nil {
+	if err := s.getFS().Mkdir(req.Path, mode); err != nil {
 		writeFSError(w, err)
 		return
 	}
@@ -424,12 +396,12 @@ func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	fi, err := os.Stat(path)
+	entry, err := s.getFS().Stat(path)
 	if err != nil {
 		writeFSError(w, err)
 		return
 	}
-	writeJSON(w, dirEntry(path, fi))
+	writeJSON(w, entry)
 }
 
 func dirEntry(path string, fi fs.FileInfo) DirEntry {

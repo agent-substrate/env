@@ -1,6 +1,8 @@
 package guest
 
-import "time"
+import (
+	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
+)
 
 // CmdRequest describes a command to run inside a sandbox.
 type CmdRequest struct {
@@ -51,25 +53,7 @@ type CmdResult struct {
 }
 
 // DirEntry describes a file or directory inside the sandbox.
-type DirEntry struct {
-	// Name is the base name of the entry.
-	Name string `json:"name"`
-
-	// Path is the absolute path of the entry inside the sandbox.
-	Path string `json:"path"`
-
-	// Size is the file size in bytes (system-dependent for directories).
-	Size int64 `json:"size"`
-
-	// Mode is the numeric file mode (fs.FileMode bits).
-	Mode uint32 `json:"mode"`
-
-	// ModeString is the human-readable form, e.g. "-rw-r--r--".
-	ModeString string `json:"modeString"`
-
-	IsDir   bool      `json:"isDir"`
-	ModTime time.Time `json:"modTime"`
-}
+type DirEntry = guestsys.DirEntry
 
 // ListDirResponse is the response of the directory listing endpoint.
 type ListDirResponse struct {
