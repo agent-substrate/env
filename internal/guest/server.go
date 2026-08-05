@@ -65,7 +65,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	s.fs = fsSys
 	reg := tool.NewRegistry()
 	_ = reg.Register(fstool.New(fsSys, fstool.Config{})...)
-	_ = reg.Register(shell.New(fsSys, shell.Config{Workdir: fsSys.Root()}))
+	_ = reg.Register(shell.New(fsSys, shell.Config{}))
 	s.reg = reg
 
 	mux := http.NewServeMux()

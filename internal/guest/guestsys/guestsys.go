@@ -706,7 +706,6 @@ func humanBytes(n int64) string {
 // ExecOptions configures shell command execution within the sandbox workspace.
 type ExecOptions struct {
 	Command        string
-	Workdir        string
 	Shell          string
 	Timeout        time.Duration
 	MaxOutputBytes int
@@ -725,13 +724,10 @@ func (s *FS) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 		shellPath = "/bin/sh"
 	}
 
-	abs, err := s.Resolve(opts.Workdir)
-	if err != nil {
-		return "", err
-	}
+	abs := s.root
 	info, err := os.Stat(abs)
 	if err != nil || !info.IsDir() {
-		return "", fmt.Errorf("workdir %s is not a directory", s.Rel(abs))
+		return "", fmt.Errorf("root %s is not a directory", s.Rel(abs))
 	}
 
 	timeout := opts.Timeout

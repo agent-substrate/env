@@ -15,7 +15,6 @@ const defaultShell = "/bin/sh"
 // Config configures the shell tool.
 type Config struct {
 	Shell          string
-	Workdir        string
 	Timeout        time.Duration
 	MaxOutputBytes int
 	Env            []string
@@ -64,7 +63,6 @@ func New(fsSys *guestsys.FS, cfg Config) tool.Tool {
 
 		return fsSys.ExecShell(ctx, guestsys.ExecOptions{
 			Command:        command,
-			Workdir:        cfg.Workdir,
 			Shell:          cfg.Shell,
 			Timeout:        cfg.Timeout,
 			MaxOutputBytes: cfg.MaxOutputBytes,

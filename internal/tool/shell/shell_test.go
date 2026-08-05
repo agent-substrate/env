@@ -19,7 +19,7 @@ func TestShellTool(t *testing.T) {
 	}
 
 	reg := tool.NewRegistry()
-	if err := reg.Register(shell.New(fsSys, shell.Config{Workdir: dir})); err != nil {
+	if err := reg.Register(shell.New(fsSys, shell.Config{})); err != nil {
 		t.Fatalf("Register shell tool: %v", err)
 	}
 
