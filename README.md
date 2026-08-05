@@ -231,7 +231,7 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/file \
      -d '{"path": "app/main.txt"}'
 ```
 
-### Built-in Tools
+## Built-in Tools
 
 The API exposes built-in tools for file system operations and shell executions.
 
@@ -240,12 +240,12 @@ The API exposes built-in tools for file system operations and shell executions.
 | `GET`  | `/v1/sandboxes/{id}/tools`  | List registered tool definitions |
 | `POST` | `/v1/sandboxes/{id}/tools`  | Execute a tool call              |
 
-#### Available Tools
+### Available Tools
 
 - **Filesystem**: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `stat`, `mkdir`, `mv`, `rm`
 - **Shell**: `shell`
 
-#### Tool Definitions (`GET /v1/sandboxes/{id}/tools`)
+### Tool Definitions (`GET /v1/sandboxes/{id}/tools`)
 
 ```bash
 curl -X GET localhost:7777/v1/sandboxes/dev1/tools
@@ -267,7 +267,7 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/tools
 }
 ```
 
-#### Tool Execution (`POST /v1/sandboxes/{id}/tools`)
+### Tool Execution (`POST /v1/sandboxes/{id}/tools`)
 
 ```bash
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
