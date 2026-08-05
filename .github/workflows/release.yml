@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
   packages: write
+  pull-requests: write
 
 jobs:
   release:
@@ -73,4 +74,43 @@ jobs:
               --title "$GITHUB_REF_NAME" \
               --generate-notes \
               --notes "$notes"
+          fi
+
+      - name: Update README.md with image SHAs
+        run: |
+          python3 -c '
+          import re, os
+          guest = "${{ steps.guest.outputs.image }}"
+          api = "${{ steps.api.outputs.image }}"
+          ateom = "${{ steps.ateom.outputs.image }}"
+
+          with open("README.md", "r") as f:
+              content = f.read()
+
+          content = re.sub(r"(--guest-image\s+)\S+", r"\1" + guest, content)
+          content = re.sub(r"(--api-image\s+)\S+", r"\1" + api, content)
+          content = re.sub(r"(--ateom-image\s+)\S+", r"\1" + ateom, content)
+
+          with open("README.md", "w") as f:
+              f.write(content)
+          '
+
+      - name: Create Pull Request with updated README.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          branch="docs/update-readme-${GITHUB_REF_NAME}"
+          git checkout -b "$branch"
+          git add README.md
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: update deployment image digests in README for ${GITHUB_REF_NAME}"
+            git push origin "$branch"
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$branch" \
+              --title "docs: update deployment image digests for ${GITHUB_REF_NAME}" \
+              --body "Automated PR updating \`README.md\` deployment image digests following release \`${GITHUB_REF_NAME}\`."
           fi
