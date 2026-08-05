@@ -3,6 +3,7 @@ module github.com/agent-substrate/sandbox
 go 1.26.3
 
 require (
+	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/agent-substrate/substrate v0.0.0-20260717234919-a2d55e99e02e
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.82.1
@@ -14,7 +15,6 @@ require (
 
 require (
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
-	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
