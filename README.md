@@ -249,9 +249,6 @@ The API exposes built-in tools for file system operations and shell executions.
 
 ```bash
 curl -X GET localhost:7777/v1/sandboxes/dev1/tools
-```
-
-```json
 {
   "tools": [
     {
@@ -272,11 +269,6 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/tools
 ```bash
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
      -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"main.go"}}'
-```
-
-Response is a `function_result` response:
-
-```json
 {
   "type": "function_result",
   "name": "read_file",
