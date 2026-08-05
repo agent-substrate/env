@@ -121,6 +121,7 @@ a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
 sandboxes are created from, and the sbx-api service. It prints YAML to
 stdout without touching the cluster; apply it with kubectl.
+
 ## API
 
 `sbx-api` serves the API. `sbx deploy` runs it in-cluster as the
