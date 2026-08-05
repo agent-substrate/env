@@ -81,6 +81,8 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/cmd \
 # Alternatively, use built-in tools.
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
      -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"/workspace/note.txt"}}'
+curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+     -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
 ```
 
 ## CLI
@@ -242,6 +244,17 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
   "call_id": "call_1",
   "result": [
     { "type": "text", "text": "     1\tpackage main\n..." }
+  ]
+}
+
+curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+     -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
+{
+  "type": "function_result",
+  "name": "browser",
+  "call_id": "call_2",
+  "result": [
+    { "type": "text", "text": "https://example.com\nstatus: 200 OK\ncontent-type: text/html\nbytes: 1256\ntitle: Example Domain\n\n# Example Domain\n\nThis domain is for use in illustrative examples..." }
   ]
 }
 ```
