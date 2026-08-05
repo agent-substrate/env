@@ -230,5 +230,3 @@ curl localhost:7777/v1/sandboxes/dev1/file?path=app/main.txt
 ### Built-in Tools
 
 TODO: The project will expose a built-in shell tool and file system tools.
-
-
