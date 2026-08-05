@@ -210,6 +210,7 @@ The API exposes built-in tools for file system operations and shell executions.
 
 - **Filesystem**: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `stat`, `mkdir`, `mv`, `rm`
 - **Shell**: `shell`
+- **Browser**: `browser`
 
 ### Tool Definitions
 

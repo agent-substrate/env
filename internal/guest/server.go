@@ -22,6 +22,7 @@ import (
 
 	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/tool"
+	"github.com/agent-substrate/sandbox/internal/tool/browser"
 	fstool "github.com/agent-substrate/sandbox/internal/tool/fs"
 	"github.com/agent-substrate/sandbox/internal/tool/shell"
 )
@@ -66,6 +67,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	reg := tool.NewRegistry()
 	_ = reg.Register(fstool.New(fsSys, fstool.Config{})...)
 	_ = reg.Register(shell.New(fsSys, shell.Config{}))
+	_ = reg.Register(browser.New(browser.Config{}))
 	s.reg = reg
 
 	mux := http.NewServeMux()
