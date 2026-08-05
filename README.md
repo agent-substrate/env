@@ -51,9 +51,9 @@ API:
 
 ```bash
 sbx deploy \
-  --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest:latest \
-  --api-image   ghcr.io/agent-substrate/sandbox/sbx-api:latest \
-  --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor:latest \
+  --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest@sha256:5fd6e5b46e514d1f97d5a93b773b18c35d2778de48bd35eda55fc3af9b295a53 \
+  --api-image   ghcr.io/agent-substrate/sandbox/sbx-api@sha256:47ea809862e9db63b0b67084f7c8ea9cfd8ca65a605c2249dbcd9f002dd6f601 \
+  --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:ac0175e6cb1617140e9afd83416da05cd924aadac48aae847483ecab4d241627 \
   --snapshots-bucket gs://$GCS_BUCKET/substrate-sandbox/ | kubectl apply -f -
 ```
 
