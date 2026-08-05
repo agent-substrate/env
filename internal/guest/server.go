@@ -49,10 +49,6 @@ type Server struct {
 	reg *tool.Registry
 }
 
-func (s *Server) getFS() *guestsys.FS {
-	return s.fs
-}
-
 // Handler returns the http.Handler serving the guest API.
 func (s *Server) Handler() (http.Handler, error) {
 	fsSys := s.FS
@@ -108,7 +104,7 @@ func (s *Server) resolvePath(p string) (string, error) {
 		return "", errors.New("path is required")
 	}
 	if !filepath.IsAbs(p) {
-		base := s.getFS().Root()
+		base := s.fs.Root()
 		p = filepath.Join(base, p)
 	}
 	return filepath.Clean(p), nil
@@ -207,7 +203,7 @@ func (s *Server) handleCmd(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cmd.Dir = cwd
-	} else if fsSys := s.getFS(); fsSys != nil {
+	} else if fsSys := s.fs; fsSys != nil {
 		cmd.Dir = fsSys.Root()
 	}
 	cmd.Env = os.Environ()
@@ -265,7 +261,7 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	f, fi, err := s.getFS().ReadFileRaw(path, s.maxFile())
+	f, fi, err := s.fs.ReadFileRaw(path, s.maxFile())
 	if err != nil {
 		writeFSError(w, err)
 		return
@@ -308,7 +304,7 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, err := s.getFS().WriteFile(req.Path, req.Content, mode, true, false, s.maxFile())
+	_, _, err := s.fs.WriteFile(req.Path, req.Content, mode, true, false, s.maxFile())
 	if err != nil {
 		writeFSError(w, err)
 		return
@@ -322,7 +318,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	if err := s.getFS().Remove(path, true); err != nil {
+	if err := s.fs.Remove(path, true); err != nil {
 		writeFSError(w, err)
 		return
 	}
@@ -335,7 +331,7 @@ func (s *Server) handleListDir(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	entries, _, err := s.getFS().ListDir(path, false, true, 0, nil)
+	entries, _, err := s.fs.ListDir(path, false, true, 0, nil)
 	if err != nil {
 		writeFSError(w, err)
 		return
@@ -367,7 +363,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		}
 		mode = fs.FileMode(v).Perm()
 	}
-	if err := s.getFS().Mkdir(req.Path, mode); err != nil {
+	if err := s.fs.Mkdir(req.Path, mode); err != nil {
 		writeFSError(w, err)
 		return
 	}
@@ -380,7 +376,7 @@ func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
-	entry, err := s.getFS().Stat(path)
+	entry, err := s.fs.Stat(path)
 	if err != nil {
 		writeFSError(w, err)
 		return
