@@ -1,0 +1,123 @@
+// Package service exposes the sandbox abstraction as a API, so that
+// sandboxes can be managed from any language without the Go SDK.
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+
+	"github.com/agent-substrate/sandbox/internal/ate"
+	"github.com/agent-substrate/sandbox/internal/guest"
+)
+
+// DefaultTemplate is the ActorTemplate name used when a create request
+// does not specify one.
+const DefaultTemplate = "sandbox"
+
+// DefaultNamespace is the Kubernetes namespace the ActorTemplate is
+// looked up in when a create request does not specify one. It matches the
+// default namespace of `sbx deploy`.
+const DefaultNamespace = "substrate-sandbox"
+
+// Handler serves the sandbox API backed by client.
+func Handler(client *ate.Client) http.Handler {
+	s := &server{client: client}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	})
+	mux.HandleFunc("POST /v1/sandboxes", s.create)
+	mux.HandleFunc("DELETE /v1/sandboxes/{id}", s.delete)
+	mux.HandleFunc("POST /v1/sandboxes/{id}/suspend", s.lifecycle((*ate.SandboxClient).Suspend))
+	mux.HandleFunc("POST /v1/sandboxes/{id}/resume", s.lifecycle((*ate.SandboxClient).Resume))
+	mux.HandleFunc("/v1/sandboxes/{id}/{rest...}", s.proxyGuest)
+	return mux
+}
+
+func (s *server) proxyGuest(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rest := r.PathValue("rest")
+	if id == "" || rest == "" {
+		writeBadRequest(w, "sandbox id and operation path are required")
+		return
+	}
+	s.client.ProxyGuest(id, "/v1/"+rest, w, r)
+}
+
+type server struct {
+	client *ate.Client
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	code := guest.CodeInternal
+	if errors.Is(err, ate.ErrNotFound) {
+		status = http.StatusNotFound
+		code = guest.CodeNotFound
+	}
+	writeJSON(w, status, guest.Error{Code: code, Message: err.Error()})
+}
+
+func writeBadRequest(w http.ResponseWriter, format string, args ...any) {
+	writeJSON(w, http.StatusBadRequest, guest.Error{
+		Code:    guest.CodeInvalidArgument,
+		Message: fmt.Sprintf(format, args...),
+	})
+}
+
+func (s *server) create(w http.ResponseWriter, r *http.Request) {
+	var req CreateSandboxRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeBadRequest(w, "invalid request body: %v", err)
+		return
+	}
+	if req.ID == "" {
+		writeBadRequest(w, "id is required")
+		return
+	}
+	if req.Template == "" {
+		req.Template = DefaultTemplate
+	}
+	if req.Namespace == "" {
+		req.Namespace = DefaultNamespace
+	}
+	opts := []ate.CreateOption{
+		ate.WithTemplate(req.Template),
+		ate.WithNamespace(req.Namespace),
+	}
+	_, err := s.client.Create(r.Context(), req.ID, opts...)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *server) delete(w http.ResponseWriter, r *http.Request) {
+	if err := s.client.Sandbox(r.PathValue("id")).Delete(r.Context()); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) lifecycle(op func(*ate.SandboxClient, context.Context) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sb := s.client.Sandbox(r.PathValue("id"))
+		if err := op(sb, r.Context()); err != nil {
+			writeErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
