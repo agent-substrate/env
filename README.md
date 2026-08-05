@@ -231,18 +231,4 @@ curl localhost:7777/v1/sandboxes/dev1/file?path=app/main.txt
 
 TODO: The project will expose a built-in shell tool and file system tools.
 
-### Errors
 
-Non-2xx responses carry a JSON envelope:
-
-```json
-{"error": "sandbox \"dev1\" not found", "code": "not_found"}
-```
-
-| Code               | Description                                                        |
-| ------------------ | ------------------------------------------------------------------ |
-| `not_found`        | The sandbox, file, or directory does not exist                     |
-| `invalid_argument` | Malformed request: bad body, mode, timeout, cwd, or path; also returned when a file or command output exceeds the size cap |
-| `not_file`         | The path names a directory where a file operation was requested    |
-| `not_directory`    | The path names a file where a directory operation was requested    |
-| `internal`         | Unexpected failure in the guest or control plane                   |
