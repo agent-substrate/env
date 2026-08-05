@@ -1,4 +1,4 @@
-// Package direct implements the sandbox abstraction directly on top of
+// Package ate implements the sandbox abstraction directly on top of
 // Agent Substrate; it backs the sbx-api service. A
 // Sandbox wraps a Substrate actor: it can be created, suspended (full
 // snapshot to object storage), resumed, and deleted, and while running it
