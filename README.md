@@ -51,8 +51,8 @@ API:
 
 ```bash
 sbx deploy \
-  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:779b100fc5e19a8b0d4d24ffda5dbc227531899b3ea124689f69306606f1fead \
-  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:49805f060e3749bf37277beff47633d111640e5dc6d0749a96f5cd16378c9090 \
+  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:39d297c40b001df665c46e97d01182d6a41258749b5ea39e4dac53fd64325fc3 \
+  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:b66ec161301934f85536876120db79b9a82504084fcdc96228220bad5765c028 \
   --ateom-image gcr.io/dberkov-gke-dev3/ateom-gvisor@sha256:9b55c9ff2d3ee1de088377be0176ddd61048479a3deb32a065103ff10fd437b4 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-sandbox/ | kubectl apply -f -
 
