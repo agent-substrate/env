@@ -38,7 +38,7 @@ type deployConfig struct {
 	poolLabels      map[string]string
 }
 
-func newDeployCommand(template *string) *cobra.Command {
+func newDeployCommand() *cobra.Command {
 	cfg := deployConfig{}
 
 	cmd := &cobra.Command{
@@ -74,9 +74,8 @@ your own images, build and push them with ko:
 			if err := cfg.resolveImages(); err != nil {
 				return err
 			}
-			cfg.template = *template
 			if cfg.template == "" {
-				cfg.template = "sandbox"
+				cfg.template = service.DefaultTemplate
 			}
 			if cfg.workerPool == "" {
 				cfg.workerPool = cfg.template + "-workerpool"
@@ -88,6 +87,7 @@ your own images, build and push them with ko:
 	}
 
 	cmd.Flags().StringVar(&cfg.namespace, "namespace", service.DefaultNamespace, "Kubernetes namespace to deploy into")
+	cmd.Flags().StringVar(&cfg.template, "template", service.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned sbx-guest image (repo@sha256:...)")
 	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
 	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for suspend snapshots, e.g. gs://bucket/prefix/")

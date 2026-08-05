@@ -25,11 +25,8 @@ func envOr(key, fallback string) string {
 
 func main() {
 	var (
-		endpoint  string
-		template  string
-		namespace string
-
-		client *sandbox.Client
+		endpoint string
+		client   *sandbox.Client
 	)
 
 	root := &cobra.Command{
@@ -55,8 +52,6 @@ func main() {
 		},
 	}
 	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_SANDBOX_API", "http://127.0.0.1:7777"), "base URL of the sbx-api service")
-	root.PersistentFlags().StringVar(&template, "template", "sandbox", "ActorTemplate name (for create)")
-	root.PersistentFlags().StringVar(&namespace, "namespace", "substrate-sandbox", "Kubernetes namespace of the ActorTemplate")
 
 	fsCmd := &cobra.Command{
 		Use:   "fs",
@@ -64,21 +59,35 @@ func main() {
 	}
 	root.AddCommand(fsCmd)
 
-	root.AddCommand(newDeployCommand(&template))
+	root.AddCommand(newDeployCommand())
 
-	root.AddCommand(&cobra.Command{
+	var (
+		createTemplate  string
+		createNamespace string
+	)
+	createCmd := &cobra.Command{
 		Use:   "create <id>",
 		Short: "Create and start a sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sb, err := client.Create(cmd.Context(), args[0], sandbox.WithTemplate(template), sandbox.WithNamespace(namespace))
+			opts := []sandbox.CreateOption{}
+			if createTemplate != "" {
+				opts = append(opts, sandbox.WithTemplate(createTemplate))
+			}
+			if createNamespace != "" {
+				opts = append(opts, sandbox.WithNamespace(createNamespace))
+			}
+			sb, err := client.Create(cmd.Context(), args[0], opts...)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("created %s\n", sb.ID())
 			return nil
 		},
-	})
+	}
+	createCmd.Flags().StringVar(&createTemplate, "template", "sandbox", "ActorTemplate name")
+	createCmd.Flags().StringVar(&createNamespace, "namespace", "substrate-sandbox", "Kubernetes namespace of the ActorTemplate")
+	root.AddCommand(createCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "info <id>",
