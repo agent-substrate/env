@@ -3,7 +3,7 @@ name: release
 # Tagging vX.Y.Z publishes the three deployment images (digest-pinned),
 # rewrites the README quickstart's deploy command with the new image
 # references, and creates a GitHub release whose notes list the images.
-# No binaries are built; users install ssbx with `go install` and copy the
+# No binaries are built; users install sbx with `go install` and copy the
 # pinned deploy command from the README.
 on:
   push:
@@ -28,16 +28,16 @@ jobs:
       - name: Log in to ghcr.io
         run: echo "${{ github.token }}" | ko login ghcr.io --username "${{ github.actor }}" --password-stdin
 
-      - name: Publish ssbx-guest image
+      - name: Publish sbx-guest image
         id: guest
         run: |
-          image=$(KO_DOCKER_REPO=ghcr.io/${GITHUB_REPOSITORY@L}/ssbx-guest ko build --bare ./cmd/ssbx-guest)
+          image=$(KO_DOCKER_REPO=ghcr.io/${GITHUB_REPOSITORY@L}/sbx-guest ko build --bare ./cmd/sbx-guest)
           echo "image=$image" >> "$GITHUB_OUTPUT"
 
-      - name: Publish ssbx-api image
+      - name: Publish sbx-api image
         id: api
         run: |
-          image=$(KO_DOCKER_REPO=ghcr.io/${GITHUB_REPOSITORY@L}/ssbx-api ko build --bare ./cmd/ssbx-api)
+          image=$(KO_DOCKER_REPO=ghcr.io/${GITHUB_REPOSITORY@L}/sbx-api ko build --bare ./cmd/sbx-api)
           echo "image=$image" >> "$GITHUB_OUTPUT"
 
       # ateom-gvisor lives in the Substrate repo; build it at the commit
@@ -71,7 +71,7 @@ jobs:
           <!-- release-deploy:begin (rewritten by the release workflow; do not edit) -->
           \`\`\`bash
           # Images are pinned by release $GITHUB_REF_NAME.
-          ssbx deploy \\
+          sbx deploy \\
             --guest-image $GUEST_IMAGE \\
             --api-image   $API_IMAGE \\
             --ateom-image $ATEOM_IMAGE \\
@@ -106,7 +106,7 @@ jobs:
           - \`${{ steps.api.outputs.image }}\`
           - \`${{ steps.ateom.outputs.image }}\`
 
-          Deploy with \`ssbx deploy\`; the README quickstart carries the full pinned command."
+          Deploy with \`sbx deploy\`; the README quickstart carries the full pinned command."
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             existing=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body -q .body)
             printf '%s\n\n%s\n' "$existing" "$notes" | gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file -
