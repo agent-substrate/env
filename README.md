@@ -21,7 +21,7 @@ while this project adds the sandbox-shaped API on top.
  ╰──────────╯   │ (API server) │  cmd/fs    ╭────────────╮     ╭──────────────────────╮
                 │              ├───────────▶│   atenet   ├────▶│ actor                │
                 ╰──────────────╯            │   router   │     │  └ sbx-guest         │
-                                            ╰────────────╯     │    /v1/cmd, /v1/fs/* │
+                                            ╰────────────╯     │    /v1/sandboxes/*   │
                                                                ╰──────────────────────╯
 ```
 
