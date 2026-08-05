@@ -232,7 +232,7 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/file \
 
 ### Built-in Tools
 
-`sbx-guest` exposes tool definitions and executes function calls on `/v1/sandboxes/{id}/tools` (or `/v1/tools` inside the guest daemon).
+The API exposes built-in tools for file system operations and shell executions.
 
 | Method | Path                        | Description                      |
 | ------ | --------------------------- | -------------------------------- |
@@ -268,14 +268,12 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/tools
 
 #### Tool Execution (`POST /v1/sandboxes/{id}/tools`)
 
-Send a `function_call` step:
-
 ```bash
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
      -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"main.go"}}'
 ```
 
-Response is a `function_result` step:
+Response is a `function_result` response:
 
 ```json
 {
