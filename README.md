@@ -210,9 +210,20 @@ The API exposes built-in tools for file system operations and shell executions.
 
 ### Available Tools
 
-- **Filesystem**: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `stat`, `mkdir`, `mv`, `rm`
-- **Shell**: `shell`
-- **Browser**: `browser`
+| Tool | Category | Description |
+| ---- | -------- | ----------- |
+| `read_file` | Filesystem | Read a text file with optional line numbers or line ranges |
+| `write_file` | Filesystem | Create or overwrite a file |
+| `edit_file` | Filesystem | Replace exact text matching target content in a file |
+| `list_dir` | Filesystem | List directory entries, file types, and sizes |
+| `glob` | Filesystem | Search for files matching glob patterns |
+| `grep` | Filesystem | Search for text or regular expressions across files |
+| `stat` | Filesystem | Get file or directory metadata (size, mode, modtime) |
+| `mkdir` | Filesystem | Create a directory including parent directories |
+| `mv` | Filesystem | Move or rename a file or directory |
+| `rm` | Filesystem | Remove a file or directory recursively |
+| `shell` | Shell | Run a shell command line inside the sandbox |
+| `browser` | Web | Fetch a web page or API over HTTP(S) and render HTML to Markdown |
 
 ### Tool Definitions
 
