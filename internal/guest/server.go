@@ -17,9 +17,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/agent-substrate/sandbox/internal/tool"
+	fstool "github.com/agent-substrate/sandbox/internal/tool/fs"
+	"github.com/agent-substrate/sandbox/internal/tool/shell"
 )
 
 // DefaultMaxOutputBytes is the per-stream (stdout/stderr) cap on captured
@@ -40,10 +44,34 @@ type Server struct {
 
 	// MaxFileBytes caps file content size for reads and writes.
 	MaxFileBytes int64
+
+	toolsOnce sync.Once
+	reg       *tool.Registry
+}
+
+func (s *Server) initTools() {
+	s.toolsOnce.Do(func() {
+		dir := s.Workdir
+		if dir == "" {
+			dir = "/"
+		}
+		sb, err := tool.NewSandbox(dir)
+		if err != nil {
+			_ = os.MkdirAll(dir, 0o755)
+			sb, _ = tool.NewSandbox(dir)
+		}
+		reg := tool.NewRegistry()
+		if sb != nil {
+			_ = reg.Register(fstool.New(sb, fstool.Config{})...)
+			_ = reg.Register(shell.New(sb, shell.Config{Workdir: dir}))
+		}
+		s.reg = reg
+	})
 }
 
 // Handler returns the http.Handler serving the guest API.
 func (s *Server) Handler() http.Handler {
+	s.initTools()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -56,6 +84,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/fs/dir", s.handleListDir)
 	mux.HandleFunc("POST /v1/fs/dir", s.handleMkdir)
 	mux.HandleFunc("GET /v1/fs/stat", s.handleStat)
+	mux.HandleFunc("GET /v1/tools", s.handleTools)
+	mux.HandleFunc("POST /v1/tools", s.handleToolUse)
 	return mux
 }
 
@@ -413,3 +443,93 @@ func dirEntry(path string, fi fs.FileInfo) DirEntry {
 		ModTime:    fi.ModTime().UTC(),
 	}
 }
+
+type toolsResponse struct {
+	Tools []tool.ToolDefinition `json:"tools"`
+}
+
+func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, toolsResponse{Tools: s.reg.Definitions()})
+}
+
+type functionCallStep struct {
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`
+	CallID    string          `json:"call_id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+	Args      json.RawMessage `json:"args"`
+	Input     json.RawMessage `json:"input"`
+}
+
+type interactionContentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type functionResultStep struct {
+	Type    string                   `json:"type"`
+	Name    string                   `json:"name"`
+	CallID  string                   `json:"call_id"`
+	Result  []interactionContentPart `json:"result"`
+	IsError bool                     `json:"is_error,omitempty"`
+}
+
+func (s *Server) handleToolUse(w http.ResponseWriter, r *http.Request) {
+	var step functionCallStep
+	if err := json.NewDecoder(r.Body).Decode(&step); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type":    "invalid_request_error",
+				"message": fmt.Sprintf("invalid JSON body: %v", err),
+			},
+		})
+		return
+	}
+
+	callID := step.CallID
+	if callID == "" {
+		callID = step.ID
+	}
+
+	rawArgs := step.Arguments
+	if len(rawArgs) == 0 {
+		rawArgs = step.Args
+	}
+	if len(rawArgs) == 0 {
+		rawArgs = step.Input
+	}
+	if len(rawArgs) == 0 {
+		rawArgs = json.RawMessage("{}")
+	}
+
+	tu := tool.ToolUse{
+		ID:    callID,
+		Name:  step.Name,
+		Input: rawArgs,
+	}
+
+	res := s.reg.Invoke(r.Context(), tu)
+
+	parts := make([]interactionContentPart, len(res.Content))
+	for i, c := range res.Content {
+		parts[i] = interactionContentPart{
+			Type: c.Type,
+			Text: c.Text,
+		}
+	}
+
+	out := functionResultStep{
+		Type:    "function_result",
+		Name:    step.Name,
+		CallID:  callID,
+		Result:  parts,
+		IsError: res.IsError,
+	}
+
+	writeJSON(w, out)
+}
+

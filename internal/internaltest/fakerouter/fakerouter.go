@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/ate"
 )
 
 // Router is a fake atenet router.
@@ -38,7 +38,7 @@ func (r *Router) Register(id string, h http.Handler) {
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	id, _, ok := strings.Cut(req.Host, ".")
-	if !ok || !strings.HasSuffix(req.Host, "."+direct.DefaultHostSuffix) {
+	if !ok || !strings.HasSuffix(req.Host, "."+ate.DefaultHostSuffix) {
 		http.Error(w, "unroutable host "+req.Host, http.StatusNotFound)
 		return
 	}

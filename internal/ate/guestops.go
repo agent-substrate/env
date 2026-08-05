@@ -1,4 +1,4 @@
-package direct
+package ate
 
 import (
 	"bytes"
@@ -139,6 +139,34 @@ func (s *Sandbox) Remove(ctx context.Context, path string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// Tools returns the tool definitions from the sandbox.
+func (s *Sandbox) Tools(ctx context.Context) ([]byte, error) {
+	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/tools", nil, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+// CallTool executes a tool call in the sandbox.
+func (s *Sandbox) CallTool(ctx context.Context, body io.Reader) ([]byte, error) {
+	r, ok := body.(io.ReadSeeker)
+	if !ok && body != nil {
+		b, err := io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: reading tool request body: %w", err)
+		}
+		r = bytes.NewReader(b)
+	}
+	resp, err := s.guestDo(ctx, http.MethodPost, "/v1/tools", nil, "application/json", r)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }
 
 // guestDo performs an HTTP request against the sandbox's guest daemon via

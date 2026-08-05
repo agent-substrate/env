@@ -232,4 +232,58 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/file \
 
 ### Built-in Tools
 
-TODO: The project will expose a built-in shell tool and file system tools.
+`sbx-guest` exposes tool definitions and executes function calls on `/v1/sandboxes/{id}/tools` (or `/v1/tools` inside the guest daemon).
+
+| Method | Path                        | Description                      |
+| ------ | --------------------------- | -------------------------------- |
+| `GET`  | `/v1/sandboxes/{id}/tools`  | List registered tool definitions |
+| `POST` | `/v1/sandboxes/{id}/tools`  | Execute a tool call              |
+
+#### Available Tools
+
+- **Filesystem**: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `stat`, `mkdir`, `mv`, `rm`
+- **Shell**: `shell`
+
+#### Tool Definitions (`GET /v1/sandboxes/{id}/tools`)
+
+```bash
+curl -X GET localhost:7777/v1/sandboxes/dev1/tools
+```
+
+```json
+{
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read a text file from the workspace...",
+      "parameters": {
+        "type": "object",
+        "properties": { "path": { "type": "string", "description": "..." } },
+        "required": ["path"]
+      }
+    }
+  ]
+}
+```
+
+#### Tool Execution (`POST /v1/sandboxes/{id}/tools`)
+
+Send a `function_call` step:
+
+```bash
+curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+     -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"main.go"}}'
+```
+
+Response is a `function_result` step:
+
+```json
+{
+  "type": "function_result",
+  "name": "read_file",
+  "call_id": "call_1",
+  "result": [
+    { "type": "text", "text": "     1\tpackage main\n..." }
+  ]
+}
+```

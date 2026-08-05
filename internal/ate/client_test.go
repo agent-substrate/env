@@ -1,4 +1,4 @@
-package direct_test
+package ate_test
 
 import (
 	"context"
@@ -8,16 +8,16 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/ate"
+	"github.com/agent-substrate/sandbox/internal/guest"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
-	"github.com/agent-substrate/sandbox/internal/guest"
 )
 
 type fixture struct {
 	control *fakecontrol.Server
 	router  *fakerouter.Router
-	client  *direct.Client
+	client  *ate.Client
 	guest   string // guest workdir
 }
 
@@ -40,7 +40,7 @@ func newFixture(t *testing.T, autoResume bool) *fixture {
 
 	guestDir := t.TempDir()
 
-	client, err := direct.New(direct.Options{
+	client, err := ate.New(ate.Options{
 		ControlAddr: controlAddr,
 		RouterAddr:  routerAddr,
 		Template:    "default",
@@ -58,7 +58,7 @@ func newFixture(t *testing.T, autoResume bool) *fixture {
 }
 
 // create makes a sandbox whose guest handler serves from a temp dir.
-func (f *fixture) create(t *testing.T, id string, opts ...direct.CreateOption) *direct.Sandbox {
+func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate.Sandbox {
 	t.Helper()
 	f.router.Register(id, (&guest.Server{Workdir: f.guest}).Handler())
 	sb, err := f.client.Create(t.Context(), id, opts...)
@@ -76,7 +76,7 @@ func TestCreateStartsSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Status != direct.StatusRunning {
+	if info.Status != ate.StatusRunning {
 		t.Errorf("status = %s, want running", info.Status)
 	}
 	if info.Namespace != "sandboxes" || info.Template != "default" {
@@ -93,19 +93,19 @@ func TestSuspendResumeCycle(t *testing.T) {
 	if err := sb.Suspend(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := sb.Info(ctx); info.Status != direct.StatusSuspended {
+	if info, _ := sb.Info(ctx); info.Status != ate.StatusSuspended {
 		t.Fatalf("status after suspend = %s, want suspended", info.Status)
 	}
 	if err := sb.Resume(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := sb.Info(ctx); info.Status != direct.StatusRunning {
+	if info, _ := sb.Info(ctx); info.Status != ate.StatusRunning {
 		t.Fatalf("status after resume = %s, want running", info.Status)
 	}
 	if err := sb.Pause(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := sb.Info(ctx); info.Status != direct.StatusPaused {
+	if info, _ := sb.Info(ctx); info.Status != ate.StatusPaused {
 		t.Fatalf("status after pause = %s, want paused", info.Status)
 	}
 }
@@ -120,14 +120,14 @@ func TestDeleteSuspendsRunningSandboxFirst(t *testing.T) {
 	if err := sb.Delete(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sb.Info(ctx); !errors.Is(err, direct.ErrNotFound) {
+	if _, err := sb.Info(ctx); !errors.Is(err, ate.ErrNotFound) {
 		t.Errorf("Info after delete = %v, want ErrNotFound", err)
 	}
 }
 
 func TestOpenMissingSandbox(t *testing.T) {
 	f := newFixture(t, false)
-	if _, err := f.client.Open(t.Context(), "does-not-exist"); !errors.Is(err, direct.ErrNotFound) {
+	if _, err := f.client.Open(t.Context(), "does-not-exist"); !errors.Is(err, ate.ErrNotFound) {
 		t.Errorf("Open = %v, want ErrNotFound", err)
 	}
 }
@@ -183,7 +183,7 @@ func TestCmdAndFilesystem(t *testing.T) {
 	if err := sb.Remove(ctx, "project"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, direct.ErrNotFound) {
+	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, ate.ErrNotFound) {
 		t.Errorf("Stat after remove = %v, want ErrNotFound", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestCreateRequiresTemplate(t *testing.T) {
 	}
 	t.Cleanup(stop)
 
-	client, err := direct.New(direct.Options{ControlAddr: addr, SkipVerify: true})
+	client, err := ate.New(ate.Options{ControlAddr: addr, SkipVerify: true})
 	if err != nil {
 		t.Fatal(err)
 	}

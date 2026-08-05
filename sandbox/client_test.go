@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/ate"
+	"github.com/agent-substrate/sandbox/internal/guest"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
-	"github.com/agent-substrate/sandbox/internal/guest"
 	"github.com/agent-substrate/sandbox/internal/service"
 	"github.com/agent-substrate/sandbox/sandbox"
 )
@@ -42,7 +42,7 @@ func newFixture(t *testing.T) *fixture {
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)
 
-	directClient, err := direct.New(direct.Options{
+	directClient, err := ate.New(ate.Options{
 		ControlAddr: controlAddr,
 		RouterAddr:  routerAddr,
 		SkipVerify:  true,

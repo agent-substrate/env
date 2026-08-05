@@ -299,3 +299,51 @@ func TestDeleteMissingIs404(t *testing.T) {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
 }
+
+func TestToolsEndpoints(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// GET /v1/tools
+	resp, err := http.Get(srv.URL + "/v1/tools")
+	if err != nil {
+		t.Fatalf("GET /v1/tools failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/tools status = %d, want 200", resp.StatusCode)
+	}
+	var toolsResp toolsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&toolsResp); err != nil {
+		t.Fatalf("decoding GET /v1/tools response: %v", err)
+	}
+	if len(toolsResp.Tools) == 0 {
+		t.Fatalf("expected tools in response, got none")
+	}
+
+	// POST /v1/tools shell
+	callBody := []byte(`{
+		"type": "function_call",
+		"id": "call_sh1",
+		"name": "shell",
+		"arguments": {"command": "echo test_tool"}
+	}`)
+	resp, err = http.Post(srv.URL+"/v1/tools", "application/json", bytes.NewReader(callBody))
+	if err != nil {
+		t.Fatalf("POST /v1/tools shell failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /v1/tools status = %d, want 200", resp.StatusCode)
+	}
+	var resStep functionResultStep
+	if err := json.NewDecoder(resp.Body).Decode(&resStep); err != nil {
+		t.Fatalf("decoding function_result: %v", err)
+	}
+	if resStep.CallID != "call_sh1" || resStep.Name != "shell" {
+		t.Errorf("unexpected step result: %+v", resStep)
+	}
+	if len(resStep.Result) == 0 || !strings.Contains(resStep.Result[0].Text, "test_tool") {
+		t.Errorf("unexpected shell tool output: %+v", resStep.Result)
+	}
+}
+

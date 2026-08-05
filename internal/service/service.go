@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/agent-substrate/sandbox/internal/direct"
+	"github.com/agent-substrate/sandbox/internal/ate"
 	"github.com/agent-substrate/sandbox/internal/guest"
 )
 
@@ -26,7 +26,7 @@ const DefaultTemplate = "sandbox"
 // default namespace of `sbx deploy`.
 const DefaultNamespace = "substrate-sandbox"
 
-func toSandboxInfo(info direct.Info) SandboxInfo {
+func toSandboxInfo(info ate.Info) SandboxInfo {
 	return SandboxInfo{
 		ID:                 info.ID,
 		Status:             string(info.Status),
@@ -39,7 +39,7 @@ func toSandboxInfo(info direct.Info) SandboxInfo {
 }
 
 // Handler serves the sandbox API backed by client.
-func Handler(client *direct.Client) http.Handler {
+func Handler(client *ate.Client) http.Handler {
 	s := &server{client: client}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -48,9 +48,9 @@ func Handler(client *direct.Client) http.Handler {
 	mux.HandleFunc("POST /v1/sandboxes", s.create)
 	mux.HandleFunc("GET /v1/sandboxes/{id}", s.get)
 	mux.HandleFunc("DELETE /v1/sandboxes/{id}", s.delete)
-	mux.HandleFunc("POST /v1/sandboxes/{id}/suspend", s.lifecycle((*direct.Sandbox).Suspend))
-	mux.HandleFunc("POST /v1/sandboxes/{id}/pause", s.lifecycle((*direct.Sandbox).Pause))
-	mux.HandleFunc("POST /v1/sandboxes/{id}/resume", s.lifecycle((*direct.Sandbox).Resume))
+	mux.HandleFunc("POST /v1/sandboxes/{id}/suspend", s.lifecycle((*ate.Sandbox).Suspend))
+	mux.HandleFunc("POST /v1/sandboxes/{id}/pause", s.lifecycle((*ate.Sandbox).Pause))
+	mux.HandleFunc("POST /v1/sandboxes/{id}/resume", s.lifecycle((*ate.Sandbox).Resume))
 	mux.HandleFunc("POST /v1/sandboxes/{id}/cmd", s.cmd)
 	mux.HandleFunc("GET /v1/sandboxes/{id}/file", s.readFile)
 	mux.HandleFunc("POST /v1/sandboxes/{id}/file", s.writeFile)
@@ -59,11 +59,13 @@ func Handler(client *direct.Client) http.Handler {
 	mux.HandleFunc("POST /v1/sandboxes/{id}/dir", s.mkdir)
 	mux.HandleFunc("DELETE /v1/sandboxes/{id}/dir", s.removePath)
 	mux.HandleFunc("GET /v1/sandboxes/{id}/stat", s.stat)
+	mux.HandleFunc("GET /v1/sandboxes/{id}/tools", s.tools)
+	mux.HandleFunc("POST /v1/sandboxes/{id}/tools", s.callTool)
 	return mux
 }
 
 type server struct {
-	client *direct.Client
+	client *ate.Client
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -75,7 +77,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeErr(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	code := guest.CodeInternal
-	if errors.Is(err, direct.ErrNotFound) {
+	if errors.Is(err, ate.ErrNotFound) {
 		status = http.StatusNotFound
 		code = guest.CodeNotFound
 	}
@@ -105,12 +107,12 @@ func (s *server) create(w http.ResponseWriter, r *http.Request) {
 	if req.Namespace == "" {
 		req.Namespace = DefaultNamespace
 	}
-	opts := []direct.CreateOption{
-		direct.WithTemplate(req.Template),
-		direct.WithNamespace(req.Namespace),
+	opts := []ate.CreateOption{
+		ate.WithTemplate(req.Template),
+		ate.WithNamespace(req.Namespace),
 	}
 	if len(req.WorkerSelector) > 0 {
-		opts = append(opts, direct.WithWorkerSelector(req.WorkerSelector))
+		opts = append(opts, ate.WithWorkerSelector(req.WorkerSelector))
 	}
 	sb, err := s.client.Create(r.Context(), req.ID, opts...)
 	if err != nil {
@@ -142,7 +144,7 @@ func (s *server) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) lifecycle(op func(*direct.Sandbox, context.Context) error) http.HandlerFunc {
+func (s *server) lifecycle(op func(*ate.Sandbox, context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sb := s.client.Sandbox(r.PathValue("id"))
 		if err := op(sb, r.Context()); err != nil {
@@ -292,4 +294,26 @@ func (s *server) stat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, entry)
+}
+
+func (s *server) tools(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.Sandbox(r.PathValue("id")).Tools(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+func (s *server) callTool(w http.ResponseWriter, r *http.Request) {
+	data, err := s.client.Sandbox(r.PathValue("id")).CallTool(r.Context(), r.Body)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }

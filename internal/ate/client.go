@@ -11,7 +11,7 @@
 //
 // Clients outside this repository use the sandbox package, which talks to
 // the sbx-api service instead.
-package direct
+package ate
 
 import (
 	"context"
