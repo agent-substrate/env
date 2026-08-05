@@ -58,9 +58,6 @@ sbx deploy \
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-sandbox
-
-# Cleanup the deployment to remove Agent Substrate Sandbox from your cluster:
-kubectl delete ns ate-sandbox
 ```
 
 Then create and use a sandbox:
@@ -304,3 +301,12 @@ sb.Delete(ctx)
 
 See [examples/quickstart](examples/quickstart/main.go) for a complete
 program.
+
+## Cleanup
+
+You can remove the sandbox deployment by running:
+
+```bash
+# Cleanup the deployment to remove Agent Substrate Sandbox from your cluster:
+kubectl delete ns ate-sandbox
+```
