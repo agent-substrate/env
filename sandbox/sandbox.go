@@ -51,20 +51,20 @@ func (s *Sandbox) resolvePath(p string) string {
 // worker. It is a no-op on the control plane if the sandbox is already
 // running.
 func (s *Sandbox) Resume(ctx context.Context) error {
-	return s.client.doJSON(ctx, http.MethodPost, s.path("/resume"), nil, nil, nil)
+	return s.client.doJSON(ctx, http.MethodPost, s.path("/resume"), nil, nil)
 }
 
 // Suspend snapshots the sandbox's full state (memory and filesystem) to
 // external storage and frees its worker. The sandbox can later be resumed
 // on any eligible worker.
 func (s *Sandbox) Suspend(ctx context.Context) error {
-	return s.client.doJSON(ctx, http.MethodPost, s.path("/suspend"), nil, nil, nil)
+	return s.client.doJSON(ctx, http.MethodPost, s.path("/suspend"), nil, nil)
 }
 
 // Delete removes the sandbox permanently, suspending it first if it is
 // running.
 func (s *Sandbox) Delete(ctx context.Context) error {
-	return s.client.doJSON(ctx, http.MethodDelete, s.path(""), nil, nil, nil)
+	return s.client.doJSON(ctx, http.MethodDelete, s.path(""), nil, nil)
 }
 
 // run runs a command inside the sandbox and returns its captured output
@@ -72,7 +72,7 @@ func (s *Sandbox) Delete(ctx context.Context) error {
 // see Cmd for a shell-friendly shorthand.
 func (s *Sandbox) run(ctx context.Context, req CmdRequest) (*CmdResult, error) {
 	var res CmdResult
-	if err := s.client.doJSON(ctx, http.MethodPost, s.path("/cmd"), nil, req, &res); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodPost, s.path("/cmd"), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -90,7 +90,7 @@ func (s *Sandbox) ReadFile(ctx context.Context, p string) (io.ReadCloser, error)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: encoding request: %w", err)
 	}
-	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), nil, "application/json", bytes.NewReader(data))
+	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), "application/json", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -110,14 +110,14 @@ func (s *Sandbox) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.
 		Mode:    strconv.FormatUint(uint64(mode.Perm()), 8),
 		Content: data,
 	}
-	return s.client.doJSON(ctx, http.MethodPost, s.path("/file"), nil, req, nil)
+	return s.client.doJSON(ctx, http.MethodPost, s.path("/file"), req, nil)
 }
 
 // ListDir lists the entries of the directory at path inside the sandbox.
 func (s *Sandbox) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 	req := service.FSRequest{Path: s.resolvePath(p)}
 	var out guest.ListDirResponse
-	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/dir"), nil, req, &out); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/dir"), req, &out); err != nil {
 		return nil, err
 	}
 	return out.Entries, nil
@@ -127,7 +127,7 @@ func (s *Sandbox) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 func (s *Sandbox) Stat(ctx context.Context, p string) (DirEntry, error) {
 	req := service.FSRequest{Path: s.resolvePath(p)}
 	var entry DirEntry
-	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/stat"), nil, req, &entry); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/stat"), req, &entry); err != nil {
 		return DirEntry{}, err
 	}
 	return entry, nil
@@ -139,11 +139,11 @@ func (s *Sandbox) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
 		Path: s.resolvePath(p),
 		Mode: strconv.FormatUint(uint64(mode.Perm()), 8),
 	}
-	return s.client.doJSON(ctx, http.MethodPost, s.path("/dir"), nil, req, nil)
+	return s.client.doJSON(ctx, http.MethodPost, s.path("/dir"), req, nil)
 }
 
 // Remove deletes the file or directory tree at path.
 func (s *Sandbox) Remove(ctx context.Context, p string) error {
 	req := service.FSRequest{Path: s.resolvePath(p)}
-	return s.client.doJSON(ctx, http.MethodDelete, s.path("/file"), nil, req, nil)
+	return s.client.doJSON(ctx, http.MethodDelete, s.path("/file"), req, nil)
 }

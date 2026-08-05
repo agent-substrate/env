@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/agent-substrate/sandbox/internal/guest"
@@ -24,46 +23,40 @@ var ErrNotFound = errors.New("not found")
 
 // ClientOptions configures a Client.
 type ClientOptions struct {
-	// Endpoint is the base URL of the sbx-api service,
-	// e.g. "http://localhost:7777" (typically a port-forward of
-	// svc/sbx-api). A bare host:port implies http.
-	// Required.
+	// Endpoint is the base URL of the sbx-api service, e.g.
+	// "http://localhost:7777". Required.
 	Endpoint string
 
-	// Workdir is the default base directory for relative paths in file operations.
+	// Workdir is the default working directory on the guest for relative
+	// paths passed to ReadFile, WriteFile, etc. When empty, relative paths
+	// are sent as-is and resolved by the guest daemon against its workdir
+	// (defaulting to "/").
 	Workdir string
 
-	// HTTPClient overrides the HTTP client used for API traffic.
+	// HTTPClient overrides the http.Client used for API requests.
 	HTTPClient *http.Client
 }
 
-// Client manages sandboxes through the sbx-api service.
+// Client manages sandboxes against a sbx-api endpoint over HTTP.
 type Client struct {
-	opts     ClientOptions
 	endpoint string
+	opts     ClientOptions
 	http     *http.Client
 }
 
-// NewClient creates a Client.
+// NewClient returns a Client targeting endpoint.
 func NewClient(opts ClientOptions) (*Client, error) {
 	if opts.Endpoint == "" {
 		return nil, errors.New("sandbox: ClientOptions.Endpoint is required")
 	}
-	endpoint := opts.Endpoint
-	if !strings.Contains(endpoint, "://") {
-		endpoint = "http://" + endpoint
-	}
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("sandbox: invalid endpoint %q: %w", opts.Endpoint, err)
-	}
+	endpoint := strings.TrimRight(opts.Endpoint, "/")
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 	return &Client{
+		endpoint: endpoint,
 		opts:     opts,
-		endpoint: strings.TrimSuffix(u.String(), "/"),
 		http:     httpClient,
 	}, nil
 }
@@ -104,7 +97,7 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 		Template:  template,
 		Namespace: namespace,
 	}
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/sandboxes", nil, req, nil); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/sandboxes", req, nil); err != nil {
 		return nil, err
 	}
 	return &Sandbox{id: id, client: c}, nil
@@ -118,11 +111,8 @@ func (c *Client) Sandbox(id string) *Sandbox {
 
 // do performs an HTTP request against the API service. Non-2xx responses
 // are converted to errors.
-func (c *Client) do(ctx context.Context, method, path string, query url.Values, contentType string, body io.Reader) (*http.Response, error) {
+func (c *Client) do(ctx context.Context, method, path string, contentType string, body io.Reader) (*http.Response, error) {
 	u := c.endpoint + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
-	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: building request: %w", err)
@@ -152,7 +142,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 
 // doJSON performs a request with an optional JSON body (in) and decodes
 // the JSON response into out when non-nil.
-func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, in, out any) error {
+func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	contentType := ""
 	if in != nil {
@@ -163,7 +153,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 		body = bytes.NewReader(data)
 		contentType = "application/json"
 	}
-	resp, err := c.do(ctx, method, path, query, contentType, body)
+	resp, err := c.do(ctx, method, path, contentType, body)
 	if err != nil {
 		return err
 	}
