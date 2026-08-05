@@ -81,6 +81,9 @@ Or use the API directly:
 curl -X POST localhost:7777/v1/sandboxes -d '{"id":"dev1"}'
 curl -X POST localhost:7777/v1/sandboxes/dev1/cmd \
      -d '{"command":["sh","-c","uname -a"]}'
+# Alternatively, use built-in tools.
+curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+     -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"/workspace/note.txt"}}'
 ```
 
 ## CLI
