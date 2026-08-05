@@ -47,18 +47,15 @@ Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substra
 installed and a snapshots bucket.
 
 First, deploy the system — namespace, worker pool, sandbox template, and
-API — using the digest-pinned images published by the latest release:
+API:
 
-<!-- release-deploy:begin (rewritten by the release workflow; do not edit) -->
 ```bash
-# Images are pinned by release v0.0.2.
 sbx deploy \
-  --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest@sha256:f0d6b41b7060d1ae1d5279cdb5233fb4cc8d0d541ad381f2bf0199333ce9058e \
-  --api-image   ghcr.io/agent-substrate/sandbox/sbx-api@sha256:5f4972eee839389d3a4cceea6e7507009a2f7f545808515206140b3593f42f8e \
-  --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:ac0175e6cb1617140e9afd83416da05cd924aadac48aae847483ecab4d241627 \
+  --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest:latest \
+  --api-image   ghcr.io/agent-substrate/sandbox/sbx-api:latest \
+  --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor:latest \
   --snapshots-bucket gs://$GCS_BUCKET/substrate-sandbox/ | kubectl apply -f -
 ```
-<!-- release-deploy:end -->
 
 Then create and use a sandbox:
 

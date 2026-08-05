@@ -50,13 +50,12 @@ namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
 sandboxes are created from, and the sbx-api service. It prints YAML to
 stdout without touching the cluster; apply it with kubectl.
 
-Each release publishes digest-pinned images and records them in the
-README quickstart, so the full command can be copied from there:
+Each release publishes images:
 
   sbx deploy \
-    --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest@sha256:... \
-    --api-image   ghcr.io/agent-substrate/sandbox/sbx-api@sha256:... \
-    --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor@sha256:... \
+    --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest:latest \
+    --api-image   ghcr.io/agent-substrate/sandbox/sbx-api:latest \
+    --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor:latest \
     --snapshots-bucket gs://<bucket>/substrate-sandbox/ | kubectl apply -f -
 
 Images must be pinned by digest (repo@sha256:...); Substrate rejects
