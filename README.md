@@ -214,7 +214,7 @@ The API exposes built-in tools for file system operations and shell executions.
 - **Filesystem**: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `stat`, `mkdir`, `mv`, `rm`
 - **Shell**: `shell`
 
-### Tool Definitions (`GET /v1/sandboxes/{id}/tools`)
+### Tool Definitions
 
 ```bash
 curl -X GET localhost:7777/v1/sandboxes/dev1/tools
@@ -233,7 +233,7 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/tools
 }
 ```
 
-### Tool Execution (`POST /v1/sandboxes/{id}/tools`)
+### Tool Execution
 
 ```bash
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
