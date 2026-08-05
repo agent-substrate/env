@@ -127,10 +127,7 @@ stdout without touching the cluster; apply it with kubectl.
 
 ## API
 
-`sbx-api` serves the API. `sbx deploy` runs it in-cluster as the
-`sbx-api` service (port 7777 by default; adjust with `--api-port`); it
-can also be run standalone (default `0.0.0.0:7777`). Responses are JSON
-unless noted.
+The API server proivdes sandbox management and guest operations over the API.
 
 ### Sandboxes
 
