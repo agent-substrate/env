@@ -121,42 +121,6 @@ a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
 sandboxes are created from, and the sbx-api service. It prints YAML to
 stdout without touching the cluster; apply it with kubectl.
-```
-
-## SDK
-
-```go
-client, err := sandbox.NewClient(sandbox.ClientOptions{
-    Endpoint: "http://localhost:7777",          // sbx-api
-    Template: "sandbox",                        // ActorTemplate name
-    Workdir:  "/workspace",                     // default base directory for relative paths
-})
-if err != nil {
-    log.Fatalf("connecting to Substrate: %v", err)
-}
-defer client.Close()
-
-sb, err := client.Create(ctx, "dev1")
-if err != nil {
-    log.Fatalf("creating sandbox: %v", err)
-}
-if err := sb.WriteFile(ctx, "main.go", src, 0o644); err != nil {
-    log.Fatalf("writing main.go: %v", err)
-}
-res, err := sb.Cmd(ctx, "cd /workspace && go run main.go")
-if err != nil {
-    log.Fatalf("running main.go: %v", err)
-}
-fmt.Println(res.Stdout, res.ExitCode)
-
-sb.Suspend(ctx)
-sb.Resume(ctx)
-sb.Delete(ctx)
-```
-
-See [examples/quickstart](examples/quickstart/main.go) for a complete
-program.
-
 ## API
 
 `sbx-api` serves the API. `sbx deploy` runs it in-cluster as the
@@ -278,3 +242,37 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
   ]
 }
 ```
+
+## SDK
+
+```go
+client, err := sandbox.NewClient(sandbox.ClientOptions{
+    Endpoint: "http://localhost:7777",          // sbx-api
+    Template: "sandbox",                        // ActorTemplate name
+    Workdir:  "/workspace",                     // default base directory for relative paths
+})
+if err != nil {
+    log.Fatalf("connecting to Substrate: %v", err)
+}
+defer client.Close()
+
+sb, err := client.Create(ctx, "dev1")
+if err != nil {
+    log.Fatalf("creating sandbox: %v", err)
+}
+if err := sb.WriteFile(ctx, "main.go", src, 0o644); err != nil {
+    log.Fatalf("writing main.go: %v", err)
+}
+res, err := sb.Cmd(ctx, "cd /workspace && go run main.go")
+if err != nil {
+    log.Fatalf("running main.go: %v", err)
+}
+fmt.Println(res.Stdout, res.ExitCode)
+
+sb.Suspend(ctx)
+sb.Resume(ctx)
+sb.Delete(ctx)
+```
+
+See [examples/quickstart](examples/quickstart/main.go) for a complete
+program.
