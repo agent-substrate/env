@@ -274,7 +274,7 @@ sandboxes programatically, and executing operations on the guest.
 
 ```go
 client, err := sandbox.NewClient(sandbox.ClientOptions{
-    Endpoint: "http://localhost:7777",          // sbx-api
+    Endpoint: "http://localhost:7777",          // sbx-api endpoint
     Workdir:  "/workspace",                     // default base directory for relative paths
 })
 if err != nil {
