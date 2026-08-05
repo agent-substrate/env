@@ -15,8 +15,7 @@ import (
 
 func main() {
 	var (
-		addr    = flag.String("addr", "", "address to listen on (defaults to :$PORT, or :80)")
-		workdir = flag.String("workdir", "/", "base directory for relative paths and default exec cwd")
+		addr = flag.String("addr", "", "address to listen on (defaults to :$PORT, or :80)")
 	)
 	flag.Parse()
 
@@ -28,11 +27,11 @@ func main() {
 		*addr = ":" + port
 	}
 
-	if err := os.MkdirAll(*workdir, 0o755); err != nil {
-		log.Fatalf("creating workdir %s: %v", *workdir, err)
+	srv := &guest.Server{}
+	h, err := srv.Handler()
+	if err != nil {
+		log.Fatalf("initializing guest server: %v", err)
 	}
-
-	srv := &guest.Server{Workdir: *workdir}
-	log.Printf("sbx-guest listening on %s (workdir %s)", *addr, *workdir)
-	log.Fatal(http.ListenAndServe(*addr, srv.Handler()))
+	log.Printf("sbx-guest listening on %s", *addr)
+	log.Fatal(http.ListenAndServe(*addr, h))
 }

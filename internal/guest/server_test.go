@@ -13,12 +13,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	dir := t.TempDir()
-	srv := httptest.NewServer((&Server{Workdir: dir}).Handler())
+	fsSys, err := guestsys.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := (&Server{FS: fsSys}).Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv, dir
 }
@@ -103,8 +112,11 @@ func TestExecTimeout(t *testing.T) {
 }
 
 func TestExecOutputTruncation(t *testing.T) {
-	dir := t.TempDir()
-	srv := httptest.NewServer((&Server{Workdir: dir, MaxOutputBytes: 10}).Handler())
+	h, err := (&Server{MaxOutputBytes: 10}).Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	res := doExec(t, srv, CmdRequest{Command: []string{"sh", "-c", "printf '0123456789ABCDEF'"}})

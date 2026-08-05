@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"syscall"
 	"time"
 
@@ -36,57 +35,39 @@ const DefaultMaxFileBytes = 64 << 20 // 64 MiB
 
 // Server serves the guest API. The zero value is usable with defaults.
 type Server struct {
-	// Workdir is the base directory against which relative paths are
-	// resolved. Defaults to "/".
-	Workdir string
-
 	// MaxOutputBytes caps captured stdout/stderr per exec, per stream.
 	MaxOutputBytes int64
 
 	// MaxFileBytes caps file content size for reads and writes.
 	MaxFileBytes int64
 
-	fsOnce    sync.Once
-	fs        *guestsys.FS
-	toolsOnce sync.Once
-	reg       *tool.Registry
+	// FS overrides the filesystem implementation. Defaults to guestsys.New("/").
+	FS *guestsys.FS
+
+	fs  *guestsys.FS
+	reg *tool.Registry
 }
 
 func (s *Server) getFS() *guestsys.FS {
-	s.fsOnce.Do(func() {
-		dir := s.Workdir
-		if dir == "" {
-			dir = "/"
-		}
-		fsSys, err := guestsys.New(dir)
-		if err != nil {
-			_ = os.MkdirAll(dir, 0o755)
-			fsSys, _ = guestsys.New(dir)
-		}
-		s.fs = fsSys
-	})
 	return s.fs
 }
 
-func (s *Server) initTools() {
-	s.toolsOnce.Do(func() {
-		fsSys := s.getFS()
-		reg := tool.NewRegistry()
-		if fsSys != nil {
-			dir := s.Workdir
-			if dir == "" {
-				dir = "/"
-			}
-			_ = reg.Register(fstool.New(fsSys, fstool.Config{})...)
-			_ = reg.Register(shell.New(fsSys, shell.Config{Workdir: dir}))
-		}
-		s.reg = reg
-	})
-}
-
 // Handler returns the http.Handler serving the guest API.
-func (s *Server) Handler() http.Handler {
-	s.initTools()
+func (s *Server) Handler() (http.Handler, error) {
+	fsSys := s.FS
+	if fsSys == nil {
+		var err error
+		fsSys, err = guestsys.New("/")
+		if err != nil {
+			return nil, err
+		}
+	}
+	s.fs = fsSys
+	reg := tool.NewRegistry()
+	_ = reg.Register(fstool.New(fsSys, fstool.Config{})...)
+	_ = reg.Register(shell.New(fsSys, shell.Config{Workdir: fsSys.Root()}))
+	s.reg = reg
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -101,7 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/fs/stat", s.handleStat)
 	mux.HandleFunc("GET /v1/tools", s.handleTools)
 	mux.HandleFunc("POST /v1/tools", s.handleToolUse)
-	return mux
+	return mux, nil
 }
 
 func (s *Server) maxOutput() int64 {
@@ -118,16 +99,13 @@ func (s *Server) maxFile() int64 {
 	return DefaultMaxFileBytes
 }
 
-// resolvePath cleans p and resolves it relative to Workdir.
+// resolvePath cleans p and resolves relative paths against s.getFS().Root().
 func (s *Server) resolvePath(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("path is required")
 	}
 	if !filepath.IsAbs(p) {
-		base := s.Workdir
-		if base == "" {
-			base = "/"
-		}
+		base := s.getFS().Root()
 		p = filepath.Join(base, p)
 	}
 	return filepath.Clean(p), nil
@@ -226,8 +204,8 @@ func (s *Server) handleCmd(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cmd.Dir = cwd
-	} else if s.Workdir != "" {
-		cmd.Dir = s.Workdir
+	} else if fsSys := s.getFS(); fsSys != nil {
+		cmd.Dir = fsSys.Root()
 	}
 	cmd.Env = os.Environ()
 	for k, v := range req.Env {
@@ -404,18 +382,6 @@ func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, entry)
 }
 
-func dirEntry(path string, fi fs.FileInfo) DirEntry {
-	return DirEntry{
-		Name:       fi.Name(),
-		Path:       path,
-		Size:       fi.Size(),
-		Mode:       uint32(fi.Mode()),
-		ModeString: fi.Mode().String(),
-		IsDir:      fi.IsDir(),
-		ModTime:    fi.ModTime().UTC(),
-	}
-}
-
 type toolsResponse struct {
 	Tools []tool.ToolDefinition `json:"tools"`
 }
@@ -504,4 +470,3 @@ func (s *Server) handleToolUse(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, out)
 }
-

@@ -98,7 +98,7 @@ your own images, build and push them with ko:
 	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the sbx-api service listens on")
 	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
 	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 2, "number of pre-warmed worker pods")
-	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/sbx-guest", "-workdir", "/workspace"}, "guest container entrypoint")
+	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/sbx-guest"}, "guest container entrypoint")
 	cmd.MarkFlagRequired("snapshots-bucket")
 
 	return cmd

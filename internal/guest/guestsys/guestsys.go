@@ -120,7 +120,11 @@ func (s *FS) contains(abs string) bool {
 	if abs == s.root {
 		return true
 	}
-	return strings.HasPrefix(abs, s.root+string(filepath.Separator))
+	prefix := s.root
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return strings.HasPrefix(abs, prefix)
 }
 
 func (s *FS) escapeErr(p string) error {

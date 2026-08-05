@@ -10,6 +10,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/agent-substrate/sandbox/internal/ate"
 	"github.com/agent-substrate/sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
 )
@@ -59,7 +60,12 @@ func newFixture(t *testing.T) *fixture {
 // create makes a sandbox whose guest handler serves from a temp dir.
 func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate.Sandbox {
 	t.Helper()
-	f.router.Register(id, (&guest.Server{Workdir: f.guest}).Handler())
+	fsSys, _ := guestsys.New(f.guest)
+	h, err := (&guest.Server{FS: fsSys}).Handler()
+	if err != nil {
+		t.Fatalf("creating guest handler: %v", err)
+	}
+	f.router.Register(id, h)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
 		t.Fatalf("creating sandbox %q: %v", id, err)

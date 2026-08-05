@@ -12,6 +12,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/agent-substrate/sandbox/internal/ate"
 	"github.com/agent-substrate/sandbox/internal/guest"
+	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/sandbox/internal/service"
@@ -74,7 +75,12 @@ func decode[T any](t *testing.T, resp *http.Response) T {
 
 func TestLifecycleAndExec(t *testing.T) {
 	srv, router := newAPI(t)
-	router.Register("web-1", (&guest.Server{Workdir: t.TempDir()}).Handler())
+	fsSys, _ := guestsys.New(t.TempDir())
+	h, err := (&guest.Server{FS: fsSys}).Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Register("web-1", h)
 
 	// Create.
 	resp := do(t, "POST", srv.URL+"/v1/sandboxes", `{"id":"web-1","template":"default","namespace":"sandboxes"}`)
@@ -163,7 +169,12 @@ func TestLifecycleAndExec(t *testing.T) {
 
 func TestCreateStartsSandbox(t *testing.T) {
 	srv, router := newAPI(t)
-	router.Register("started", (&guest.Server{Workdir: t.TempDir()}).Handler())
+	fsSys, _ := guestsys.New(t.TempDir())
+	h, err := (&guest.Server{FS: fsSys}).Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Register("started", h)
 
 	// Create starts the sandbox.
 	resp := do(t, "POST", srv.URL+"/v1/sandboxes", `{"id":"started","template":"default","namespace":"sandboxes"}`)
