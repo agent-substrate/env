@@ -5,7 +5,7 @@ build:
 
 # Install sbx and sbx-api to $GOBIN (or $GOPATH/bin).
 install:
-	go install github.com/agent-substrate/sandbox/cmd/sbx github.com/agent-substrate/sandbox/cmd/sbx-api
+	go install ./cmd/...
 
 test:
 	go test ./...
