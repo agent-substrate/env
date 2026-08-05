@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
@@ -122,6 +123,30 @@ func New(opts Options) (*Client, error) {
 // Close releases the control-plane connection.
 func (c *Client) Close() error {
 	return c.conn.Close()
+}
+
+// ProxyGuest reverse-proxies an HTTP request to the guest daemon inside sandbox id.
+// subPath is the path on guest, e.g. "/v1/cmd" or "/v1/file".
+func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r *http.Request) {
+	if c.opts.RouterAddr == "" {
+		http.Error(w, `{"code":"internal","error":"sandbox: Options.RouterAddr is required for command and filesystem operations"}`, http.StatusInternalServerError)
+		return
+	}
+	director := func(req *http.Request) {
+		req.URL.Scheme = "http"
+		req.URL.Host = c.opts.RouterAddr
+		req.URL.Path = subPath
+		req.Host = id + "." + c.opts.HostSuffix
+	}
+	transport := c.http.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	proxy := &httputil.ReverseProxy{
+		Director:  director,
+		Transport: transport,
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 func (c *Client) templateRef(overrideNamespace, overrideName string) (namespace, name string, err error) {

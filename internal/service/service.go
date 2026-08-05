@@ -3,15 +3,12 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
-	"strconv"
 
 	"github.com/agent-substrate/sandbox/internal/ate"
 	"github.com/agent-substrate/sandbox/internal/guest"
@@ -51,17 +48,18 @@ func Handler(client *ate.Client) http.Handler {
 	mux.HandleFunc("POST /v1/sandboxes/{id}/suspend", s.lifecycle((*ate.Sandbox).Suspend))
 	mux.HandleFunc("POST /v1/sandboxes/{id}/pause", s.lifecycle((*ate.Sandbox).Pause))
 	mux.HandleFunc("POST /v1/sandboxes/{id}/resume", s.lifecycle((*ate.Sandbox).Resume))
-	mux.HandleFunc("POST /v1/sandboxes/{id}/cmd", s.cmd)
-	mux.HandleFunc("GET /v1/sandboxes/{id}/file", s.readFile)
-	mux.HandleFunc("POST /v1/sandboxes/{id}/file", s.writeFile)
-	mux.HandleFunc("DELETE /v1/sandboxes/{id}/file", s.removePath)
-	mux.HandleFunc("GET /v1/sandboxes/{id}/dir", s.listDir)
-	mux.HandleFunc("POST /v1/sandboxes/{id}/dir", s.mkdir)
-	mux.HandleFunc("DELETE /v1/sandboxes/{id}/dir", s.removePath)
-	mux.HandleFunc("GET /v1/sandboxes/{id}/stat", s.stat)
-	mux.HandleFunc("GET /v1/sandboxes/{id}/tools", s.tools)
-	mux.HandleFunc("POST /v1/sandboxes/{id}/tools", s.callTool)
+	mux.HandleFunc("/v1/sandboxes/{id}/{rest...}", s.proxyGuest)
 	return mux
+}
+
+func (s *server) proxyGuest(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rest := r.PathValue("rest")
+	if id == "" || rest == "" {
+		writeBadRequest(w, "sandbox id and operation path are required")
+		return
+	}
+	s.client.ProxyGuest(id, "/v1/"+rest, w, r)
 }
 
 type server struct {
@@ -158,162 +156,4 @@ func (s *server) lifecycle(op func(*ate.Sandbox, context.Context) error) http.Ha
 		}
 		writeJSON(w, http.StatusOK, toSandboxInfo(info))
 	}
-}
-
-func (s *server) cmd(w http.ResponseWriter, r *http.Request) {
-	var req guest.CmdRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeBadRequest(w, "invalid request body: %v", err)
-		return
-	}
-	res, err := s.client.Sandbox(r.PathValue("id")).Run(r.Context(), req)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, res)
-}
-
-// decodePath decodes the filesystem request body and extracts the path.
-func decodePath(w http.ResponseWriter, r *http.Request) (string, bool) {
-	req, ok := decodeFS(w, r)
-	if !ok {
-		return "", false
-	}
-	return req.Path, true
-}
-
-// decodeFS decodes and validates the shared filesystem request body. It
-// writes an error response and reports false when the request is invalid.
-func decodeFS(w http.ResponseWriter, r *http.Request) (FSRequest, bool) {
-	var req FSRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeBadRequest(w, "invalid request body: %v", err)
-		return req, false
-	}
-	if req.Path == "" {
-		writeBadRequest(w, "path is required")
-		return req, false
-	}
-	return req, true
-}
-
-// fsMode parses the request's octal mode, falling back to def when unset.
-func fsMode(w http.ResponseWriter, req FSRequest, def fs.FileMode) (fs.FileMode, bool) {
-	if req.Mode == "" {
-		return def, true
-	}
-	v, err := strconv.ParseUint(req.Mode, 8, 32)
-	if err != nil {
-		writeBadRequest(w, "invalid mode %q: %v", req.Mode, err)
-		return 0, false
-	}
-	return fs.FileMode(v), true
-}
-
-func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
-	path, ok := decodePath(w, r)
-	if !ok {
-		return
-	}
-	rc, err := s.client.Sandbox(r.PathValue("id")).ReadFile(r.Context(), path)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	defer rc.Close()
-	w.Header().Set("Content-Type", "application/octet-stream")
-	io.Copy(w, rc)
-}
-
-func (s *server) writeFile(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodeFS(w, r)
-	if !ok {
-		return
-	}
-	mode, ok := fsMode(w, req, 0o644)
-	if !ok {
-		return
-	}
-	if err := s.client.Sandbox(r.PathValue("id")).WriteFile(r.Context(), req.Path, bytes.NewReader(req.Content), mode); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) removePath(w http.ResponseWriter, r *http.Request) {
-	path, ok := decodePath(w, r)
-	if !ok {
-		return
-	}
-	if err := s.client.Sandbox(r.PathValue("id")).Remove(r.Context(), path); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) listDir(w http.ResponseWriter, r *http.Request) {
-	path, ok := decodePath(w, r)
-	if !ok {
-		return
-	}
-	entries, err := s.client.Sandbox(r.PathValue("id")).ListDir(r.Context(), path)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, guest.ListDirResponse{Entries: entries})
-}
-
-func (s *server) mkdir(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodeFS(w, r)
-	if !ok {
-		return
-	}
-	mode, ok := fsMode(w, req, 0o755)
-	if !ok {
-		return
-	}
-	if err := s.client.Sandbox(r.PathValue("id")).Mkdir(r.Context(), req.Path, mode); err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) stat(w http.ResponseWriter, r *http.Request) {
-	path, ok := decodePath(w, r)
-	if !ok {
-		return
-	}
-	entry, err := s.client.Sandbox(r.PathValue("id")).Stat(r.Context(), path)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, entry)
-}
-
-func (s *server) tools(w http.ResponseWriter, r *http.Request) {
-	data, err := s.client.Sandbox(r.PathValue("id")).Tools(r.Context())
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(data)
-}
-
-func (s *server) callTool(w http.ResponseWriter, r *http.Request) {
-	data, err := s.client.Sandbox(r.PathValue("id")).CallTool(r.Context(), r.Body)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(data)
 }

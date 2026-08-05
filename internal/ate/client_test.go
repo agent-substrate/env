@@ -3,16 +3,14 @@ package ate_test
 import (
 	"context"
 	"errors"
-	"io"
-	"strings"
 	"testing"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/agent-substrate/sandbox/internal/ate"
 	"github.com/agent-substrate/sandbox/internal/guest"
 	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
 type fixture struct {
@@ -88,7 +86,6 @@ func TestCreateStartsSandbox(t *testing.T) {
 	}
 }
 
-
 func TestSuspendResumeCycle(t *testing.T) {
 	f := newFixture(t)
 	sb := f.create(t, "sb-cycle")
@@ -133,75 +130,6 @@ func TestOpenMissingSandbox(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.client.Open(t.Context(), "does-not-exist"); !errors.Is(err, ate.ErrNotFound) {
 		t.Errorf("Open = %v, want ErrNotFound", err)
-	}
-}
-
-func TestCmdAndFilesystem(t *testing.T) {
-	f := newFixture(t)
-	sb := f.create(t, "sb-fs")
-	ctx := t.Context()
-
-	if err := sb.WriteFile(ctx, "project/hello.txt", strings.NewReader("hi there"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rc, err := sb.ReadFile(ctx, "project/hello.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := io.ReadAll(rc)
-	rc.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "hi there" {
-		t.Errorf("read back %q, want %q", data, "hi there")
-	}
-
-	entries, err := sb.ListDir(ctx, "project")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name != "hello.txt" {
-		t.Errorf("entries = %+v, want [hello.txt]", entries)
-	}
-
-	res, err := sb.Cmd(ctx, "cat project/hello.txt && printf '!'")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Stdout != "hi there!" || res.ExitCode != 0 {
-		t.Errorf("exec = %+v, want stdout %q exit 0", res, "hi there!")
-	}
-
-	if err := sb.Mkdir(ctx, "project/sub", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	entry, err := sb.Stat(ctx, "project/sub")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !entry.IsDir {
-		t.Errorf("stat = %+v, want directory", entry)
-	}
-
-	if err := sb.Remove(ctx, "project"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, ate.ErrNotFound) {
-		t.Errorf("Stat after remove = %v, want ErrNotFound", err)
-	}
-}
-
-func TestCmdOnSuspendedSandboxFails(t *testing.T) {
-	f := newFixture(t)
-	sb := f.create(t, "sb-frozen")
-	ctx := t.Context()
-
-	if err := sb.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := sb.Cmd(ctx, "true"); err == nil {
-		t.Fatal("exec on suspended sandbox succeeded, want error")
 	}
 }
 

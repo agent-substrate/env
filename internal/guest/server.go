@@ -74,12 +74,13 @@ func (s *Server) Handler() (http.Handler, error) {
 		io.WriteString(w, "ok")
 	})
 	mux.HandleFunc("POST /v1/cmd", s.handleCmd)
-	mux.HandleFunc("GET /v1/fs/file", s.handleReadFile)
-	mux.HandleFunc("PUT /v1/fs/file", s.handleWriteFile)
-	mux.HandleFunc("DELETE /v1/fs/file", s.handleDelete)
-	mux.HandleFunc("GET /v1/fs/dir", s.handleListDir)
-	mux.HandleFunc("POST /v1/fs/dir", s.handleMkdir)
-	mux.HandleFunc("GET /v1/fs/stat", s.handleStat)
+	mux.HandleFunc("GET /v1/file", s.handleReadFile)
+	mux.HandleFunc("POST /v1/file", s.handleWriteFile)
+	mux.HandleFunc("DELETE /v1/file", s.handleDelete)
+	mux.HandleFunc("GET /v1/dir", s.handleListDir)
+	mux.HandleFunc("POST /v1/dir", s.handleMkdir)
+	mux.HandleFunc("DELETE /v1/dir", s.handleDelete)
+	mux.HandleFunc("GET /v1/stat", s.handleStat)
 	mux.HandleFunc("GET /v1/tools", s.handleTools)
 	mux.HandleFunc("POST /v1/tools", s.handleToolUse)
 	return mux, nil
@@ -274,35 +275,38 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, f)
 }
 
+type writeFileJSONRequest struct {
+	Path    string `json:"path"`
+	Mode    string `json:"mode,omitempty"`
+	Content []byte `json:"content,omitempty"`
+}
+
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	p := q.Get("path")
-	if p == "" {
+	var req writeFileJSONRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "decoding request body: %v", err)
+		return
+	}
+	if req.Path == "" {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "path is required")
 		return
 	}
 	mode := fs.FileMode(0o644)
-	if m := q.Get("mode"); m != "" {
-		v, err := strconv.ParseUint(m, 8, 32)
+	if req.Mode != "" {
+		v, err := strconv.ParseUint(req.Mode, 8, 32)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid mode %q: %v", m, err)
+			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
 			return
 		}
 		mode = fs.FileMode(v).Perm()
 	}
-
-	data, err := io.ReadAll(io.LimitReader(r.Body, s.maxFile()+1))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, CodeInternal, "reading request body: %v", err)
-		return
-	}
-	if int64(len(data)) > s.maxFile() {
+	if int64(len(req.Content)) > s.maxFile() {
 		writeError(w, http.StatusRequestEntityTooLarge, CodeInvalidArgument,
 			"file content exceeds the %d byte limit", s.maxFile())
 		return
 	}
 
-	_, _, err = s.getFS().WriteFile(p, data, mode, q.Get("mkdirs") == "true", false, s.maxFile())
+	_, _, err := s.getFS().WriteFile(req.Path, req.Content, mode, true, false, s.maxFile())
 	if err != nil {
 		writeFSError(w, err)
 		return
