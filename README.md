@@ -272,6 +272,9 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
 
 ## SDK
 
+Users can use the SDK package directly for lifecycle operations to manage
+sandboxes programatically, and executing operations on the guest.
+
 ```go
 client, err := sandbox.NewClient(sandbox.ClientOptions{
     Endpoint: "http://localhost:7777",          // sbx-api
