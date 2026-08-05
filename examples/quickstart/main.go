@@ -22,7 +22,6 @@ func main() {
 
 	client, err := sandbox.NewClient(sandbox.ClientOptions{
 		Endpoint: "http://localhost:7777",
-		Template: "sandbox",
 		Workdir:  "/workspace",
 	})
 	if err != nil {
@@ -30,7 +29,7 @@ func main() {
 	}
 	defer client.Close()
 
-	sb, err := client.Create(ctx, "quickstart-1")
+	sb, err := client.Create(ctx, "quickstart-1", sandbox.WithTemplate("sandbox"))
 	if err != nil {
 		log.Fatal(err)
 	}

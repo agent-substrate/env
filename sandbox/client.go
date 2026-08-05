@@ -30,14 +30,6 @@ type ClientOptions struct {
 	// Required.
 	Endpoint string
 
-	// Template is the name of the default ActorTemplate for Create. Empty
-	// means the service's default template.
-	Template string
-
-	// Namespace is the Kubernetes namespace the ActorTemplates live in.
-	// Empty means the service's default ("substrate-sandbox").
-	Namespace string
-
 	// Workdir is the default base directory for relative paths in file operations.
 	Workdir string
 
@@ -112,13 +104,7 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 		o(&cfg)
 	}
 	template := cfg.template
-	if template == "" {
-		template = c.opts.Template
-	}
 	namespace := cfg.templateNamespace
-	if namespace == "" {
-		namespace = c.opts.Namespace
-	}
 	req := service.CreateSandboxRequest{
 		ID:             id,
 		Template:       template,

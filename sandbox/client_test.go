@@ -57,9 +57,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(srv.Close)
 
 	client, err := sandbox.NewClient(sandbox.ClientOptions{
-		Endpoint:  srv.URL,
-		Template:  "default",
-		Namespace: "sandboxes",
+		Endpoint: srv.URL,
 	})
 	if err != nil {
 		t.Fatalf("creating SDK client: %v", err)
@@ -78,6 +76,7 @@ func (f *fixture) create(t *testing.T, id string, opts ...sandbox.CreateOption) 
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
+	opts = append([]sandbox.CreateOption{sandbox.WithTemplate("default"), sandbox.WithNamespace("sandboxes")}, opts...)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
 		t.Fatalf("creating sandbox %q: %v", id, err)

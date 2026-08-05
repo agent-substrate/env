@@ -250,7 +250,6 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
 ```go
 client, err := sandbox.NewClient(sandbox.ClientOptions{
     Endpoint: "http://localhost:7777",          // sbx-api
-    Template: "sandbox",                        // ActorTemplate name
     Workdir:  "/workspace",                     // default base directory for relative paths
 })
 if err != nil {
@@ -258,7 +257,7 @@ if err != nil {
 }
 defer client.Close()
 
-sb, err := client.Create(ctx, "dev1")
+sb, err := client.Create(ctx, "dev1", sandbox.WithTemplate("sandbox"))
 if err != nil {
     log.Fatalf("creating sandbox: %v", err)
 }

@@ -44,9 +44,7 @@ func main() {
 			}
 			var err error
 			client, err = sandbox.NewClient(sandbox.ClientOptions{
-				Endpoint:  endpoint,
-				Template:  template,
-				Namespace: namespace,
+				Endpoint: endpoint,
 			})
 			return err
 		},
@@ -73,7 +71,7 @@ func main() {
 		Short: "Create and start a sandbox",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sb, err := client.Create(cmd.Context(), args[0])
+			sb, err := client.Create(cmd.Context(), args[0], sandbox.WithTemplate(template), sandbox.WithNamespace(namespace))
 			if err != nil {
 				return err
 			}

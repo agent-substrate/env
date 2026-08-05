@@ -44,8 +44,6 @@ func newFixture(t *testing.T) *fixture {
 	client, err := ate.New(ate.Options{
 		ControlAddr: controlAddr,
 		RouterAddr:  routerAddr,
-		Template:    "default",
-		Namespace:   "sandboxes",
 		SkipVerify:  true,
 	})
 	if err != nil {
@@ -66,6 +64,7 @@ func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
+	opts = append([]ate.CreateOption{ate.WithTemplate("default"), ate.WithNamespace("sandboxes")}, opts...)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
 		t.Fatalf("creating sandbox %q: %v", id, err)

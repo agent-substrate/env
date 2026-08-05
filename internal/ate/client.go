@@ -58,13 +58,6 @@ type Options struct {
 	// DefaultHostSuffix.
 	HostSuffix string
 
-	// Template is the name of the default ActorTemplate for Create.
-	Template string
-
-	// Namespace is the Kubernetes namespace the ActorTemplates live in.
-	// Defaults to "default".
-	Namespace string
-
 	// Atespace is the Substrate atespace sandboxes live in. Empty means
 	// the global scope.
 	Atespace string
@@ -134,15 +127,9 @@ func (c *Client) Close() error {
 func (c *Client) templateRef(overrideNamespace, overrideName string) (namespace, name string, err error) {
 	name = overrideName
 	if name == "" {
-		name = c.opts.Template
-	}
-	if name == "" {
-		return "", "", errors.New("sandbox: no ActorTemplate specified (set Options.Template or WithTemplate)")
+		return "", "", errors.New("sandbox: no ActorTemplate specified (use WithTemplate)")
 	}
 	namespace = overrideNamespace
-	if namespace == "" {
-		namespace = c.opts.Namespace
-	}
 	if namespace == "" {
 		namespace = "default"
 	}
