@@ -38,7 +38,6 @@ func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router) {
 		ControlAddr: controlAddr,
 		RouterAddr:  routerAddr,
 		SkipVerify:  true,
-		AutoResume:  true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -111,17 +110,21 @@ func TestLifecycleAndExec(t *testing.T) {
 		t.Fatalf("cmd result = %+v, want stdout %q", res, "file body")
 	}
 
-	// Suspend, then exec again: auto-resume kicks in.
+	// Suspend, then resume and exec again.
 	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/suspend", "")
 	if got := decode[service.SandboxInfo](t, resp); got.Status != "suspended" {
 		t.Fatalf("after suspend = %+v, want suspended", got)
 	}
+	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/resume", "")
+	if got := decode[service.SandboxInfo](t, resp); got.Status != "running" {
+		t.Fatalf("after resume = %+v, want running", got)
+	}
 	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/cmd", `{"command":["sh","-c","echo back"]}`)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("cmd after suspend status = %d, want 200", resp.StatusCode)
+		t.Fatalf("cmd after resume status = %d, want 200", resp.StatusCode)
 	}
 	if res := decode[guest.CmdResult](t, resp); res.Stdout != "back\n" {
-		t.Fatalf("cmd after suspend = %+v, want stdout %q", res, "back\n")
+		t.Fatalf("cmd after resume = %+v, want stdout %q", res, "back\n")
 	}
 
 	// List directory.

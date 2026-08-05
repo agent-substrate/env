@@ -46,7 +46,6 @@ func newFixture(t *testing.T) *fixture {
 		ControlAddr: controlAddr,
 		RouterAddr:  routerAddr,
 		SkipVerify:  true,
-		AutoResume:  true,
 	})
 	if err != nil {
 		t.Fatalf("creating direct client: %v", err)
@@ -222,26 +221,7 @@ func TestWorkdirOption(t *testing.T) {
 	}
 }
 
-func TestAutoResumeOnCmd(t *testing.T) {
-	f := newFixture(t)
-	sb := f.create(t, "sb-wake")
-	ctx := t.Context()
 
-	if err := sb.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
-	// The service auto-resumes suspended sandboxes on guest operations.
-	res, err := sb.Cmd(ctx, "echo awake")
-	if err != nil {
-		t.Fatalf("cmd on suspended sandbox: %v", err)
-	}
-	if res.Stdout != "awake\n" {
-		t.Errorf("stdout = %q, want %q", res.Stdout, "awake\n")
-	}
-	if info, _ := sb.Info(ctx); info.Status != sandbox.StatusRunning {
-		t.Errorf("status after auto-resume = %s, want running", info.Status)
-	}
-}
 
 func TestOpen(t *testing.T) {
 	f := newFixture(t)

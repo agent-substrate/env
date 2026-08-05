@@ -21,7 +21,7 @@ type fixture struct {
 	guest   string // guest workdir
 }
 
-func newFixture(t *testing.T, autoResume bool) *fixture {
+func newFixture(t *testing.T) *fixture {
 	t.Helper()
 
 	control := fakecontrol.New()
@@ -46,7 +46,6 @@ func newFixture(t *testing.T, autoResume bool) *fixture {
 		Template:    "default",
 		Namespace:   "sandboxes",
 		SkipVerify:  true,
-		AutoResume:  autoResume,
 	})
 	if err != nil {
 		t.Fatalf("creating client: %v", err)
@@ -69,7 +68,7 @@ func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate
 }
 
 func TestCreateStartsSandbox(t *testing.T) {
-	f := newFixture(t, false)
+	f := newFixture(t)
 	sb := f.create(t, "sb-1")
 
 	info, err := sb.Info(t.Context())
@@ -86,7 +85,7 @@ func TestCreateStartsSandbox(t *testing.T) {
 
 
 func TestSuspendResumeCycle(t *testing.T) {
-	f := newFixture(t, false)
+	f := newFixture(t)
 	sb := f.create(t, "sb-cycle")
 	ctx := t.Context()
 
@@ -111,7 +110,7 @@ func TestSuspendResumeCycle(t *testing.T) {
 }
 
 func TestDeleteSuspendsRunningSandboxFirst(t *testing.T) {
-	f := newFixture(t, false)
+	f := newFixture(t)
 	sb := f.create(t, "sb-del")
 	ctx := t.Context()
 
@@ -126,14 +125,14 @@ func TestDeleteSuspendsRunningSandboxFirst(t *testing.T) {
 }
 
 func TestOpenMissingSandbox(t *testing.T) {
-	f := newFixture(t, false)
+	f := newFixture(t)
 	if _, err := f.client.Open(t.Context(), "does-not-exist"); !errors.Is(err, ate.ErrNotFound) {
 		t.Errorf("Open = %v, want ErrNotFound", err)
 	}
 }
 
 func TestCmdAndFilesystem(t *testing.T) {
-	f := newFixture(t, false)
+	f := newFixture(t)
 	sb := f.create(t, "sb-fs")
 	ctx := t.Context()
 
@@ -188,8 +187,8 @@ func TestCmdAndFilesystem(t *testing.T) {
 	}
 }
 
-func TestCmdOnSuspendedSandboxFailsWithoutAutoResume(t *testing.T) {
-	f := newFixture(t, false)
+func TestCmdOnSuspendedSandboxFails(t *testing.T) {
+	f := newFixture(t)
 	sb := f.create(t, "sb-frozen")
 	ctx := t.Context()
 
@@ -198,46 +197,6 @@ func TestCmdOnSuspendedSandboxFailsWithoutAutoResume(t *testing.T) {
 	}
 	if _, err := sb.Cmd(ctx, "true"); err == nil {
 		t.Fatal("exec on suspended sandbox succeeded, want error")
-	}
-}
-
-func TestAutoResumeRetriesGuestOps(t *testing.T) {
-	f := newFixture(t, true)
-	sb := f.create(t, "sb-wake")
-	ctx := t.Context()
-
-	if err := sb.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
-	res, err := sb.Cmd(ctx, "echo awake")
-	if err != nil {
-		t.Fatalf("exec with auto-resume: %v", err)
-	}
-	if res.Stdout != "awake\n" {
-		t.Errorf("stdout = %q, want %q", res.Stdout, "awake\n")
-	}
-	if got := f.control.Status("sb-wake"); got != ateapipb.Actor_STATUS_RUNNING {
-		t.Errorf("status after auto-resume = %s, want RUNNING", got)
-	}
-
-	// The retry must replay the request body too.
-	if err := sb.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := sb.WriteFile(ctx, "wake.txt", strings.NewReader("resumed write"), 0o644); err != nil {
-		t.Fatalf("write with auto-resume: %v", err)
-	}
-	rc, err := sb.ReadFile(ctx, "wake.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := io.ReadAll(rc)
-	rc.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "resumed write" {
-		t.Errorf("read back %q, want %q", data, "resumed write")
 	}
 }
 

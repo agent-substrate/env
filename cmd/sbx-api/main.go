@@ -19,7 +19,6 @@ func main() {
 		atenet     = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
 		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
-		autoResume = flag.Bool("auto-resume", true, "resume suspended sandboxes on exec/file operations")
 	)
 	flag.Parse()
 
@@ -28,7 +27,6 @@ func main() {
 		RouterAddr:  *atenet,
 		HostSuffix:  *hostSuffix,
 		SkipVerify:  *skipVerify,
-		AutoResume:  *autoResume,
 	})
 	if err != nil {
 		log.Fatalf("creating sandbox client: %v", err)

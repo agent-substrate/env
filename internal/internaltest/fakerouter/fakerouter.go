@@ -1,7 +1,7 @@
 // Package fakerouter implements a test double for the atenet router: it
 // resolves the target sandbox from the request's Host header and forwards
 // to that sandbox's guest handler, returning 503 when the sandbox is not
-// running — mirroring a router with auto-resume disabled.
+// running.
 package fakerouter
 
 import (

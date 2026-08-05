@@ -70,7 +70,8 @@ kubectl port-forward -n substrate-sandbox svc/sbx-api 7777:7777 &
 sbx create dev1
 sbx cmd dev1 'echo hello > /workspace/note.txt'
 sbx suspend dev1
-sbx cmd dev1 'cat /workspace/note.txt' # auto-resumes; prints hello
+sbx resume dev1
+sbx cmd dev1 'cat /workspace/note.txt' # prints hello
 sbx delete dev1
 ```
 

@@ -81,10 +81,6 @@ type Options struct {
 
 	// HTTPClient overrides the HTTP client used for router traffic.
 	HTTPClient *http.Client
-
-	// AutoResume makes guest operations (Cmd, file I/O) resume a
-	// suspended or paused sandbox and retry once, instead of failing.
-	AutoResume bool
 }
 
 // Client manages sandboxes on a Substrate cluster.
