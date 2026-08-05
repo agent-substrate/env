@@ -25,15 +25,15 @@ while this project adds the sandbox-shaped API on top.
                                                                ╰──────────────────────╯
 ```
 
-- **`sandbox`** — The Go client library that allows creation, suspension,
-resumption, and deletion of sandboxes; as well as file operations and running remote
-commands on the sandboxes.
 - **`cmd/sbx`** — Provides a CLI over the API, and utilies to
   make it easier to deploy Agent Substrate.
 - **`cmd/sbx-api`** — The API service that bridges clients to
   the Substrate control plane and router.
 - **`cmd/sbx-guest`** — The daemon server available in the sandbox. It runs
   inside every actor and serves command executions and filesystem operations.
+- **`sandbox`** — The Go client library that allows creation, suspension,
+resumption, and deletion of sandboxes; as well as file operations and running remote
+commands on the sandboxes.
 
 ## Installation
 
