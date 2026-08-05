@@ -209,14 +209,16 @@ report when the cap was hit, and `timedOut` reports a timeout kill.
 
 ### Filesystem
 
-| Method   | Path                            | Description                     |
-| -------- | ------------------------------- | ------------------------------- |
-| `GET`    | `/v1/sandboxes/{id}/file?path=` | Read a file (raw bytes response)|
-| `POST`   | `/v1/sandboxes/{id}/file`    | Write a file                    |
-| `DELETE` | `/v1/sandboxes/{id}/file?path=` | Delete a file or directory      |
-| `GET`    | `/v1/sandboxes/{id}/dir?path=`  | List a directory                |
-| `POST`   | `/v1/sandboxes/{id}/dir`     | Create a directory (mkdir -p)   |
-| `GET`    | `/v1/sandboxes/{id}/stat?path=` | Stat a path                     |
+All filesystem endpoints accept a JSON request body containing `"path"`.
+
+| Method   | Path                       | Description                     |
+| -------- | -------------------------- | ------------------------------- |
+| `GET`    | `/v1/sandboxes/{id}/file`  | Read a file (raw bytes response)|
+| `POST`   | `/v1/sandboxes/{id}/file`  | Write a file                    |
+| `DELETE` | `/v1/sandboxes/{id}/file`  | Delete a file or directory      |
+| `GET`    | `/v1/sandboxes/{id}/dir`   | List a directory                |
+| `POST`   | `/v1/sandboxes/{id}/dir`   | Create a directory (mkdir -p)   |
+| `GET`    | `/v1/sandboxes/{id}/stat`  | Stat a path                     |
 
 Write a file, then read the raw bytes back (`content` is base64-encoded;
 `mode` is an octal string defaulting to `"644"`):
@@ -224,7 +226,8 @@ Write a file, then read the raw bytes back (`content` is base64-encoded;
 ```bash
 curl -X POST localhost:7777/v1/sandboxes/dev1/file \
      -d '{"path": "app/main.txt", "mode": "644", "content": "aGVsbG8K"}'
-curl localhost:7777/v1/sandboxes/dev1/file?path=app/main.txt
+curl -X GET localhost:7777/v1/sandboxes/dev1/file \
+     -d '{"path": "app/main.txt"}'
 ```
 
 ### Built-in Tools

@@ -88,6 +88,21 @@ func (s *Server) resolvePath(p string) (string, error) {
 	return filepath.Clean(p), nil
 }
 
+type pathRequest struct {
+	Path string `json:"path"`
+}
+
+func (s *Server) getPath(r *http.Request) (string, error) {
+	var req pathRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return "", fmt.Errorf("decoding request body: %w", err)
+	}
+	if req.Path == "" {
+		return "", errors.New("path is required")
+	}
+	return s.resolvePath(req.Path)
+}
+
 func writeError(w http.ResponseWriter, status int, code, format string, args ...any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -219,7 +234,7 @@ func (s *Server) handleCmd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
-	path, err := s.resolvePath(r.URL.Query().Get("path"))
+	path, err := s.getPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
@@ -298,7 +313,7 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	path, err := s.resolvePath(r.URL.Query().Get("path"))
+	path, err := s.getPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
@@ -319,7 +334,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDir(w http.ResponseWriter, r *http.Request) {
-	path, err := s.resolvePath(r.URL.Query().Get("path"))
+	path, err := s.getPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
@@ -341,18 +356,27 @@ func (s *Server) handleListDir(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+type mkdirRequest struct {
+	Path string `json:"path"`
+	Mode string `json:"mode,omitempty"`
+}
+
 func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	path, err := s.resolvePath(q.Get("path"))
+	var req mkdirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "decoding request body: %v", err)
+		return
+	}
+	path, err := s.resolvePath(req.Path)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return
 	}
 	mode := fs.FileMode(0o755)
-	if m := q.Get("mode"); m != "" {
-		v, err := strconv.ParseUint(m, 8, 32)
+	if req.Mode != "" {
+		v, err := strconv.ParseUint(req.Mode, 8, 32)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid mode %q: %v", m, err)
+			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
 			return
 		}
 		mode = fs.FileMode(v).Perm()
@@ -365,7 +389,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStat(w http.ResponseWriter, r *http.Request) {
-	path, err := s.resolvePath(r.URL.Query().Get("path"))
+	path, err := s.getPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
 		return

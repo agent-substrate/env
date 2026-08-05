@@ -172,15 +172,13 @@ func (s *server) cmd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// queryPath returns the required "path" query parameter, writing an error
-// response and reporting false when it is missing.
-func queryPath(w http.ResponseWriter, r *http.Request) (string, bool) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		writeBadRequest(w, "path query parameter is required")
+// decodePath decodes the filesystem request body and extracts the path.
+func decodePath(w http.ResponseWriter, r *http.Request) (string, bool) {
+	req, ok := decodeFS(w, r)
+	if !ok {
 		return "", false
 	}
-	return path, true
+	return req.Path, true
 }
 
 // decodeFS decodes and validates the shared filesystem request body. It
@@ -212,7 +210,7 @@ func fsMode(w http.ResponseWriter, req FSRequest, def fs.FileMode) (fs.FileMode,
 }
 
 func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
-	path, ok := queryPath(w, r)
+	path, ok := decodePath(w, r)
 	if !ok {
 		return
 	}
@@ -243,7 +241,7 @@ func (s *server) writeFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) removePath(w http.ResponseWriter, r *http.Request) {
-	path, ok := queryPath(w, r)
+	path, ok := decodePath(w, r)
 	if !ok {
 		return
 	}
@@ -255,7 +253,7 @@ func (s *server) removePath(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) listDir(w http.ResponseWriter, r *http.Request) {
-	path, ok := queryPath(w, r)
+	path, ok := decodePath(w, r)
 	if !ok {
 		return
 	}
@@ -284,7 +282,7 @@ func (s *server) mkdir(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stat(w http.ResponseWriter, r *http.Request) {
-	path, ok := queryPath(w, r)
+	path, ok := decodePath(w, r)
 	if !ok {
 		return
 	}

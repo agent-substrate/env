@@ -93,7 +93,7 @@ func TestLifecycleAndExec(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("write file status = %d, want 204", resp.StatusCode)
 	}
-	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/file?path=app/main.txt", "")
+	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/file", `{"path":"app/main.txt"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("read file status = %d, want 200", resp.StatusCode)
 	}
@@ -125,24 +125,24 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// List directory.
-	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/dir?path=app", "")
+	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/dir", `{"path":"app"}`)
 	listing := decode[guest.ListDirResponse](t, resp)
 	if len(listing.Entries) != 1 || listing.Entries[0].Name != "main.txt" {
 		t.Fatalf("listing = %+v, want [main.txt]", listing.Entries)
 	}
 
 	// A file deletes cleanly through the file endpoint.
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/file?path=app/main.txt", "")
+	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/file", `{"path":"app/main.txt"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete file status = %d, want 204", resp.StatusCode)
 	}
 
 	// Delete the directory tree.
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/dir?path=app", "")
+	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/dir", `{"path":"app"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete dir status = %d, want 204", resp.StatusCode)
 	}
-	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/dir?path=app", "")
+	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/dir", `{"path":"app"}`)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("list after delete status = %d, want 404", resp.StatusCode)
 	}

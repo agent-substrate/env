@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -142,7 +144,11 @@ func (s *Sandbox) Cmd(ctx context.Context, commandLine string) (*CmdResult, erro
 // ReadFile streams the contents of the file at path inside the sandbox.
 // The caller must close the returned reader.
 func (s *Sandbox) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
-	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), url.Values{"path": {s.resolvePath(p)}}, "", nil)
+	data, err := json.Marshal(service.FSRequest{Path: s.resolvePath(p)})
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: encoding request: %w", err)
+	}
+	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), nil, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -167,8 +173,9 @@ func (s *Sandbox) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.
 
 // ListDir lists the entries of the directory at path inside the sandbox.
 func (s *Sandbox) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
+	req := service.FSRequest{Path: s.resolvePath(p)}
 	var out guest.ListDirResponse
-	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/dir"), url.Values{"path": {s.resolvePath(p)}}, nil, &out); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/dir"), nil, req, &out); err != nil {
 		return nil, err
 	}
 	return out.Entries, nil
@@ -176,8 +183,9 @@ func (s *Sandbox) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 
 // Stat returns information about the file or directory at path.
 func (s *Sandbox) Stat(ctx context.Context, p string) (DirEntry, error) {
+	req := service.FSRequest{Path: s.resolvePath(p)}
 	var entry DirEntry
-	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/stat"), url.Values{"path": {s.resolvePath(p)}}, nil, &entry); err != nil {
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/stat"), nil, req, &entry); err != nil {
 		return DirEntry{}, err
 	}
 	return entry, nil
@@ -194,7 +202,8 @@ func (s *Sandbox) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
 
 // Remove deletes the file or directory tree at path.
 func (s *Sandbox) Remove(ctx context.Context, p string) error {
-	return s.client.doJSON(ctx, http.MethodDelete, s.path("/file"), url.Values{"path": {s.resolvePath(p)}}, nil, nil)
+	req := service.FSRequest{Path: s.resolvePath(p)}
+	return s.client.doJSON(ctx, http.MethodDelete, s.path("/file"), nil, req, nil)
 }
 
 // WaitStatus polls until the sandbox reaches the given status or ctx is

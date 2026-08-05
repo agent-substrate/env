@@ -52,7 +52,8 @@ func (s *Sandbox) Cmd(ctx context.Context, commandLine string) (*CmdResult, erro
 // ReadFile streams the contents of the file at path inside the sandbox.
 // The caller must close the returned reader.
 func (s *Sandbox) ReadFile(ctx context.Context, path string) (io.ReadCloser, error) {
-	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/fs/file", url.Values{"path": {path}}, "", nil)
+	b, _ := json.Marshal(map[string]string{"path": path})
+	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/fs/file", nil, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +88,8 @@ func (s *Sandbox) WriteFile(ctx context.Context, path string, r io.Reader, mode 
 
 // ListDir lists the entries of the directory at path inside the sandbox.
 func (s *Sandbox) ListDir(ctx context.Context, path string) ([]DirEntry, error) {
-	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/fs/dir", url.Values{"path": {path}}, "", nil)
+	b, _ := json.Marshal(map[string]string{"path": path})
+	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/fs/dir", nil, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +103,8 @@ func (s *Sandbox) ListDir(ctx context.Context, path string) ([]DirEntry, error) 
 
 // Stat returns information about the file or directory at path.
 func (s *Sandbox) Stat(ctx context.Context, path string) (DirEntry, error) {
-	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/fs/stat", url.Values{"path": {path}}, "", nil)
+	b, _ := json.Marshal(map[string]string{"path": path})
+	resp, err := s.guestDo(ctx, http.MethodGet, "/v1/fs/stat", nil, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return DirEntry{}, err
 	}
@@ -115,11 +118,11 @@ func (s *Sandbox) Stat(ctx context.Context, path string) (DirEntry, error) {
 
 // Mkdir creates the directory at path, along with any missing parents.
 func (s *Sandbox) Mkdir(ctx context.Context, path string, mode fs.FileMode) error {
-	q := url.Values{
-		"path": {path},
-		"mode": {strconv.FormatUint(uint64(mode.Perm()), 8)},
-	}
-	resp, err := s.guestDo(ctx, http.MethodPost, "/v1/fs/dir", q, "", nil)
+	b, _ := json.Marshal(map[string]string{
+		"path": path,
+		"mode": strconv.FormatUint(uint64(mode.Perm()), 8),
+	})
+	resp, err := s.guestDo(ctx, http.MethodPost, "/v1/fs/dir", nil, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -129,8 +132,8 @@ func (s *Sandbox) Mkdir(ctx context.Context, path string, mode fs.FileMode) erro
 
 // Remove deletes the file or directory tree at path.
 func (s *Sandbox) Remove(ctx context.Context, path string) error {
-	q := url.Values{"path": {path}}
-	resp, err := s.guestDo(ctx, http.MethodDelete, "/v1/fs/file", q, "", nil)
+	b, _ := json.Marshal(map[string]string{"path": path})
+	resp, err := s.guestDo(ctx, http.MethodDelete, "/v1/fs/file", nil, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
