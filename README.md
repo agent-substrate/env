@@ -67,7 +67,7 @@ Then create and use a sandbox:
 kubectl port-forward -n substrate-sandbox svc/sbx-api 7777:7777 &
 
 # Create and use a sandbox.
-sbx create dev1
+sbx create dev1 --template sandbox
 sbx cmd dev1 'echo hello > /workspace/note.txt'
 sbx suspend dev1
 sbx resume dev1
@@ -78,7 +78,7 @@ sbx delete dev1
 Or use the API directly:
 
 ```bash
-curl -X POST localhost:7777/v1/sandboxes -d '{"id":"dev1"}'
+curl -X POST localhost:7777/v1/sandboxes -d '{"id":"dev1","template":"sandbox"}'
 curl -X POST localhost:7777/v1/sandboxes/dev1/cmd \
      -d '{"command":["sh","-c","uname -a"]}'
 # Alternatively, use built-in tools.
@@ -141,7 +141,7 @@ unless noted.
 | `GET`    | `/v1/sandboxes/{id}` | Get a sandbox's status                  |
 | `DELETE` | `/v1/sandboxes/{id}` | Delete (suspends first if running)      |
 
-Create body (only `id` is required):
+Create body:
 
 ```json
 {
