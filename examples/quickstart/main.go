@@ -4,7 +4,7 @@
 //
 // It expects a port-forward to the sbx-api service:
 //
-//	kubectl port-forward -n substrate-sandbox svc/sbx-api 7777:7777
+//	kubectl port-forward -n ate-sandbox svc/sbx-api 7777:7777
 package main
 
 import (

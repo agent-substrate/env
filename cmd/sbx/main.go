@@ -86,7 +86,7 @@ func main() {
 		},
 	}
 	createCmd.Flags().StringVar(&createTemplate, "template", "sandbox", "ActorTemplate name")
-	createCmd.Flags().StringVar(&createNamespace, "namespace", "substrate-sandbox", "Kubernetes namespace of the ActorTemplate")
+	createCmd.Flags().StringVar(&createNamespace, "namespace", "ate-sandbox", "Kubernetes namespace of the ActorTemplate")
 	root.AddCommand(createCmd)
 
 	root.AddCommand(&cobra.Command{

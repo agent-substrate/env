@@ -10,7 +10,7 @@ type CreateSandboxRequest struct {
 	Template string `json:"template,omitempty"`
 
 	// Namespace is the Kubernetes namespace the ActorTemplate lives in.
-	// Defaults to "substrate-sandbox", the default namespace of
+	// Defaults to "ate-sandbox", the default namespace of
 	// `sbx deploy`.
 	Namespace string `json:"namespace,omitempty"`
 }

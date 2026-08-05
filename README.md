@@ -51,23 +51,23 @@ API:
 
 ```bash
 sbx deploy \
-  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:c89fffd65f3e38af8c70b9af2f8eb0e80be53422f913d755f1d03a5be2ea32f3 \
-  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:b208dc855f4213c1df15a9bfc2fe4d37b57c499aec42578497505952026780d5 \
+  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:779b100fc5e19a8b0d4d24ffda5dbc227531899b3ea124689f69306606f1fead \
+  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:49805f060e3749bf37277beff47633d111640e5dc6d0749a96f5cd16378c9090 \
   --ateom-image gcr.io/dberkov-gke-dev3/ateom-gvisor@sha256:9b55c9ff2d3ee1de088377be0176ddd61048479a3deb32a065103ff10fd437b4 \
-  --snapshots-bucket gs://$GCS_BUCKET/substrate-sandbox/ | kubectl apply -f -
+  --snapshots-bucket gs://$GCS_BUCKET/ate-sandbox/ | kubectl apply -f -
 
 # Ensure that the pods are running:
-kubectl get pods -n substrate-sandbox
+kubectl get pods -n ate-sandbox
 
 # Cleanup the deployment to remove Agent Substrate Sandbox from your cluster:
-kubectl delete ns substrate-sandbox
+kubectl delete ns ate-sandbox
 ```
 
 Then create and use a sandbox:
 
 ```bash
 # Port-forward the sandbox API.
-kubectl port-forward -n substrate-sandbox svc/sbx-api 7777:7777 &
+kubectl port-forward -n ate-sandbox svc/sbx-api 7777:7777 &
 
 # Create and use a sandbox.
 sbx create dev1 --template sandbox
@@ -146,7 +146,7 @@ Create body:
 {
   "id": "dev1",
   "template": "sandbox",
-  "namespace": "substrate-sandbox"
+  "namespace": "ate-sandbox"
 }
 ```
 

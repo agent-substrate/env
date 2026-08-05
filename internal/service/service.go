@@ -21,7 +21,7 @@ const DefaultTemplate = "sandbox"
 // DefaultNamespace is the Kubernetes namespace the ActorTemplate is
 // looked up in when a create request does not specify one. It matches the
 // default namespace of `sbx deploy`.
-const DefaultNamespace = "substrate-sandbox"
+const DefaultNamespace = "ate-sandbox"
 
 // Handler serves the sandbox API backed by client.
 func Handler(client *ate.Client) http.Handler {

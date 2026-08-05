@@ -56,7 +56,7 @@ Each release publishes images:
     --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest:latest \
     --api-image   ghcr.io/agent-substrate/sandbox/sbx-api:latest \
     --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor:latest \
-    --snapshots-bucket gs://<bucket>/substrate-sandbox/ | kubectl apply -f -
+    --snapshots-bucket gs://<bucket>/ate-sandbox/ | kubectl apply -f -
 
 Images must be pinned by digest (repo@sha256:...); Substrate rejects
 unpinned images because changing an image invalidates snapshots. To use
@@ -67,8 +67,8 @@ your own images, build and push them with ko:
     --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/sbx-guest) \
     --api-image   $(ko build github.com/agent-substrate/sandbox/cmd/sbx-api) \
     --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
-    --snapshots-bucket gs://<bucket>/substrate-sandbox/ \
-    --template sandbox --namespace substrate-sandbox | kubectl apply -f -`,
+    --snapshots-bucket gs://<bucket>/ate-sandbox/ \
+    --template sandbox --namespace ate-sandbox | kubectl apply -f -`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfg.resolveImages(); err != nil {

@@ -12,14 +12,14 @@ import (
 
 func testDeployConfig() deployConfig {
 	return deployConfig{
-		namespace:       "substrate-sandbox",
+		namespace:       "ate-sandbox",
 		template:        "sandbox",
 		workerPool:      "sandbox-workerpool",
 		guestImage:      "example.com/guest@sha256:aaaa",
 		ateomImage:      "example.com/ateom@sha256:bbbb",
 		apiImage:        "example.com/api@sha256:cccc",
 		pauseImage:      defaultPauseImage,
-		snapshotsBucket: "gs://bucket/substrate-sandbox/",
+		snapshotsBucket: "gs://bucket/ate-sandbox/",
 		replicas:        3,
 		apiReplicas:     1,
 		apiPort:         7777,
@@ -52,8 +52,8 @@ func TestBuildManifests(t *testing.T) {
 	}
 
 	ns := objs[0].(*corev1.Namespace)
-	if ns.Name != "substrate-sandbox" {
-		t.Errorf("namespace = %q, want substrate-sandbox", ns.Name)
+	if ns.Name != "ate-sandbox" {
+		t.Errorf("namespace = %q, want ate-sandbox", ns.Name)
 	}
 
 	pool := objs[1].(*atev1alpha1.WorkerPool)
@@ -142,7 +142,7 @@ func TestWriteManifests(t *testing.T) {
 		"kind: Deployment",
 		"kind: Service",
 		"image: example.com/guest@sha256:aaaa",
-		"location: gs://bucket/substrate-sandbox/",
+		"location: gs://bucket/ate-sandbox/",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
