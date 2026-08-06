@@ -3,7 +3,6 @@ package sandbox
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -74,18 +73,21 @@ func (s *Sandbox) Cmd(ctx context.Context, commandLine string) (*CmdResult, erro
 	return s.run(ctx, CmdRequest{Command: []string{"sh", "-c", commandLine}})
 }
 
+type readFileResponse struct {
+	Content []byte `json:"content"`
+	Mode    string `json:"mode,omitempty"`
+	Size    int64  `json:"size"`
+}
+
 // ReadFile streams the contents of the file at path inside the sandbox.
 // The caller must close the returned reader.
 func (s *Sandbox) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
-	data, err := json.Marshal(service.FSRequest{Path: p})
-	if err != nil {
-		return nil, fmt.Errorf("sandbox: encoding request: %w", err)
-	}
-	resp, err := s.client.do(ctx, http.MethodGet, s.path("/file"), "application/json", bytes.NewReader(data))
-	if err != nil {
+	req := service.FSRequest{Path: p}
+	var res readFileResponse
+	if err := s.client.doJSON(ctx, http.MethodGet, s.path("/file"), req, &res); err != nil {
 		return nil, err
 	}
-	return resp.Body, nil
+	return io.NopCloser(bytes.NewReader(res.Content)), nil
 }
 
 // WriteFile writes the contents of r to the file at path inside the

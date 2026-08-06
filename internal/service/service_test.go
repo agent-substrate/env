@@ -3,7 +3,6 @@ package service_test
 import (
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -98,8 +97,14 @@ func TestLifecycleAndExec(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("read file status = %d, want 200", resp.StatusCode)
 	}
-	if data, _ := io.ReadAll(resp.Body); string(data) != "file body" {
-		t.Fatalf("read file = %q, want %q", data, "file body")
+	var resFile struct {
+		Content []byte `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&resFile); err != nil {
+		t.Fatalf("decoding read file response: %v", err)
+	}
+	if string(resFile.Content) != "file body" {
+		t.Fatalf("read file = %q, want %q", resFile.Content, "file body")
 	}
 
 	// Exec.

@@ -243,6 +243,12 @@ func (s *Server) handleCmd(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Re
 	writeJSON(w, res)
 }
 
+type readFileJSONResponse struct {
+	Content []byte `json:"content"`
+	Mode    string `json:"mode,omitempty"`
+	Size    int64  `json:"size"`
+}
+
 func (s *Server) handleReadFile(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
 	path, err := s.getPath(fsSys, r)
 	if err != nil {
@@ -255,10 +261,16 @@ func (s *Server) handleReadFile(fsSys *guestsys.FS, w http.ResponseWriter, r *ht
 		return
 	}
 	defer f.Close()
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("X-File-Mode", "0"+strconv.FormatUint(uint64(fi.Mode().Perm()), 8))
-	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
-	io.Copy(w, f)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		writeFSError(w, err)
+		return
+	}
+	writeJSON(w, readFileJSONResponse{
+		Content: data,
+		Mode:    "0" + strconv.FormatUint(uint64(fi.Mode().Perm()), 8),
+		Size:    fi.Size(),
+	})
 }
 
 type writeFileJSONRequest struct {

@@ -156,12 +156,15 @@ func TestFileWriteReadRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if string(data) != "hello world" {
-		t.Errorf("read back %q, want %q", data, "hello world")
+	var res readFileJSONResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decoding read file response: %v", err)
 	}
-	if got := resp.Header.Get("X-File-Mode"); got != "0600" {
-		t.Errorf("X-File-Mode = %q, want 0600", got)
+	if string(res.Content) != "hello world" {
+		t.Errorf("read back %q, want %q", res.Content, "hello world")
+	}
+	if res.Mode != "0600" {
+		t.Errorf("Mode = %q, want 0600", res.Mode)
 	}
 }
 

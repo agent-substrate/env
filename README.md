@@ -82,7 +82,7 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/cmd \
      -d '{"command":["sh","-c","uname -a"]}'
 # Alternatively, use built-in tools.
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
-     -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"/workspace/note.txt"}}'
+     -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"/note.txt"}}'
 curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
      -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
 ```
@@ -178,23 +178,23 @@ report when the cap was hit, and `timedOut` reports a timeout kill.
 
 All filesystem endpoints accept a JSON request body containing `"path"`.
 
-| Method   | Path                       | Description                     |
-| -------- | -------------------------- | ------------------------------- |
-| `GET`    | `/v1/sandboxes/{id}/file`  | Read a file (raw bytes response)|
-| `POST`   | `/v1/sandboxes/{id}/file`  | Write a file                    |
-| `DELETE` | `/v1/sandboxes/{id}/file`  | Delete a file or directory      |
-| `GET`    | `/v1/sandboxes/{id}/dir`   | List a directory                |
-| `POST`   | `/v1/sandboxes/{id}/dir`   | Create a directory (mkdir -p)   |
-| `GET`    | `/v1/sandboxes/{id}/stat`  | Stat a path                     |
+| Method   | Path                       | Description                        |
+| -------- | -------------------------- | ---------------------------------- |
+| `GET`    | `/v1/sandboxes/{id}/file`  | Read a file (base64 JSON response) |
+| `POST`   | `/v1/sandboxes/{id}/file`  | Write a file                       |
+| `DELETE` | `/v1/sandboxes/{id}/file`  | Delete a file or directory         |
+| `GET`    | `/v1/sandboxes/{id}/dir`   | List a directory                   |
+| `POST`   | `/v1/sandboxes/{id}/dir`   | Create a directory (mkdir -p)      |
+| `GET`    | `/v1/sandboxes/{id}/stat`  | Stat a path                        |
 
-Write a file, then read the raw bytes back (`content` is base64-encoded;
-`mode` is an octal string defaulting to `"644"`):
+Write a file, then read it back (`content` is base64-encoded in both requests and responses; `mode` is an octal string defaulting to `"644"`):
 
 ```bash
 curl -X POST localhost:7777/v1/sandboxes/dev1/file \
      -d '{"path": "app/main.txt", "mode": "644", "content": "aGVsbG8K"}'
 curl -X GET localhost:7777/v1/sandboxes/dev1/file \
      -d '{"path": "app/main.txt"}'
+# Response: {"content":"aGVsbG8K","mode":"0644","size":6}
 ```
 
 ## Built-in Tools
