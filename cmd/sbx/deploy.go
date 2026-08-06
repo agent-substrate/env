@@ -17,7 +17,7 @@ import (
 
 // defaultPauseImage is the digest-pinned pause image recommended by the
 // Substrate ActorTemplate documentation for off-GCP clusters.
-const defaultPauseImage = "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
+const defaultPauseImage = "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
 
 // apiName is the name of the API service Deployment and Service.
 const apiName = "sbx-api"
@@ -48,27 +48,7 @@ func newDeployCommand() *cobra.Command {
 a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
 sandboxes are created from, and the sbx-api service. It prints YAML to
-stdout without touching the cluster; apply it with kubectl.
-
-Each release publishes images:
-
-  sbx deploy \
-    --guest-image ghcr.io/agent-substrate/sandbox/sbx-guest:latest \
-    --api-image   ghcr.io/agent-substrate/sandbox/sbx-api:latest \
-    --ateom-image ghcr.io/agent-substrate/sandbox/ateom-gvisor:latest \
-    --snapshots-bucket gs://<bucket>/ate-sandbox/ | kubectl apply -f -
-
-Images must be pinned by digest (repo@sha256:...); Substrate rejects
-unpinned images because changing an image invalidates snapshots. To use
-your own images, build and push them with ko:
-
-  export KO_DOCKER_REPO=gcr.io/<your-project>
-  sbx deploy \
-    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/sbx-guest) \
-    --api-image   $(ko build github.com/agent-substrate/sandbox/cmd/sbx-api) \
-    --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
-    --snapshots-bucket gs://<bucket>/ate-sandbox/ \
-    --template sandbox --namespace ate-sandbox | kubectl apply -f -`,
+stdout without touching the cluster; apply it with kubectl.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfg.resolveImages(); err != nil {
@@ -111,14 +91,7 @@ func (c *deployConfig) resolveImages() error {
 	}
 	return errors.New(`--guest-image, --api-image, and --ateom-image are required; use the
 digest-pinned images published by the latest release (the README
-quickstart records them), or build and push your own with ko:
-
-  export KO_DOCKER_REPO=<your-registry>
-  sbx deploy \
-    --guest-image $(ko build github.com/agent-substrate/sandbox/cmd/sbx-guest) \
-    --api-image    $(ko build github.com/agent-substrate/sandbox/cmd/sbx-api) \
-    --ateom-image  $(cd <substrate-checkout> && ko build ./cmd/ateom-gvisor) \
-    ...`)
+quickstart records them), or build and push your own.`)
 }
 
 // buildManifests returns the Kubernetes objects that make up a deployment,

@@ -225,9 +225,9 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 	}
 
 	sb := &SandboxClient{id: id, client: c}
-	if _, err := c.control.ResumeActor(ctx, &ateapipb.ResumeActorRequest{Actor: c.ref(id)}); err != nil {
-		return sb, fmt.Errorf("sandbox: starting %q: %w", id, wrapGRPCError(err))
-	}
+	// if _, err := c.control.ResumeActor(ctx, &ateapipb.ResumeActorRequest{Actor: c.ref(id)}); err != nil {
+	// 	return sb, fmt.Errorf("sandbox: starting %q: %w", id, wrapGRPCError(err))
+	// }
 	return sb, nil
 }
 
