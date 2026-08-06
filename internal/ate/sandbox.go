@@ -41,6 +41,9 @@ func (s *SandboxClient) Suspend(ctx context.Context) error {
 // Delete removes the sandbox permanently. Substrate only deletes suspended
 // actors, so Delete suspends the sandbox first.
 func (s *SandboxClient) Delete(ctx context.Context) error {
+	if err := s.Suspend(ctx); err != nil {
+		return err
+	}
 	_, err := s.client.control.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: s.client.ref(s.id)})
 	if err != nil {
 		return fmt.Errorf("sandbox: deleting %q: %w", s.id, wrapGRPCError(err))
