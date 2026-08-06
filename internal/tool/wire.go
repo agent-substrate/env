@@ -21,11 +21,10 @@ type ToolDefinition struct {
 
 // Parameters is the JSON Schema describing a tool's parameters.
 type Parameters struct {
-	Type                 string              `json:"type"`
-	Properties           map[string]Property `json:"properties"`
-	Required             []string            `json:"required"`
-	AdditionalProperties bool                `json:"additionalProperties"`
-	ExtraFields          map[string]any      `json:"-"`
+	Type        string              `json:"type"`
+	Properties  map[string]Property `json:"properties"`
+	Required    []string            `json:"required"`
+	ExtraFields map[string]any      `json:"-"`
 }
 
 func (s Parameters) MarshalJSON() ([]byte, error) {
