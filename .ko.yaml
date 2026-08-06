@@ -1,4 +1,2 @@
 baseImageOverrides:
   github.com/agent-substrate/sandbox/cmd/sbx-guest: bash:latest
-  github.com/agent-substrate/sandbox/cmd/sbx-api: bash:latest
-  github.com/agent-substrate/substrate/cmd/ateom-gvisor: bash:latest
