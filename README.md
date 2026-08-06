@@ -51,9 +51,9 @@ API:
 
 ```bash
 sbx deploy \
-  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:f186d0f249f48637eb91a3595a557a2c9a97d0e45b8133bd16393ea353e8b06e \
-  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:08c484895ecb6d94d5227987496f351359d94fd339fe6c5157958c3ecd68f7dc \
-  --ateom-image gcr.io/dberkov-gke-dev3/ateom-gvisor@sha256:9b55c9ff2d3ee1de088377be0176ddd61048479a3deb32a065103ff10fd437b4 \
+  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:97d0debe54a3a8c66ec8c77f5ee878f19ff5fdd48d35fadd67d07fff3b966ad1 \
+  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:d869eff4196f92682be44d849506f33d3d7e7d590742c5b1563f82dae16170f6 \
+  --ateom-image gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-sandbox/ | kubectl apply -f -
 
 # Ensure that the pods are running:
