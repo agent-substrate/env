@@ -31,7 +31,7 @@ import (
 // exec output.
 const DefaultMaxOutputBytes = 10 << 20 // 10 MiB
 
-// DefaultMaxFileBytes caps file writes and reads through the files endpoint.
+// DefaultMaxFileBytes caps file content size for reads and writes.
 const DefaultMaxFileBytes = 64 << 20 // 64 MiB
 
 // Server serves the guest API. The zero value is usable with defaults.
@@ -67,9 +67,9 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	s.reg = reg
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, "ok")
+		io.WriteString(w, "ok\n")
 	})
 	mux.HandleFunc("POST /v1/cmd", func(w http.ResponseWriter, r *http.Request) { s.handleCmd(fsSys, w, r) })
 	mux.HandleFunc("GET /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleReadFile(fsSys, w, r) })
@@ -81,6 +81,7 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/stat", func(w http.ResponseWriter, r *http.Request) { s.handleStat(fsSys, w, r) })
 	mux.HandleFunc("GET /v1/tools", s.handleTools)
 	mux.HandleFunc("POST /v1/tools", s.handleToolUse)
+
 	return mux, nil
 }
 

@@ -342,3 +342,21 @@ func TestToolsEndpoints(t *testing.T) {
 		t.Errorf("unexpected shell tool output: %+v", resStep.Result)
 	}
 }
+
+func TestReadyzEndpoint(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp, err := http.Get(srv.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("GET /readyz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "ok\n" {
+		t.Errorf("body = %q, want %q", string(body), "ok\n")
+	}
+}

@@ -186,7 +186,7 @@ func buildActorTemplate(cfg deployConfig) *atev1alpha1.ActorTemplate {
 				}},
 				Readyz: &atev1alpha1.ContainerReadyz{
 					HTTPGet: &atev1alpha1.HTTPGetAction{
-						Path: "/healthz",
+						Path: "/readyz",
 						Port: 80,
 					},
 				},

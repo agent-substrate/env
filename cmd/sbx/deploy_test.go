@@ -79,8 +79,8 @@ func TestBuildManifests(t *testing.T) {
 		t.Errorf("worker selector = %v, want workload=sandbox", template.Spec.WorkerSelector)
 	}
 	readyz := template.Spec.Containers[0].Readyz
-	if readyz == nil || readyz.HTTPGet == nil || readyz.HTTPGet.Path != "/healthz" {
-		t.Errorf("readyz = %+v, want HTTP GET /healthz", readyz)
+	if readyz == nil || readyz.HTTPGet == nil || readyz.HTTPGet.Path != "/readyz" {
+		t.Errorf("readyz = %+v, want HTTP GET /readyz", readyz)
 	}
 
 	deployment := objs[3].(*appsv1.Deployment)
