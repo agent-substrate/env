@@ -66,12 +66,11 @@ Then create and use a sandbox:
 # Port-forward the sandbox API.
 kubectl port-forward -n ate-sandbox svc/sbx-api 7777:7777 &
 
-# Create and use a sandbox.
+# Create and use a sandbox. Sandbox is suspended and resumed
+# automatically after each command.
 sbx create dev1 --template sandbox
-sbx dev1 cmd 'echo hello > /workspace/note.txt'
-sbx suspend dev1
-sbx resume dev1
-sbx dev1 cmd 'cat /workspace/note.txt' # prints hello
+sbx dev1 cmd 'echo hello > /note.txt'
+sbx dev1 cmd 'cat /note.txt' # prints hello
 sbx delete dev1
 ```
 
@@ -95,7 +94,7 @@ Lifecycle and deployment are top-level commands; command execution and file oper
 ```bash
 $ sbx create dev1 --template sandbox
 $ sbx dev1 cmd 'uname -a'
-$ sbx dev1 fs ls /workspace
+$ sbx dev1 fs ls /
 $ sbx delete dev1
 ```
 
