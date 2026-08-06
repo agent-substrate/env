@@ -117,8 +117,12 @@ func main() {
 			if err != nil {
 				return err
 			}
-			os.Stdout.WriteString(res.Stdout)
-			os.Stderr.WriteString(res.Stderr)
+			if res.Stdout != "" {
+				fmt.Println(strings.TrimSuffix(res.Stdout, "\n"))
+			}
+			if res.Stderr != "" {
+				fmt.Fprintln(os.Stderr, strings.TrimSuffix(res.Stderr, "\n"))
+			}
 			if res.TimedOut {
 				fmt.Fprintln(os.Stderr, "sbx: command timed out")
 			}
@@ -259,8 +263,12 @@ func newSandboxCommand(id string, client **sandbox.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			os.Stdout.WriteString(res.Stdout)
-			os.Stderr.WriteString(res.Stderr)
+			if res.Stdout != "" {
+				fmt.Println(strings.TrimSuffix(res.Stdout, "\n"))
+			}
+			if res.Stderr != "" {
+				fmt.Fprintln(os.Stderr, strings.TrimSuffix(res.Stderr, "\n"))
+			}
 			if res.TimedOut {
 				fmt.Fprintln(os.Stderr, "sbx: command timed out")
 			}
