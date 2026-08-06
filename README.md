@@ -98,29 +98,35 @@ $ sbx dev1 fs ls /
 $ sbx delete dev1
 ```
 
-Running `sbx <id>` shows the operations available on that sandbox:
+`sbx` provides help text:
 
 ```bash
-$ sbx dev1
-Operate on sandbox dev1
+$ sbx sbx
+Manage sandboxes on Agent Substrate
+
+Usage:
+  sbx [command]
 
 Available Commands:
   cmd         Run a shell command line in the sandbox
-  delete      Delete the sandbox
-  fs          Operate on files and directories in the sandbox
+  completion  Generate the autocompletion script for the specified shell
+  create      Create and start a sandbox
+  delete      Delete a sandbox
+  deploy      Generate Kubernetes manifests to deploy the system
+  fs          Operate on files and directories in a sandbox
+  help        Help about any command
   resume      Resume from the latest snapshot
   suspend     Snapshot to external storage and free the worker
 
-$ sbx dev1 fs
-Operate on files and directories in the sandbox
+$ sbx dev1
+Operate on sandbox dev1
+
+Usage:
+  sbx dev1 [command]
 
 Available Commands:
-  ls          List a sandbox directory
-  mkdir       Create a directory in the sandbox
-  read        Print a sandbox file to stdout
-  rm          Delete a file or directory in the sandbox
-  stat        Stat a sandbox path
-  write       Write stdin to a sandbox file
+  cmd         Run a shell command line in the sandbox
+  fs          Operate on files and directories in the sandbox
 
 $ sbx deploy --help
 Deploy generates Kubernetes manifests for everything sandboxes need on

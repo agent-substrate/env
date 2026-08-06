@@ -228,33 +228,6 @@ func newSandboxCommand(id string, client **sandbox.Client) *cobra.Command {
 	}
 
 	sbCmd.AddCommand(&cobra.Command{
-		Use:   "suspend",
-		Short: "Snapshot to external storage and free the worker",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return (*client).Sandbox(id).Suspend(cmd.Context())
-		},
-	})
-
-	sbCmd.AddCommand(&cobra.Command{
-		Use:   "resume",
-		Short: "Resume from the latest snapshot",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return (*client).Sandbox(id).Resume(cmd.Context())
-		},
-	})
-
-	sbCmd.AddCommand(&cobra.Command{
-		Use:   "delete",
-		Short: "Delete the sandbox",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return (*client).Sandbox(id).Delete(cmd.Context())
-		},
-	})
-
-	sbCmd.AddCommand(&cobra.Command{
 		Use:   "cmd <cmdline>",
 		Short: "Run a shell command line in the sandbox",
 		Args:  cobra.ExactArgs(1),
