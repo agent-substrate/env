@@ -77,12 +77,8 @@ func main() {
 			if createNamespace != "" {
 				opts = append(opts, sandbox.WithNamespace(createNamespace))
 			}
-			sb, err := client.Create(cmd.Context(), args[0], opts...)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("created %s\n", sb.ID())
-			return nil
+			_, err := client.Create(cmd.Context(), args[0], opts...)
+			return err
 		},
 	}
 	createCmd.Flags().StringVar(&createTemplate, "template", "sandbox", "ActorTemplate name")
