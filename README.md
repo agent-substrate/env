@@ -68,10 +68,10 @@ kubectl port-forward -n ate-sandbox svc/sbx-api 7777:7777 &
 
 # Create and use a sandbox.
 sbx create dev1 --template sandbox
-sbx cmd dev1 'echo hello > /workspace/note.txt'
+sbx dev1 cmd 'echo hello > /workspace/note.txt'
 sbx suspend dev1
 sbx resume dev1
-sbx cmd dev1 'cat /workspace/note.txt' # prints hello
+sbx dev1 cmd 'cat /workspace/note.txt' # prints hello
 sbx delete dev1
 ```
 
@@ -90,25 +90,30 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
 
 ## CLI
 
-Lifecycle and command execution are top-level commands; file operations are
-grouped under `fs`; `deploy` generates the manifests that set up the system
-on a cluster:
+Lifecycle and deployment are top-level commands; command execution and file operations on a sandbox can also use the sandbox ID as the first argument (`sbx <id> ...`):
 
 ```bash
-$ sbx
-Manage sandboxes on Agent Substrate
+$ sbx create dev1 --template sandbox
+$ sbx dev1 cmd 'uname -a'
+$ sbx dev1 fs ls /workspace
+$ sbx delete dev1
+```
+
+Running `sbx <id>` shows the operations available on that sandbox:
+
+```bash
+$ sbx dev1
+Operate on sandbox dev1
 
 Available Commands:
   cmd         Run a shell command line in the sandbox
-  create      Create and start a sandbox
-  delete      Delete a sandbox
-  deploy      Generate Kubernetes manifests to deploy the system
-  fs          Operate on files and directories in a sandbox
+  delete      Delete the sandbox
+  fs          Operate on files and directories in the sandbox
   resume      Resume from the latest snapshot
   suspend     Snapshot to external storage and free the worker
 
-$ sbx fs
-Operate on files and directories in a sandbox
+$ sbx dev1 fs
+Operate on files and directories in the sandbox
 
 Available Commands:
   ls          List a sandbox directory
