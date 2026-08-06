@@ -148,4 +148,7 @@ func TestWriteManifests(t *testing.T) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "status") {
+		t.Errorf("output should not contain status fields:\n%s", out)
+	}
 }

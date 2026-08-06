@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ import (
 
 // defaultPauseImage is the digest-pinned pause image recommended by the
 // Substrate ActorTemplate documentation for off-GCP clusters.
-const defaultPauseImage = "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
+const defaultPauseImage = "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
 
 // apiName is the name of the API service Deployment and Service.
 const apiName = "sbx-api"
@@ -109,7 +110,16 @@ func buildManifests(cfg deployConfig) []any {
 // writeManifests writes the objects as a multi-document YAML stream.
 func writeManifests(w io.Writer, objs []any) error {
 	for i, obj := range objs {
-		data, err := yaml.Marshal(obj)
+		jsonBytes, err := json.Marshal(obj)
+		if err != nil {
+			return fmt.Errorf("encoding json: %w", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(jsonBytes, &m); err != nil {
+			return fmt.Errorf("decoding json: %w", err)
+		}
+		delete(m, "status")
+		data, err := yaml.Marshal(m)
 		if err != nil {
 			return fmt.Errorf("encoding manifest: %w", err)
 		}

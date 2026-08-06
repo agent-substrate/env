@@ -1,10 +1,2 @@
-# The guest daemon runs user commands with `sh -c`, so its image needs a
-# real userland — Alpine, not distroless.
-defaultBaseImage: gcr.io/distroless/static-debian13
-
-defaultPlatforms:
-  - linux/amd64
-  - linux/arm64
-
 baseImageOverrides:
-  github.com/agent-substrate/sandbox/cmd/sbx-guest: alpine
+  github.com/agent-substrate/sandbox/cmd/sbx-guest: debian:bookworm-slim
