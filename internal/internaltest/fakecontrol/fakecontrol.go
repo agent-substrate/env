@@ -134,7 +134,7 @@ func (s *Server) CreateActor(ctx context.Context, req *ateapipb.CreateActorReque
 		return nil, status.Errorf(codes.AlreadyExists, "actor %q already exists", name)
 	}
 	a := clone(actor)
-	a.Status = ateapipb.Actor_STATUS_SUSPENDED
+	a.Status = ateapipb.Actor_STATUS_RUNNING
 	s.actors[k] = a
 	return clone(a), nil
 }

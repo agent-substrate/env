@@ -27,12 +27,6 @@ type ClientOptions struct {
 	// "http://localhost:7777". Required.
 	Endpoint string
 
-	// Workdir is the default working directory on the guest for relative
-	// paths passed to ReadFile, WriteFile, etc. When empty, relative paths
-	// are sent as-is and resolved by the guest daemon against its workdir
-	// (defaulting to "/").
-	Workdir string
-
 	// HTTPClient overrides the http.Client used for API requests.
 	HTTPClient *http.Client
 }

@@ -22,7 +22,6 @@ func main() {
 
 	client, err := sandbox.NewClient(sandbox.ClientOptions{
 		Endpoint: "http://localhost:7777",
-		Workdir:  "/workspace",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -36,11 +35,11 @@ func main() {
 	defer sb.Delete(ctx)
 
 	// Write a script into the sandbox and run it.
-	script := "#!/bin/sh\necho \"hello from $(hostname)\"\ndate > last-run\n"
-	if err := sb.WriteFile(ctx, "hello.sh", strings.NewReader(script), 0o755); err != nil {
+	script := "#!/bin/sh\necho \"hello from $(hostname)\"\ndate > /workspace/last-run\n"
+	if err := sb.WriteFile(ctx, "/workspace/hello.sh", strings.NewReader(script), 0o755); err != nil {
 		log.Fatal(err)
 	}
-	res, err := sb.Cmd(ctx, "cd /workspace && ./hello.sh")
+	res, err := sb.Cmd(ctx, "/workspace/hello.sh")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func main() {
 	if err := sb.Resume(ctx); err != nil {
 		log.Fatal(err)
 	}
-	rc, err := sb.ReadFile(ctx, "last-run")
+	rc, err := sb.ReadFile(ctx, "/workspace/last-run")
 	if err != nil {
 		log.Fatal(err)
 	}
