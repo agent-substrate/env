@@ -1,44 +1,44 @@
-# 📦 Agent Substrate Sandbox
+# 📦 Agent Substrate Environment
 
 > [!WARNING]
 > This is an alpha API and is likely to change until v1.0 is released.
 
-A sandboxing service on top of [Agent Substrate](https://github.com/agent-substrate/substrate): isolated, stateful execution environments
+An environment service on top of [Agent Substrate](https://github.com/agent-substrate/substrate): isolated, stateful execution environments
 that can be **suspended**, **resumed** on any available worker,
 and driven remotely with **command execution** and **filesystem operations**.
 
-Each sandbox is a Substrate *actor* running in an isolated container.
+Each environment is a Substrate *actor* running in an isolated container.
 Substrate provides the heavy lifting — snapshotting, scheduling,
-multiplexing many idle sandboxes onto a small worker pool, and routing —
-while this project adds the sandbox-shaped API on top.
+multiplexing many idle environments onto a small worker pool, and routing —
+while this project adds the environment-shaped API on top.
 
 ## Overview
 
 ```
  ╭──────────╮   ╭──────────────╮  lifecycle ╭────────────╮
  │  Client  │   │              ├───────────▶│   ateapi   │  Substrate control plane
- │  sbx CLI ├──▶│   sbx-api    │            ╰────────────╯
+ │  ate-env CLI ├──▶│   ate-env-api    │            ╰────────────╯
  ╰──────────╯   │ (API server) │  cmd/fs    ╭────────────╮     ╭──────────────────────╮
                 │              ├───────────▶│   atenet   ├────▶│ actor                │
-                ╰──────────────╯            │   router   │     │  └ sbx-guest         │
-                                            ╰────────────╯     │    /v1/sandboxes/*   │
+                ╰──────────────╯            │   router   │     │  └ ate-env-guest         │
+                                            ╰────────────╯     │    /v1/envs/*   │
                                                                ╰──────────────────────╯
 ```
 
-- **`cmd/sbx`** — Provides a CLI over the API, and utilies to
+- **`cmd/ate-env`** — Provides a CLI over the API, and utilies to
   make it easier to deploy Agent Substrate.
-- **`cmd/sbx-api`** — The API service that bridges clients to
+- **`cmd/ate-env-api`** — The API service that bridges clients to
   the Substrate control plane and router.
-- **`cmd/sbx-guest`** — The daemon server available in the sandbox. It runs
+- **`cmd/ate-env-guest`** — The daemon server available in the environment. It runs
   inside every actor and serves command executions and filesystem operations.
-- **`sandbox`** — The Go client library that allows creation, suspension,
-resumption, and deletion of sandboxes; as well as file operations and running remote
-commands on the sandboxes.
+- **`env`** — The Go client library that allows creation, suspension,
+resumption, and deletion of environments; as well as file operations and running remote
+commands on the environments.
 
 ## Installation
 
 ```bash
-go install github.com/agent-substrate/sandbox/cmd/sbx@latest
+go install github.com/agent-substrate/env/cmd/ate-env@latest
 ```
 
 ## Quickstart
@@ -46,114 +46,114 @@ go install github.com/agent-substrate/sandbox/cmd/sbx@latest
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket.
 
-First, deploy the system — namespace, worker pool, sandbox template, and
+First, deploy the system — namespace, worker pool, environment template, and
 API:
 
 ```bash
-sbx deploy \
-  --guest-image gcr.io/dberkov-gke-dev3/sbx-guest@sha256:eb49ae877d1a168531b2654f779494b227568d8d82a24b8e8b3d06f41e511ee8 \
-  --api-image   gcr.io/dberkov-gke-dev3/sbx-api@sha256:542fa9e7223f0d54852e52ee67a630fdba920e8abf6296465f61b6f6da64408d \
+ate-env deploy \
+  --guest-image  gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:a986e4d622891233a63016765bec840e1977ee73fd9d3bec83e9230fc6c7f7a3 \
+  --api-image    gcr.io/dberkov-gke-dev3/ate-env-api@sha256:46ed8632e7d5eb99123730f984977c4776c73a64f894ed6062d95b225a820b94 \
   --ateom-image gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
-  --snapshots-bucket gs://$GCS_BUCKET/ate-sandbox/ | kubectl apply -f -
+  --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 
 # Ensure that the pods are running:
-kubectl get pods -n ate-sandbox
+kubectl get pods -n ate-env
 ```
 
-Then create and use a sandbox:
+Then create and use an environment:
 
 ```bash
-# Port-forward the sandbox API.
-kubectl port-forward -n ate-sandbox svc/sbx-api 7777:7777 &
+# Port-forward the ate-env-api API.
+kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 
-# Create and use a sandbox. Sandbox is suspended and resumed
+# Create and use an environment. Environment is suspended and resumed
 # automatically after each command.
-sbx create dev1 --template sandbox
-sbx dev1 cmd 'echo hello > /note.txt'
-sbx dev1 cmd 'cat /note.txt' # prints hello
-sbx delete dev1
+ate-env create dev1 --template default-env
+ate-env dev1 cmd 'echo hello > /note.txt'
+ate-env dev1 cmd 'cat /note.txt' # prints hello
+ate-env delete dev1
 ```
 
 Or use the API directly:
 
 ```bash
-curl -X POST localhost:7777/v1/sandboxes -d '{"id":"dev1","template":"sandbox"}'
-curl -X POST localhost:7777/v1/sandboxes/dev1/cmd \
+curl -X POST localhost:7777/v1/envs -d '{"id":"dev1","template":"default-env"}'
+curl -X POST localhost:7777/v1/envs/dev1/cmd \
      -d '{"command":["sh","-c","uname -a"]}'
 # Alternatively, use built-in tools.
-curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+curl -X POST localhost:7777/v1/envs/dev1/tools \
      -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"/note.txt"}}'
-curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+curl -X POST localhost:7777/v1/envs/dev1/tools \
      -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
 ```
 
 ## CLI
 
-Lifecycle and deployment are top-level commands; command execution and file operations on a sandbox can also use the sandbox ID as the first argument (`sbx <id> ...`):
+Lifecycle and deployment are top-level commands; command execution and file operations on an environment can also use the environment ID as the first argument (`ate-env <id> ...`):
 
 ```bash
-$ sbx create dev1 --template sandbox
-$ sbx dev1 cmd 'uname -a'
-$ sbx dev1 fs ls /
-$ sbx delete dev1
+$ ate-env create dev1 --template default-env
+$ ate-env dev1 cmd 'uname -a'
+$ ate-env dev1 fs ls /
+$ ate-env delete dev1
 ```
 
-`sbx` provides help text:
+`ate-env` provides help text:
 
 ```bash
-$ sbx sbx
-Manage sandboxes on Agent Substrate
+$ ate-env ate-env
+Manage environments on Agent Substrate
 
 Usage:
-  sbx [command]
+  ate-env [command]
 
 Available Commands:
-  cmd         Run a shell command line in the sandbox
+  cmd         Run a shell command line in the environment
   completion  Generate the autocompletion script for the specified shell
-  create      Create and start a sandbox
-  delete      Delete a sandbox
+  create      Create and start an environment
+  delete      Delete an environment
   deploy      Generate Kubernetes manifests to deploy the system
-  fs          Operate on files and directories in a sandbox
+  fs          Operate on files and directories in an environment
   help        Help about any command
   resume      Resume from the latest snapshot
   suspend     Snapshot to external storage and free the worker
 
-$ sbx dev1
-Operate on sandbox dev1
+$ ate-env dev1
+Operate on environment dev1
 
 Usage:
-  sbx dev1 [command]
+  ate-env dev1 [command]
 
 Available Commands:
-  cmd         Run a shell command line in the sandbox
-  fs          Operate on files and directories in the sandbox
+  cmd         Run a shell command line in the environment
+  fs          Operate on files and directories in the environment
 
-$ sbx deploy --help
-Deploy generates Kubernetes manifests for everything sandboxes need on
+$ ate-env deploy --help
+Deploy generates Kubernetes manifests for everything environments need on
 a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
-sandboxes are created from, and the sbx-api service. It prints YAML to
+environments are created from, and the ate-env-api service. It prints YAML to
 stdout without touching the cluster; apply it with kubectl.
 ```
 
 ## API
 
-The API server provides sandbox management and guest operations over the API. Alternatively, a large number of users may find the [built-in tools](#built-in-tools) the primary way to run these operations.
+The API server provides environment management and guest operations over the API. Alternatively, a large number of users may find the [built-in tools](#built-in-tools) the primary way to run these operations.
 
-### Sandboxes
+### Environments
 
 | Method   | Path                 | Description                            |
 | -------- | -------------------- | -------------------------------------- |
-| `POST`   | `/v1/sandboxes`      | Create a sandbox                        |
-| `DELETE` | `/v1/sandboxes/{id}` | Delete (suspends first if running)      |
+| `POST`   | `/v1/envs`      | Create an environment                        |
+| `DELETE` | `/v1/envs/{id}` | Delete (suspends first if running)      |
 
 Create body:
 
 ```json
 {
   "id": "dev1",
-  "template": "sandbox",
-  "namespace": "ate-sandbox"
+  "template": "default-env",
+  "namespace": "ate-env"
 }
 ```
 
@@ -161,12 +161,12 @@ Create body:
 
 | Method | Path                         | Description                              |
 | ------ | ---------------------------- | ---------------------------------------- |
-| `POST` | `/v1/sandboxes/{id}/suspend` | Snapshot to object storage, free worker  |
-| `POST` | `/v1/sandboxes/{id}/resume`  | Restore from the latest snapshot         |
+| `POST` | `/v1/envs/{id}/suspend` | Snapshot to object storage, free worker  |
+| `POST` | `/v1/envs/{id}/resume`  | Restore from the latest snapshot         |
 
 ### Commands
 
-`POST /v1/sandboxes/{id}/cmd`
+`POST /v1/envs/{id}/cmd`
 
 ```json
 {                                           {
@@ -186,19 +186,19 @@ All filesystem endpoints accept a JSON request body containing `"path"`.
 
 | Method   | Path                       | Description                        |
 | -------- | -------------------------- | ---------------------------------- |
-| `GET`    | `/v1/sandboxes/{id}/file`  | Read a file (base64 JSON response) |
-| `POST`   | `/v1/sandboxes/{id}/file`  | Write a file                       |
-| `DELETE` | `/v1/sandboxes/{id}/file`  | Delete a file or directory         |
-| `GET`    | `/v1/sandboxes/{id}/dir`   | List a directory                   |
-| `POST`   | `/v1/sandboxes/{id}/dir`   | Create a directory (mkdir -p)      |
-| `GET`    | `/v1/sandboxes/{id}/stat`  | Stat a path                        |
+| `GET`    | `/v1/envs/{id}/file`  | Read a file (base64 JSON response) |
+| `POST`   | `/v1/envs/{id}/file`  | Write a file                       |
+| `DELETE` | `/v1/envs/{id}/file`  | Delete a file or directory         |
+| `GET`    | `/v1/envs/{id}/dir`   | List a directory                   |
+| `POST`   | `/v1/envs/{id}/dir`   | Create a directory (mkdir -p)      |
+| `GET`    | `/v1/envs/{id}/stat`  | Stat a path                        |
 
 Write a file, then read it back (`content` is base64-encoded in both requests and responses; `mode` is an octal string defaulting to `"644"`):
 
 ```bash
-curl -X POST localhost:7777/v1/sandboxes/dev1/file \
+curl -X POST localhost:7777/v1/envs/dev1/file \
      -d '{"path": "app/main.txt", "mode": "644", "content": "aGVsbG8K"}'
-curl -X GET localhost:7777/v1/sandboxes/dev1/file \
+curl -X GET localhost:7777/v1/envs/dev1/file \
      -d '{"path": "app/main.txt"}'
 # Response: {"content":"aGVsbG8K","mode":"0644","size":6}
 ```
@@ -209,8 +209,8 @@ The API exposes built-in tools for file system operations and shell executions.
 
 | Method | Path                        | Description                      |
 | ------ | --------------------------- | -------------------------------- |
-| `GET`  | `/v1/sandboxes/{id}/tools`  | List registered tool definitions |
-| `POST` | `/v1/sandboxes/{id}/tools`  | Execute a tool call              |
+| `GET`  | `/v1/envs/{id}/tools`  | List registered tool definitions |
+| `POST` | `/v1/envs/{id}/tools`  | Execute a tool call              |
 
 ### Available Tools
 
@@ -226,7 +226,7 @@ The API exposes built-in tools for file system operations and shell executions.
 | `mkdir` | Filesystem | Create a directory including parent directories |
 | `mv` | Filesystem | Move or rename a file or directory |
 | `rm` | Filesystem | Remove a file or directory recursively |
-| `shell` | Shell | Run a shell command line inside the sandbox |
+| `shell` | Shell | Run a shell command line inside the environment |
 | `browser` | Web | Fetch a web page or API over HTTP(S) and render HTML to Markdown |
 
 TODO: Add support for skills e.g. generaate available_skills, and activate a skill.
@@ -234,7 +234,7 @@ TODO: Add support for skills e.g. generaate available_skills, and activate a ski
 ### Tool Definitions
 
 ```bash
-curl -X GET localhost:7777/v1/sandboxes/dev1/tools
+curl -X GET localhost:7777/v1/envs/dev1/tools
 {
   "tools": [
     {
@@ -253,7 +253,7 @@ curl -X GET localhost:7777/v1/sandboxes/dev1/tools
 ### Tool Execution
 
 ```bash
-curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+curl -X POST localhost:7777/v1/envs/dev1/tools \
      -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"main.go"}}'
 {
   "type": "function_result",
@@ -264,7 +264,7 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
   ]
 }
 
-curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
+curl -X POST localhost:7777/v1/envs/dev1/tools \
      -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
 {
   "type": "function_result",
@@ -278,34 +278,34 @@ curl -X POST localhost:7777/v1/sandboxes/dev1/tools \
 
 ## Client Library
 
-Users can use the `sandbox` package directly for lifecycle operations to manage
-sandboxes programatically, and executing operations on the guest.
+Users can use the `env` package directly for lifecycle operations to manage
+environments programmatically, and executing operations on the guest.
 
 ```go
-client, err := sandbox.NewClient(sandbox.ClientOptions{
-    Endpoint: "http://localhost:7777",          // sbx-api endpoint
+client, err := env.NewClient(env.ClientOptions{
+    Endpoint: "http://localhost:7777",          // ate-env-api endpoint
 })
 if err != nil {
     log.Fatalf("connecting to Substrate: %v", err)
 }
 defer client.Close()
 
-sb, err := client.Create(ctx, "dev1", sandbox.WithTemplate("sandbox"))
+e, err := client.Create(ctx, "dev1")
 if err != nil {
-    log.Fatalf("creating sandbox: %v", err)
+    log.Fatalf("creating environment: %v", err)
 }
-if err := sb.WriteFile(ctx, "/workspace/main.go", src, 0o644); err != nil {
+if err := e.WriteFile(ctx, "/workspace/main.go", src, 0o644); err != nil {
     log.Fatalf("writing main.go: %v", err)
 }
-res, err := sb.Cmd(ctx, "cd /workspace && go run main.go")
+res, err := e.Cmd(ctx, "cd /workspace && go run main.go")
 if err != nil {
     log.Fatalf("running main.go: %v", err)
 }
 fmt.Println(res.Stdout, res.ExitCode)
 
-sb.Suspend(ctx)
-sb.Resume(ctx)
-sb.Delete(ctx)
+e.Suspend(ctx)
+e.Resume(ctx)
+e.Delete(ctx)
 ```
 
 See [examples/quickstart](examples/quickstart/main.go) for a complete
@@ -313,9 +313,9 @@ program.
 
 ## Cleanup
 
-You can remove the sandbox deployment by running:
+You can remove the environment deployment by running:
 
 ```bash
-# Cleanup the deployment to remove Agent Substrate Sandbox from your cluster:
-kubectl delete ns ate-sandbox
+# Cleanup the deployment to remove Agent Substrate Environment from your cluster:
+kubectl delete ns ate-env
 ```

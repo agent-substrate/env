@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/sandbox/internal/tool"
+	"github.com/agent-substrate/env/internal/tool"
 )
 
 const samplePage = `<!doctype html>

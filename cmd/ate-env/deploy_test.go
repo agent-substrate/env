@@ -12,19 +12,19 @@ import (
 
 func testDeployConfig() deployConfig {
 	return deployConfig{
-		namespace:       "ate-sandbox",
-		template:        "sandbox",
-		workerPool:      "sandbox-workerpool",
+		namespace:       "ate-env",
+		template:        "default-env",
+		workerPool:      "default-env-workerpool",
 		guestImage:      "example.com/guest@sha256:aaaa",
 		ateomImage:      "example.com/ateom@sha256:bbbb",
 		apiImage:        "example.com/api@sha256:cccc",
 		pauseImage:      defaultPauseImage,
-		snapshotsBucket: "gs://bucket/ate-sandbox/",
+		snapshotsBucket: "gs://bucket/ate-env/",
 		replicas:        3,
 		apiReplicas:     1,
 		apiPort:         7777,
-		guestCommand:    []string{"/ko-app/sbx-guest"},
-		poolLabels:      map[string]string{"workload": "sandbox"},
+		guestCommand:    []string{"/ko-app/ate-env-guest"},
+		poolLabels:      map[string]string{"workload": "default-env"},
 	}
 }
 
@@ -52,19 +52,19 @@ func TestBuildManifests(t *testing.T) {
 	}
 
 	ns := objs[0].(*corev1.Namespace)
-	if ns.Name != "ate-sandbox" {
-		t.Errorf("namespace = %q, want ate-sandbox", ns.Name)
+	if ns.Name != "ate-env" {
+		t.Errorf("namespace = %q, want ate-env", ns.Name)
 	}
 
 	pool := objs[1].(*atev1alpha1.WorkerPool)
-	if pool.Namespace != cfg.namespace || pool.Name != "sandbox-workerpool" {
-		t.Errorf("workerpool = %s/%s, want %s/sandbox-workerpool", pool.Namespace, pool.Name, cfg.namespace)
+	if pool.Namespace != cfg.namespace || pool.Name != "default-env-workerpool" {
+		t.Errorf("workerpool = %s/%s, want %s/default-env-workerpool", pool.Namespace, pool.Name, cfg.namespace)
 	}
 	if pool.Spec.Replicas != 3 || pool.Spec.AteomImage != cfg.ateomImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and ateom image %q", pool.Spec, cfg.ateomImage)
 	}
-	if pool.Labels["workload"] != "sandbox" {
-		t.Errorf("workerpool labels = %v, want workload=sandbox", pool.Labels)
+	if pool.Labels["workload"] != "default-env" {
+		t.Errorf("workerpool labels = %v, want workload=default-env", pool.Labels)
 	}
 
 	template := objs[2].(*atev1alpha1.ActorTemplate)
@@ -75,8 +75,8 @@ func TestBuildManifests(t *testing.T) {
 	if template.Spec.SnapshotsConfig.Location != cfg.snapshotsBucket {
 		t.Errorf("snapshots location = %q, want %q", template.Spec.SnapshotsConfig.Location, cfg.snapshotsBucket)
 	}
-	if got := template.Spec.WorkerSelector.MatchLabels["workload"]; got != "sandbox" {
-		t.Errorf("worker selector = %v, want workload=sandbox", template.Spec.WorkerSelector)
+	if got := template.Spec.WorkerSelector.MatchLabels["workload"]; got != "default-env" {
+		t.Errorf("worker selector = %v, want workload=default-env", template.Spec.WorkerSelector)
 	}
 	readyz := template.Spec.Containers[0].Readyz
 	if readyz == nil || readyz.HTTPGet == nil || readyz.HTTPGet.Path != "/readyz" {
@@ -142,7 +142,7 @@ func TestWriteManifests(t *testing.T) {
 		"kind: Deployment",
 		"kind: Service",
 		"image: example.com/guest@sha256:aaaa",
-		"location: gs://bucket/ate-sandbox/",
+		"location: gs://bucket/ate-env/",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)

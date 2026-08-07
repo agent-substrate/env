@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/guest/guestsys"
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, string) {

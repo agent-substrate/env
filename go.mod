@@ -1,4 +1,4 @@
-module github.com/agent-substrate/sandbox
+module github.com/agent-substrate/env
 
 go 1.26.3
 

@@ -1,6 +1,6 @@
-// Command sbx-api serves the sandbox API. It bridges HTTP
-// clients to the Substrate control plane (ateapi) for sandbox lifecycle
-// and to the atenet router for in-sandbox exec and filesystem operations.
+// Command ate-env-api serves the env API. It bridges HTTP
+// clients to the Substrate control plane (ateapi) for actor lifecycle
+// and to the atenet router for in-env exec and filesystem operations.
 package main
 
 import (
@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/agent-substrate/sandbox/internal/ate"
-	"github.com/agent-substrate/sandbox/internal/service"
+	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/service"
 )
 
 func main() {
@@ -29,10 +29,10 @@ func main() {
 		SkipVerify:  *skipVerify,
 	})
 	if err != nil {
-		log.Fatalf("creating sandbox client: %v", err)
+		log.Fatalf("creating env client: %v", err)
 	}
 	defer client.Close()
 
-	log.Printf("sbx-api listening on %s (ateapi %s, atenet %s)", *listen, *ateapi, *atenet)
+	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", *listen, *ateapi, *atenet)
 	log.Fatal(http.ListenAndServe(*listen, service.Handler(client)))
 }

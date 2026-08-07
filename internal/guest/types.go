@@ -3,7 +3,7 @@ package guest
 import (
 	"encoding/json"
 
-	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/guest/guestsys"
 )
 
 // FunctionCall represents a tool execution request.
@@ -32,7 +32,7 @@ type FunctionResult struct {
 	IsError bool                 `json:"is_error,omitempty"`
 }
 
-// CmdRequest describes a command to run inside a sandbox.
+// CmdRequest describes a command to run inside an env.
 type CmdRequest struct {
 	// Command is the argv of the process to run. It is executed directly,
 	// not through a shell. Use []string{"sh", "-c", "..."} for shell syntax.
@@ -75,7 +75,7 @@ type CmdResult struct {
 	Duration string `json:"duration,omitempty"`
 }
 
-// DirEntry describes a file or directory inside the sandbox.
+// DirEntry describes a file or directory inside the environment.
 type DirEntry = guestsys.DirEntry
 
 // ListDirResponse is the response of the directory listing endpoint.
@@ -93,7 +93,7 @@ const (
 )
 
 // Error is the JSON error envelope returned by the guest daemon and the
-// sbx-api service on non-2xx responses.
+// ate-env-api service on non-2xx responses.
 type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"error"`

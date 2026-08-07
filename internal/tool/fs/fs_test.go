@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/tool"
-	fstool "github.com/agent-substrate/sandbox/internal/tool/fs"
+	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/tool"
+	fstool "github.com/agent-substrate/env/internal/tool/fs"
 )
 
 func invokeTool(t *testing.T, reg *tool.Registry, toolName, callID string, input map[string]any) tool.ToolResult {

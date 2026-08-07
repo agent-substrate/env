@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/tool"
+	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/tool"
 )
 
 // Default limits applied when zero-initialized in Config.

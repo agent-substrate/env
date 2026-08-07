@@ -1,2 +1,2 @@
 baseImageOverrides:
-  github.com/agent-substrate/sandbox/cmd/sbx-guest: bash:latest
+  github.com/agent-substrate/env/cmd/ate-env-guest: bash:latest
