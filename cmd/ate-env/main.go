@@ -75,7 +75,7 @@ func main() {
 			return err
 		},
 	}
-	createCmd.Flags().StringVar(&createTemplate, "template", "env", "ActorTemplate name")
+	createCmd.Flags().StringVar(&createTemplate, "template", "default-env", "ActorTemplate name")
 	createCmd.Flags().StringVar(&createNamespace, "namespace", "ate-env", "Kubernetes namespace of the ActorTemplate")
 	root.AddCommand(createCmd)
 

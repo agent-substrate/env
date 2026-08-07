@@ -13,8 +13,8 @@ import (
 func testDeployConfig() deployConfig {
 	return deployConfig{
 		namespace:       "ate-env",
-		template:        "env",
-		workerPool:      "env-workerpool",
+		template:        "default-env",
+		workerPool:      "default-env-workerpool",
 		guestImage:      "example.com/guest@sha256:aaaa",
 		ateomImage:      "example.com/ateom@sha256:bbbb",
 		apiImage:        "example.com/api@sha256:cccc",
@@ -24,7 +24,7 @@ func testDeployConfig() deployConfig {
 		apiReplicas:     1,
 		apiPort:         7777,
 		guestCommand:    []string{"/ko-app/ate-env-guest"},
-		poolLabels:      map[string]string{"workload": "env"},
+		poolLabels:      map[string]string{"workload": "default-env"},
 	}
 }
 
@@ -57,14 +57,14 @@ func TestBuildManifests(t *testing.T) {
 	}
 
 	pool := objs[1].(*atev1alpha1.WorkerPool)
-	if pool.Namespace != cfg.namespace || pool.Name != "env-workerpool" {
-		t.Errorf("workerpool = %s/%s, want %s/env-workerpool", pool.Namespace, pool.Name, cfg.namespace)
+	if pool.Namespace != cfg.namespace || pool.Name != "default-env-workerpool" {
+		t.Errorf("workerpool = %s/%s, want %s/default-env-workerpool", pool.Namespace, pool.Name, cfg.namespace)
 	}
 	if pool.Spec.Replicas != 3 || pool.Spec.AteomImage != cfg.ateomImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and ateom image %q", pool.Spec, cfg.ateomImage)
 	}
-	if pool.Labels["workload"] != "env" {
-		t.Errorf("workerpool labels = %v, want workload=env", pool.Labels)
+	if pool.Labels["workload"] != "default-env" {
+		t.Errorf("workerpool labels = %v, want workload=default-env", pool.Labels)
 	}
 
 	template := objs[2].(*atev1alpha1.ActorTemplate)
@@ -75,8 +75,8 @@ func TestBuildManifests(t *testing.T) {
 	if template.Spec.SnapshotsConfig.Location != cfg.snapshotsBucket {
 		t.Errorf("snapshots location = %q, want %q", template.Spec.SnapshotsConfig.Location, cfg.snapshotsBucket)
 	}
-	if got := template.Spec.WorkerSelector.MatchLabels["workload"]; got != "env" {
-		t.Errorf("worker selector = %v, want workload=env", template.Spec.WorkerSelector)
+	if got := template.Spec.WorkerSelector.MatchLabels["workload"]; got != "default-env" {
+		t.Errorf("worker selector = %v, want workload=default-env", template.Spec.WorkerSelector)
 	}
 	readyz := template.Spec.Containers[0].Readyz
 	if readyz == nil || readyz.HTTPGet == nil || readyz.HTTPGet.Path != "/readyz" {

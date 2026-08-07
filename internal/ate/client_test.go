@@ -61,7 +61,7 @@ func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	opts = append([]ate.CreateOption{ate.WithTemplate("default"), ate.WithNamespace("sandboxes")}, opts...)
+	opts = append([]ate.CreateOption{ate.WithTemplate("default-env"), ate.WithNamespace("sandboxes")}, opts...)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
 		t.Fatalf("creating actor %q: %v", id, err)

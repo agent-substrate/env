@@ -28,7 +28,7 @@ func main() {
 	}
 	defer client.Close()
 
-	sb, err := client.Create(ctx, "quickstart-1", env.WithTemplate("env"))
+	sb, err := client.Create(ctx, "quickstart-1")
 	if err != nil {
 		log.Fatal(err)
 	}

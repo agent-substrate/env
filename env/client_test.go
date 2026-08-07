@@ -76,7 +76,7 @@ func (f *fixture) create(t *testing.T, id string, opts ...env.CreateOption) *env
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	opts = append([]env.CreateOption{env.WithTemplate("default"), env.WithNamespace("sandboxes")}, opts...)
+	opts = append([]env.CreateOption{env.WithTemplate("default-env"), env.WithNamespace("sandboxes")}, opts...)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
 		t.Fatalf("creating env %q: %v", id, err)

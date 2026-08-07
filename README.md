@@ -68,7 +68,7 @@ kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 
 # Create and use an environment. Environment is suspended and resumed
 # automatically after each command.
-ate-env create dev1 --template env
+ate-env create dev1 --template default-env
 ate-env dev1 cmd 'echo hello > /note.txt'
 ate-env dev1 cmd 'cat /note.txt' # prints hello
 ate-env delete dev1
@@ -77,7 +77,7 @@ ate-env delete dev1
 Or use the API directly:
 
 ```bash
-curl -X POST localhost:7777/v1/envs -d '{"id":"dev1","template":"env"}'
+curl -X POST localhost:7777/v1/envs -d '{"id":"dev1","template":"default-env"}'
 curl -X POST localhost:7777/v1/envs/dev1/cmd \
      -d '{"command":["sh","-c","uname -a"]}'
 # Alternatively, use built-in tools.
@@ -92,7 +92,7 @@ curl -X POST localhost:7777/v1/envs/dev1/tools \
 Lifecycle and deployment are top-level commands; command execution and file operations on an environment can also use the environment ID as the first argument (`ate-env <id> ...`):
 
 ```bash
-$ ate-env create dev1 --template env
+$ ate-env create dev1 --template default-env
 $ ate-env dev1 cmd 'uname -a'
 $ ate-env dev1 fs ls /
 $ ate-env delete dev1
@@ -152,7 +152,7 @@ Create body:
 ```json
 {
   "id": "dev1",
-  "template": "env",
+  "template": "default-env",
   "namespace": "ate-env"
 }
 ```
@@ -290,7 +290,7 @@ if err != nil {
 }
 defer client.Close()
 
-e, err := client.Create(ctx, "dev1", env.WithTemplate("env"))
+e, err := client.Create(ctx, "dev1")
 if err != nil {
     log.Fatalf("creating environment: %v", err)
 }
