@@ -281,40 +281,11 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
      }'
 ```
 
-## Client Library
+## Examples
 
-Users can use the `env` package directly for lifecycle operations to manage
-environments programmatically, and executing operations on the guest.
-
-```go
-client, err := env.NewClient(env.ClientOptions{
-    Endpoint: "http://localhost:7777",          // ate-env-api endpoint
-})
-if err != nil {
-    log.Fatalf("connecting to Substrate: %v", err)
-}
-defer client.Close()
-
-e, err := client.Create(ctx, "dev1")
-if err != nil {
-    log.Fatalf("creating environment: %v", err)
-}
-if err := e.WriteFile(ctx, "/workspace/main.go", src, 0o644); err != nil {
-    log.Fatalf("writing main.go: %v", err)
-}
-res, err := e.Cmd(ctx, "cd /workspace && go run main.go")
-if err != nil {
-    log.Fatalf("running main.go: %v", err)
-}
-fmt.Println(res.Stdout, res.ExitCode)
-
-e.Suspend(ctx)
-e.Resume(ctx)
-e.Delete(ctx)
-```
-
-See [examples/quickstart](examples/quickstart/main.go) for a complete
-program.
+For complete runnable Go programs:
+- **Environment SDK**: See [examples/quickstart](examples/quickstart/main.go) to create, manage, suspend, resume environments, write files, and execute commands.
+- **MCP**: See [examples/mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 
 ## Cleanup
 
