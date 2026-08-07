@@ -82,7 +82,7 @@ func TestLifecycleAndExec(t *testing.T) {
 	router.Register("web-1", h)
 
 	// Create.
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"web-1","template":"default","namespace":"sandboxes"}`)
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"web-1","template":"default-env","namespace":"envs"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}
@@ -178,7 +178,7 @@ func TestCreateStartsEnv(t *testing.T) {
 	router.Register("started", h)
 
 	// Create starts the environment.
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"started","template":"default","namespace":"sandboxes"}`)
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"started","template":"default-env","namespace":"envs"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("create status = %d, want 201", resp.StatusCode)
 	}

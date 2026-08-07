@@ -21,7 +21,7 @@ import (
 
 var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", ".terraform"}
 
-// DirEntry describes a file or directory inside the sandbox.
+// DirEntry describes a file or directory inside the environment.
 type DirEntry struct {
 	Name       string    `json:"name"`
 	Path       string    `json:"path"`
@@ -65,10 +65,10 @@ func New(dir string) (*FS, error) {
 	return &FS{root: abs}, nil
 }
 
-// Root returns the absolute sandbox root.
+// Root returns the absolute environment root.
 func (s *FS) Root() string { return s.root }
 
-// Resolve resolves a path relative to the root and checks for sandbox containment.
+// Resolve resolves a path relative to the root and checks for environment containment.
 func (s *FS) Resolve(p string) (string, error) {
 	p = strings.TrimSpace(p)
 	if p == "" {
@@ -701,7 +701,7 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%.1f PiB", v/unit)
 }
 
-// ExecOptions configures shell command execution within the sandbox workspace.
+// ExecOptions configures shell command execution within the environment workspace.
 type ExecOptions struct {
 	Command        string
 	Shell          string
