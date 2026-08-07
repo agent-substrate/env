@@ -6,15 +6,22 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/env/internal/tool"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestRegistry(t *testing.T) {
 	reg := tool.NewRegistry()
 
-	dummyDef := tool.ToolDefinition{
+	dummyDef := &mcp.Tool{
 		Name:        "dummy",
 		Description: "A dummy test tool",
-		Parameters:  tool.Object([]string{"input"}, map[string]tool.Property{"input": tool.String("test input")}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"input": map[string]any{"type": "string", "description": "test input"},
+			},
+			"required": []string{"input"},
+		},
 	}
 
 	dummyTool := tool.New(dummyDef, func(ctx context.Context, params struct {
@@ -31,17 +38,16 @@ func TestRegistry(t *testing.T) {
 		t.Fatalf("unexpected tool names: %v", names)
 	}
 
-	res := reg.Invoke(context.Background(), tool.ToolUse{
-		Type:  tool.BlockTypeToolUse,
-		ID:    "call_1",
-		Name:  "dummy",
-		Input: json.RawMessage(`{"input": "world"}`),
-	})
+	res := reg.Invoke(context.Background(), "dummy", json.RawMessage(`{"input": "world"}`))
 
 	if res.IsError {
 		t.Fatalf("invoke failed: %v", res)
 	}
-	if len(res.Content) != 1 || res.Content[0].Text != "hello world" {
-		t.Fatalf("unexpected result: %v", res.Content)
+	if len(res.Content) != 1 {
+		t.Fatalf("unexpected result length: %v", len(res.Content))
+	}
+	txt, ok := res.Content[0].(*mcp.TextContent)
+	if !ok || txt.Text != "hello world" {
+		t.Fatalf("unexpected result: %+v", res.Content[0])
 	}
 }

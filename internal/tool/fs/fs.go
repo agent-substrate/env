@@ -10,6 +10,7 @@ import (
 
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Default limits applied when zero-initialized in Config.
@@ -68,18 +69,22 @@ type readFileParams struct {
 }
 
 func readFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name: "read_file",
 		Description: "Read a text file from the workspace. Returns the file contents with line " +
 			"numbers by default, so you can quote exact line ranges back in edits. Use offset " +
 			"and limit to page through a file that is too large to read at once. Rejects " +
 			"binary files.",
-		Parameters: tool.Object([]string{"path"}, map[string]tool.Property{
-			"path":         tool.String("File path relative to the workspace root."),
-			"offset":       tool.Integer("1-based line number to start reading from. Defaults to 1."),
-			"limit":        tool.Integer("Maximum number of lines to return. Defaults to all remaining lines."),
-			"line_numbers": tool.Boolean("Include 1-based line numbers at the start of each line. Defaults to true."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":         map[string]any{"type": "string", "description": "File path relative to the workspace root."},
+				"offset":       map[string]any{"type": "integer", "description": "1-based line number to start reading from. Defaults to 1."},
+				"limit":        map[string]any{"type": "integer", "description": "Maximum number of lines to return. Defaults to all remaining lines."},
+				"line_numbers": map[string]any{"type": "boolean", "description": "Include 1-based line numbers at the start of each line. Defaults to true."},
+			},
+			"required": []string{"path"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p readFileParams) (string, error) {
 		lineNumbers := true
@@ -99,16 +104,20 @@ type writeFileParams struct {
 }
 
 func writeFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name: "write_file",
 		Description: "Write a text file in the workspace, creating parent directories as needed. " +
 			"By default overwrites existing content unless append is true. Prefers small, " +
 			"focused writes.",
-		Parameters: tool.Object([]string{"path", "content"}, map[string]tool.Property{
-			"path":    tool.String("File path relative to the workspace root."),
-			"content": tool.String("Full text content to write."),
-			"append":  tool.Boolean("If true, append to existing file instead of overwriting. Defaults to false."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":    map[string]any{"type": "string", "description": "File path relative to the workspace root."},
+				"content": map[string]any{"type": "string", "description": "Full text content to write."},
+				"append":  map[string]any{"type": "boolean", "description": "If true, append to existing file instead of overwriting. Defaults to false."},
+			},
+			"required": []string{"path", "content"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p writeFileParams) (string, error) {
 		abs, err := fsSys.Resolve(p.Path)
@@ -140,17 +149,21 @@ type editFileParams struct {
 }
 
 func editFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name: "edit_file",
 		Description: "Edit a text file by replacing exact occurrences of old_string with new_string. " +
 			"old_string must match uniquely in the file unless replace_all is set to true. " +
 			"Always prefer edit_file over write_file when updating an existing file.",
-		Parameters: tool.Object([]string{"path", "old_string", "new_string"}, map[string]tool.Property{
-			"path":        tool.String("File path relative to the workspace root."),
-			"old_string":  tool.String("Exact string sequence to replace."),
-			"new_string":  tool.String("Exact replacement string sequence."),
-			"replace_all": tool.Boolean("Replace all occurrences of old_string instead of requiring a unique match. Defaults to false."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":        map[string]any{"type": "string", "description": "File path relative to the workspace root."},
+				"old_string":  map[string]any{"type": "string", "description": "Exact string sequence to replace."},
+				"new_string":  map[string]any{"type": "string", "description": "Exact replacement string sequence."},
+				"replace_all": map[string]any{"type": "boolean", "description": "Replace all occurrences of old_string instead of requiring a unique match. Defaults to false."},
+			},
+			"required": []string{"path", "old_string", "new_string"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p editFileParams) (string, error) {
 		rel, count, err := fsSys.EditFile(p.Path, p.OldString, p.NewString, p.ReplaceAll, cfg.MaxWriteBytes)
@@ -171,17 +184,21 @@ type listDirParams struct {
 }
 
 func listDirTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name: "list_dir",
 		Description: "List the contents of a directory. Directories are suffixed with a slash. " +
 			"Set recursive to walk the whole subtree; noisy directories such as .git and " +
 			"node_modules are automatically skipped.",
-		Parameters: tool.Object([]string{"path"}, map[string]tool.Property{
-			"path":           tool.String("Directory path relative to the workspace root."),
-			"recursive":      tool.Boolean("Walk subdirectories. Defaults to false."),
-			"include_hidden": tool.Boolean("Include entries starting with a dot. Defaults to false."),
-			"max_entries":    tool.Integer("Maximum entries to return (max 1000). Defaults to 1000."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":           map[string]any{"type": "string", "description": "Directory path relative to the workspace root."},
+				"recursive":      map[string]any{"type": "boolean", "description": "Walk subdirectories. Defaults to false."},
+				"include_hidden": map[string]any{"type": "boolean", "description": "Include entries starting with a dot. Defaults to false."},
+				"max_entries":    map[string]any{"type": "integer", "description": "Maximum entries to return (max 1000). Defaults to 1000."},
+			},
+			"required": []string{"path"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p listDirParams) (string, error) {
 		includeHidden := false
@@ -228,16 +245,20 @@ type globParams struct {
 }
 
 func globTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name: "glob",
 		Description: "Search for files matching a glob pattern relative to path. Supports * within a " +
 			"segment and ** to cross directories, e.g. **/*.go or cmd/**/main.go. Use this to " +
 			"locate files when you know part of their name or extension.",
-		Parameters: tool.Object([]string{"pattern"}, map[string]tool.Property{
-			"path":        tool.String("Base directory to search under. Defaults to workspace root."),
-			"pattern":     tool.String("Glob pattern, e.g. **/*.go. Matched against paths relative to the search directory."),
-			"max_results": tool.Integer("Maximum matching files to return (max 1000). Defaults to 1000."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":        map[string]any{"type": "string", "description": "Base directory to search under. Defaults to workspace root."},
+				"pattern":     map[string]any{"type": "string", "description": "Glob pattern, e.g. **/*.go. Matched against paths relative to the search directory."},
+				"max_results": map[string]any{"type": "integer", "description": "Maximum matching files to return (max 1000). Defaults to 1000."},
+			},
+			"required": []string{"pattern"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p globParams) (string, error) {
 		relBase, matches, truncated, err := fsSys.Glob(p.Path, p.Pattern, p.MaxResults, cfg.SkipDirs)
@@ -266,16 +287,20 @@ type grepParams struct {
 }
 
 func grepTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name: "grep",
 		Description: "Search file contents for a regular expression (RE2 syntax). Returns matching " +
 			"lines formatted as path:line:content. Skips binary files and noisy directories such as .git and node_modules.",
-		Parameters: tool.Object([]string{"pattern"}, map[string]tool.Property{
-			"path":        tool.String("Base directory or file to search. Defaults to workspace root."),
-			"pattern":     tool.String("Regular expression to match against each line."),
-			"include":     tool.String("Optional glob pattern (e.g. *.go or **/*.ts) to restrict which files are searched."),
-			"max_results": tool.Integer("Maximum matching lines to return across all files (max 1000). Defaults to 1000."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":        map[string]any{"type": "string", "description": "Base directory or file to search. Defaults to workspace root."},
+				"pattern":     map[string]any{"type": "string", "description": "Regular expression to match against each line."},
+				"include":     map[string]any{"type": "string", "description": "Optional glob pattern (e.g. *.go or **/*.ts) to restrict which files are searched."},
+				"max_results": map[string]any{"type": "integer", "description": "Maximum matching lines to return across all files (max 1000). Defaults to 1000."},
+			},
+			"required": []string{"pattern"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p grepParams) (string, error) {
 		return fsSys.Grep(ctx, p.Path, p.Pattern, p.Include, p.MaxResults, cfg.SkipDirs)
@@ -289,12 +314,16 @@ type statParams struct {
 }
 
 func statTool(fsSys *guestsys.FS) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name:        "stat",
 		Description: "Return file metadata: type, size, permissions, and modification time.",
-		Parameters: tool.Object([]string{"path"}, map[string]tool.Property{
-			"path": tool.String("File or directory path relative to the workspace root."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{"type": "string", "description": "File or directory path relative to the workspace root."},
+			},
+			"required": []string{"path"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p statParams) (string, error) {
 		abs, err := fsSys.Resolve(p.Path)
@@ -328,12 +357,16 @@ type mkdirParams struct {
 }
 
 func mkdirTool(fsSys *guestsys.FS) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name:        "mkdir",
 		Description: "Create a directory, including any missing parent directories. Succeeds if it already exists.",
-		Parameters: tool.Object([]string{"path"}, map[string]tool.Property{
-			"path": tool.String("Directory path relative to the workspace root."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{"type": "string", "description": "Directory path relative to the workspace root."},
+			},
+			"required": []string{"path"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p mkdirParams) (string, error) {
 		abs, err := fsSys.Resolve(p.Path)
@@ -356,14 +389,18 @@ type mvParams struct {
 }
 
 func mvTool(fsSys *guestsys.FS) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name:        "mv",
 		Description: "Move or rename a file or directory within the workspace. Refuses to overwrite an existing destination unless overwrite is set.",
-		Parameters: tool.Object([]string{"source", "destination"}, map[string]tool.Property{
-			"source":      tool.String("Source file or directory path relative to the workspace root."),
-			"destination": tool.String("Destination file or directory path relative to the workspace root."),
-			"overwrite":   tool.Boolean("If true, replace existing destination. Defaults to false."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"source":      map[string]any{"type": "string", "description": "Source file or directory path relative to the workspace root."},
+				"destination": map[string]any{"type": "string", "description": "Destination file or directory path relative to the workspace root."},
+				"overwrite":   map[string]any{"type": "boolean", "description": "If true, replace existing destination. Defaults to false."},
+			},
+			"required": []string{"source", "destination"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p mvParams) (string, error) {
 		srcAbs, err := fsSys.Resolve(p.Source)
@@ -389,13 +426,17 @@ type rmParams struct {
 }
 
 func rmTool(fsSys *guestsys.FS) tool.Tool {
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name:        "rm",
 		Description: "Delete a file, or an empty directory. Deleting a non-empty directory requires recursive=true.",
-		Parameters: tool.Object([]string{"path"}, map[string]tool.Property{
-			"path":      tool.String("File or directory path relative to the workspace root."),
-			"recursive": tool.Boolean("Delete a directory and everything under it. Defaults to false."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":      map[string]any{"type": "string", "description": "File or directory path relative to the workspace root."},
+				"recursive": map[string]any{"type": "boolean", "description": "Delete a directory and everything under it. Defaults to false."},
+			},
+			"required": []string{"path"},
+		},
 	}
 	return tool.New(def, func(ctx context.Context, p rmParams) (string, error) {
 		abs, err := fsSys.Resolve(p.Path)

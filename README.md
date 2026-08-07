@@ -80,11 +80,10 @@ Or use the API directly:
 curl -X POST localhost:7777/v1/envs -d '{"id":"dev1","template":"default-env"}'
 curl -X POST localhost:7777/v1/envs/dev1/cmd \
      -d '{"command":["sh","-c","uname -a"]}'
-# Alternatively, use built-in tools.
-curl -X POST localhost:7777/v1/envs/dev1/tools \
-     -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"/note.txt"}}'
-curl -X POST localhost:7777/v1/envs/dev1/tools \
-     -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
+# Alternatively, interact over MCP.
+curl -X POST localhost:7777/v1/envs/dev1/mcp \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}'
 ```
 
 ## CLI
@@ -138,7 +137,7 @@ stdout without touching the cluster; apply it with kubectl.
 
 ## API
 
-The API server provides environment management and guest operations over the API. Alternatively, a large number of users may find the [built-in tools](#built-in-tools) the primary way to run these operations.
+The API server provides environment management and guest operations over the API. Alternatively, a large number of users may find the built-in MCP tools the primary way to run these operations.
 
 ### Environments
 
@@ -203,14 +202,13 @@ curl -X GET localhost:7777/v1/envs/dev1/file \
 # Response: {"content":"aGVsbG8K","mode":"0644","size":6}
 ```
 
-## Built-in Tools
+## Built-in MCP Tools
 
-The API exposes built-in tools for file system operations and shell executions.
+The API exposes an MCP endpoint at `POST /v1/envs/{id}/mcp` serving the built-in tools.
 
 | Method | Path                        | Description                      |
 | ------ | --------------------------- | -------------------------------- |
-| `GET`  | `/v1/envs/{id}/tools`  | List registered tool definitions |
-| `POST` | `/v1/envs/{id}/tools`  | Execute a tool call              |
+| `POST` | `/v1/envs/{id}/mcp`    | Model Context Protocol (MCP) streamable endpoint |
 
 ### Available Tools
 
@@ -231,85 +229,63 @@ The API exposes built-in tools for file system operations and shell executions.
 
 TODO: Add support for skills e.g. generaate available_skills, and activate a skill.
 
-### Tool Definitions
+### MCP Tool Interactions
+
+Clients communicate with the MCP endpoint at `/v1/envs/{id}/mcp` using JSON-RPC 2.0 over HTTP:
+
+#### Initialize Handshake
 
 ```bash
-curl -X GET localhost:7777/v1/envs/dev1/tools
-{
-  "tools": [
-    {
-      "name": "read_file",
-      "description": "Read a text file from the workspace...",
-      "parameters": {
-        "type": "object",
-        "properties": { "path": { "type": "string", "description": "..." } },
-        "required": ["path"]
-      }
-    }
-  ]
-}
+curl -X POST localhost:7777/v1/envs/dev1/mcp \
+     -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 1,
+       "method": "initialize",
+       "params": {
+         "protocolVersion": "2025-11-25",
+         "capabilities": {},
+         "clientInfo": {"name": "curl", "version": "1.0.0"}
+       }
+     }'
 ```
 
-### Tool Execution
+#### List Tools (`tools/list`)
 
 ```bash
-curl -X POST localhost:7777/v1/envs/dev1/tools \
-     -d '{"type":"function_call","id":"call_1","name":"read_file","arguments":{"path":"main.go"}}'
-{
-  "type": "function_result",
-  "name": "read_file",
-  "call_id": "call_1",
-  "result": [
-    { "type": "text", "text": "     1\tpackage main\n..." }
-  ]
-}
-
-curl -X POST localhost:7777/v1/envs/dev1/tools \
-     -d '{"type":"function_call","id":"call_2","name":"browser","arguments":{"url":"https://example.com"}}'
-{
-  "type": "function_result",
-  "name": "browser",
-  "call_id": "call_2",
-  "result": [
-    { "type": "text", "text": "https://example.com\nstatus: 200 OK\ncontent-type: text/html\nbytes: 1256\ntitle: Example Domain\n\n# Example Domain\n\nThis domain is for use in illustrative examples..." }
-  ]
-}
+curl -X POST localhost:7777/v1/envs/dev1/mcp \
+     -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 2,
+       "method": "tools/list"
+     }'
 ```
 
-## Client Library
+#### Call Tool (`tools/call`)
 
-Users can use the `env` package directly for lifecycle operations to manage
-environments programmatically, and executing operations on the guest.
-
-```go
-client, err := env.NewClient(env.ClientOptions{
-    Endpoint: "http://localhost:7777",          // ate-env-api endpoint
-})
-if err != nil {
-    log.Fatalf("connecting to Substrate: %v", err)
-}
-defer client.Close()
-
-e, err := client.Create(ctx, "dev1")
-if err != nil {
-    log.Fatalf("creating environment: %v", err)
-}
-if err := e.WriteFile(ctx, "/workspace/main.go", src, 0o644); err != nil {
-    log.Fatalf("writing main.go: %v", err)
-}
-res, err := e.Cmd(ctx, "cd /workspace && go run main.go")
-if err != nil {
-    log.Fatalf("running main.go: %v", err)
-}
-fmt.Println(res.Stdout, res.ExitCode)
-
-e.Suspend(ctx)
-e.Resume(ctx)
-e.Delete(ctx)
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/mcp \
+     -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" \
+     -d '{
+       "jsonrpc": "2.0",
+       "id": 3,
+       "method": "tools/call",
+       "params": {
+         "name": "shell",
+         "arguments": {"command": "echo hello from mcp"}
+       }
+     }'
 ```
 
-See [examples/quickstart](examples/quickstart/main.go) for a complete
-program.
+## Examples
+
+For complete runnable Go programs:
+- **Environment SDK**: See [examples/quickstart](examples/quickstart/main.go) to create, manage, suspend, resume environments, write files, and execute commands.
+- **MCP**: See [examples/mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 
 ## Cleanup
 
