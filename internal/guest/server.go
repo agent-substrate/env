@@ -43,13 +43,8 @@ type Server struct {
 	// MaxFileBytes caps file content size for reads and writes.
 	MaxFileBytes int64
 
-	reg       *tool.Registry // TODO(jbd): Remove registry.
-	mcpServer *mcp.Server
-}
-
-// MCPServer returns the guest's MCP server instance.
-func (s *Server) MCPServer() *mcp.Server {
-	return s.mcpServer
+	reg *tool.Registry // TODO(jbd): Remove registry.
+	// mcpServer *mcp.Server
 }
 
 // Handler returns the http.Handler serving the guest API.
@@ -88,7 +83,6 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/stat", func(w http.ResponseWriter, r *http.Request) { s.handleStat(fsSys, w, r) })
 
 	mcpSrv := mcp.NewServer(reg)
-	s.mcpServer = mcpSrv
 	mux.HandleFunc("POST /mcp", mcpSrv.ServeHTTP)
 
 	return mux, nil
@@ -392,5 +386,3 @@ func (s *Server) handleStat(fsSys *guestsys.FS, w http.ResponseWriter, r *http.R
 	}
 	writeJSON(w, entry)
 }
-
-
