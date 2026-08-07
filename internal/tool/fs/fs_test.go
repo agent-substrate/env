@@ -11,20 +11,26 @@ import (
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
 	fstool "github.com/agent-substrate/env/internal/tool/fs"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func invokeTool(t *testing.T, reg *tool.Registry, toolName, callID string, input map[string]any) tool.ToolResult {
+func invokeTool(t *testing.T, reg *tool.Registry, toolName string, input map[string]any) *mcp.CallToolResult {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
-	return reg.Invoke(context.Background(), tool.ToolUse{
-		Type:  tool.BlockTypeToolUse,
-		ID:    callID,
-		Name:  toolName,
-		Input: raw,
-	})
+	return reg.Invoke(context.Background(), toolName, raw)
+}
+
+func getText(res *mcp.CallToolResult) string {
+	if len(res.Content) == 0 {
+		return ""
+	}
+	if tc, ok := res.Content[0].(*mcp.TextContent); ok {
+		return tc.Text
+	}
+	return ""
 }
 
 func TestFSTools(t *testing.T) {
@@ -40,7 +46,7 @@ func TestFSTools(t *testing.T) {
 	}
 
 	// 1. write_file
-	res := invokeTool(t, reg, "write_file", "call_write", map[string]any{
+	res := invokeTool(t, reg, "write_file", map[string]any{
 		"path":    "hello.txt",
 		"content": "Line 1: Hello World\nLine 2: Substrate Tools\n",
 	})
@@ -49,82 +55,89 @@ func TestFSTools(t *testing.T) {
 	}
 
 	// 2. read_file
-	res = invokeTool(t, reg, "read_file", "call_read", map[string]any{
+	res = invokeTool(t, reg, "read_file", map[string]any{
 		"path": "hello.txt",
 	})
-	if res.IsError || !strings.Contains(res.Content[0].Text, "Hello World") {
+	if res.IsError || !strings.Contains(getText(res), "Hello World") {
 		t.Fatalf("read_file failed: %v", res)
 	}
 
 	// 3. stat
-	res = invokeTool(t, reg, "stat", "call_stat", map[string]any{
+	res = invokeTool(t, reg, "stat", map[string]any{
 		"path": "hello.txt",
 	})
-	if res.IsError || !strings.Contains(res.Content[0].Text, "type: file") {
+	if res.IsError || !strings.Contains(getText(res), "type: file") {
 		t.Fatalf("stat failed: %v", res)
 	}
 
 	// 4. edit_file
-	res = invokeTool(t, reg, "edit_file", "call_edit", map[string]any{
+	res = invokeTool(t, reg, "edit_file", map[string]any{
 		"path":       "hello.txt",
-		"old_string": "Hello World",
-		"new_string": "Hello Substrate",
+		"old_string": "Substrate Tools",
+		"new_string": "Substrate Environment",
 	})
 	if res.IsError {
-		t.Fatalf("edit_file error: %v", res)
+		t.Fatalf("edit_file failed: %v", res)
 	}
 
-	// 5. grep
-	res = invokeTool(t, reg, "grep", "call_grep", map[string]any{
-		"pattern": "Hello Substrate",
+	res = invokeTool(t, reg, "read_file", map[string]any{
+		"path": "hello.txt",
 	})
-	if res.IsError || !strings.Contains(res.Content[0].Text, "hello.txt:1:") {
-		t.Fatalf("grep failed: %v", res)
+	if !strings.Contains(getText(res), "Substrate Environment") {
+		t.Fatalf("read_file after edit failed: %v", res)
 	}
 
-	// 6. list_dir
-	res = invokeTool(t, reg, "list_dir", "call_list", map[string]any{
-		"path": ".",
+	// 5. mkdir
+	res = invokeTool(t, reg, "mkdir", map[string]any{
+		"path": "nested/dir",
 	})
-	if res.IsError || !strings.Contains(res.Content[0].Text, "hello.txt") {
+	if res.IsError {
+		t.Fatalf("mkdir failed: %v", res)
+	}
+
+	// 6. mv
+	res = invokeTool(t, reg, "mv", map[string]any{
+		"source":      "hello.txt",
+		"destination": "nested/dir/moved.txt",
+	})
+	if res.IsError {
+		t.Fatalf("mv failed: %v", res)
+	}
+
+	// 7. list_dir
+	res = invokeTool(t, reg, "list_dir", map[string]any{
+		"path": "nested/dir",
+	})
+	if res.IsError || !strings.Contains(getText(res), "moved.txt") {
 		t.Fatalf("list_dir failed: %v", res)
 	}
 
-	// 7. glob
-	res = invokeTool(t, reg, "glob", "call_glob", map[string]any{
-		"pattern": "*.txt",
+	// 8. glob
+	res = invokeTool(t, reg, "glob", map[string]any{
+		"pattern": "**/*.txt",
 	})
-	if res.IsError || !strings.Contains(res.Content[0].Text, "hello.txt") {
+	if res.IsError || !strings.Contains(getText(res), "moved.txt") {
 		t.Fatalf("glob failed: %v", res)
 	}
 
-	// 8. mkdir
-	res = invokeTool(t, reg, "mkdir", "call_mkdir", map[string]any{
-		"path": "subdir",
+	// 9. grep
+	res = invokeTool(t, reg, "grep", map[string]any{
+		"pattern": "Substrate",
 	})
-	if res.IsError {
-		t.Fatalf("mkdir error: %v", res)
-	}
-
-	// 9. mv
-	res = invokeTool(t, reg, "mv", "call_mv", map[string]any{
-		"source":      "hello.txt",
-		"destination": "subdir/hello_moved.txt",
-	})
-	if res.IsError {
-		t.Fatalf("mv error: %v", res)
+	if res.IsError || !strings.Contains(getText(res), "Substrate Environment") {
+		t.Fatalf("grep failed: %v", res)
 	}
 
 	// 10. rm
-	res = invokeTool(t, reg, "rm", "call_rm", map[string]any{
-		"path":      "subdir",
+	res = invokeTool(t, reg, "rm", map[string]any{
+		"path":      "nested",
 		"recursive": true,
 	})
 	if res.IsError {
-		t.Fatalf("rm error: %v", res)
+		t.Fatalf("rm failed: %v", res)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "subdir")); !os.IsNotExist(err) {
-		t.Errorf("subdir still exists after recursive rm")
+	if _, err := os.Stat(filepath.Join(dir, "nested")); !os.IsNotExist(err) {
+		t.Fatalf("nested dir still exists after rm: %v", err)
 	}
 }

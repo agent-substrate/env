@@ -7,25 +7,27 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sort"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Tool is one callable function.
 type Tool interface {
-	Definition() ToolDefinition
+	Definition() *mcp.Tool
 	Run(ctx context.Context, input json.RawMessage) (string, error)
 }
 
 // New adapts a typed function into a Tool.
-func New[T any](def ToolDefinition, run func(context.Context, T) (string, error)) Tool {
+func New[T any](def *mcp.Tool, run func(context.Context, T) (string, error)) Tool {
 	return funcTool[T]{def: def, run: run}
 }
 
 type funcTool[T any] struct {
-	def ToolDefinition
+	def *mcp.Tool
 	run func(context.Context, T) (string, error)
 }
 
-func (t funcTool[T]) Definition() ToolDefinition { return t.def }
+func (t funcTool[T]) Definition() *mcp.Tool { return t.def }
 
 func (t funcTool[T]) Run(ctx context.Context, input json.RawMessage) (string, error) {
 	var params T
@@ -73,62 +75,44 @@ func (r *Registry) Names() []string {
 }
 
 // Definitions returns the tool definitions in a stable (sorted) order.
-func (r *Registry) Definitions() []ToolDefinition {
+func (r *Registry) Definitions() []*mcp.Tool {
 	names := r.Names()
-	defs := make([]ToolDefinition, 0, len(names))
+	defs := make([]*mcp.Tool, 0, len(names))
 	for _, name := range names {
 		defs = append(defs, r.tools[name].Definition())
 	}
 	return defs
 }
 
-// Invoke runs one tool_use block and always returns a tool_result for it.
-func (r *Registry) Invoke(ctx context.Context, tu ToolUse) (result ToolResult) {
+// Invoke runs one tool and always returns an *mcp.CallToolResult.
+func (r *Registry) Invoke(ctx context.Context, name string, input json.RawMessage) (result *mcp.CallToolResult) {
 	defer func() {
 		if v := recover(); v != nil {
-			result = ErrorResult(tu.ID,
-				fmt.Errorf("tool %s panicked: %v\n%s", tu.Name, v, debug.Stack()))
+			result = &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("tool %s panicked: %v\n%s", name, v, debug.Stack())}},
+				IsError: true,
+			}
 		}
 	}()
 
-	if err := tu.Validate(); err != nil {
-		return ErrorResult(tu.ID, err)
-	}
-	tool, ok := r.tools[tu.Name]
+	t, ok := r.tools[name]
 	if !ok {
-		return ErrorResult(tu.ID, fmt.Errorf("unknown tool %q; available: %v", tu.Name, r.Names()))
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("unknown tool %q; available: %v", name, r.Names())}},
+			IsError: true,
+		}
 	}
-	out, err := tool.Run(ctx, tu.Input)
+	out, err := t.Run(ctx, input)
 	if err != nil {
-		return ErrorResult(tu.ID, err)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+			IsError: true,
+		}
 	}
 	if out == "" {
 		out = "(no output)"
 	}
-	return TextResult(tu.ID, out)
-}
-
-// --- JSON Schema helpers -----------------------------------------------------
-
-func Object(required []string, props map[string]Property) Parameters {
-	if required == nil {
-		required = []string{}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: out}},
 	}
-	return Parameters{Properties: props, Required: required}
-}
-
-func String(desc string) Property {
-	return Property{Type: "string", Description: desc}
-}
-
-func Enum(desc string, values ...string) Property {
-	return Property{Type: "string", Description: desc, Enum: values}
-}
-
-func Integer(desc string) Property {
-	return Property{Type: "integer", Description: desc}
-}
-
-func Boolean(desc string) Property {
-	return Property{Type: "boolean", Description: desc}
 }

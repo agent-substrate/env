@@ -8,6 +8,7 @@ import (
 
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const defaultShell = "/bin/sh"
@@ -47,12 +48,19 @@ func New(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		"read_file, glob, and grep tools where they fit; they give structured output and " +
 		"cannot be chained into unintended side effects."
 
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name:        "shell",
 		Description: desc,
-		Parameters: tool.Object([]string{"command"}, map[string]tool.Property{
-			"command": tool.String("Command line to execute."),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"command": map[string]any{
+					"type":        "string",
+					"description": "Command line to execute.",
+				},
+			},
+			"required": []string{"command"},
+		},
 	}
 
 	return tool.New(def, func(ctx context.Context, p shellParams) (string, error) {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/agent-substrate/env/internal/tool"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Config configures the web browsing tool.
@@ -75,14 +76,18 @@ func New(cfg Config) tool.Tool {
 		desc += " Only these hosts are reachable: " + strings.Join(cfg.AllowedHosts, ", ") + "."
 	}
 
-	def := tool.ToolDefinition{
+	def := &mcp.Tool{
 		Name:        "browser",
 		Description: desc,
-		Parameters: tool.Object([]string{"url"}, map[string]tool.Property{
-			"url":       tool.String("Absolute http:// or https:// URL to fetch."),
-			"mode":      tool.Enum("How to render the response. Defaults to markdown.", "markdown", "raw"),
-			"max_chars": tool.Integer(fmt.Sprintf("Maximum characters to return (default %d).", cfg.MaxChars)),
-		}),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url":       map[string]any{"type": "string", "description": "Absolute http:// or https:// URL to fetch."},
+				"mode":      map[string]any{"type": "string", "description": "How to render the response. Defaults to markdown.", "enum": []string{"markdown", "raw"}},
+				"max_chars": map[string]any{"type": "integer", "description": fmt.Sprintf("Maximum characters to return (default %d).", cfg.MaxChars)},
+			},
+			"required": []string{"url"},
+		},
 	}
 
 	return tool.New(def, func(ctx context.Context, p browseParams) (string, error) {

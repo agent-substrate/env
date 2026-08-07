@@ -9,6 +9,7 @@ import (
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
 	"github.com/agent-substrate/env/internal/tool/shell"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestShellTool(t *testing.T) {
@@ -26,18 +27,17 @@ func TestShellTool(t *testing.T) {
 	rawInput, _ := json.Marshal(map[string]any{
 		"command": "echo hello_shell",
 	})
-	res := reg.Invoke(context.Background(), tool.ToolUse{
-		Type:  tool.BlockTypeToolUse,
-		ID:    "call_sh",
-		Name:  "shell",
-		Input: rawInput,
-	})
+	res := reg.Invoke(context.Background(), "shell", rawInput)
 
 	if res.IsError {
 		t.Fatalf("shell tool invocation failed: %v", res)
 	}
 
-	if len(res.Content) == 0 || !strings.Contains(res.Content[0].Text, "hello_shell") {
-		t.Errorf("unexpected shell output: %v", res)
+	if len(res.Content) == 0 {
+		t.Fatalf("unexpected empty shell output")
+	}
+	txt, ok := res.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(txt.Text, "hello_shell") {
+		t.Errorf("unexpected shell output: %+v", res.Content[0])
 	}
 }

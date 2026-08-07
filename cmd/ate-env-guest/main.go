@@ -1,7 +1,6 @@
 // Command ate-env-guest is the daemon that runs inside a Substrate actor
-// and exposes command execution and filesystem access over HTTP. It is the
-// in-env half of the env service; the atenet router forwards
-// per-env traffic to it.
+// and exposes command execution, filesystem access, and MCP tools over HTTP
+// using github.com/modelcontextprotocol/go-sdk.
 package main
 
 import (
@@ -32,6 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing guest server: %v", err)
 	}
-	log.Printf("ate-env-guest listening on %s", *addr)
+
+	log.Printf("ate-env-guest listening on %s (serving REST API and /mcp)", *addr)
 	log.Fatal(http.ListenAndServe(*addr, h))
 }

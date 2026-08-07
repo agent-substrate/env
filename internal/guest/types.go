@@ -1,36 +1,8 @@
 package guest
 
 import (
-	"encoding/json"
-
 	"github.com/agent-substrate/env/internal/guest/guestsys"
 )
-
-// FunctionCall represents a tool execution request.
-type FunctionCall struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id"`
-	CallID    string          `json:"call_id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
-	Args      json.RawMessage `json:"args"`
-	Input     json.RawMessage `json:"input"`
-}
-
-// InteractionContent represents a content part of a tool execution result.
-type InteractionContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-// FunctionResult represents the outcome of a tool execution.
-type FunctionResult struct {
-	Type    string               `json:"type"`
-	Name    string               `json:"name"`
-	CallID  string               `json:"call_id"`
-	Result  []InteractionContent `json:"result"`
-	IsError bool                 `json:"is_error,omitempty"`
-}
 
 // CmdRequest describes a command to run inside an env.
 type CmdRequest struct {

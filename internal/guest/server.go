@@ -21,6 +21,7 @@ import (
 	"time"
 
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/mcp"
 	"github.com/agent-substrate/env/internal/tool"
 	"github.com/agent-substrate/env/internal/tool/browser"
 	fstool "github.com/agent-substrate/env/internal/tool/fs"
@@ -42,7 +43,13 @@ type Server struct {
 	// MaxFileBytes caps file content size for reads and writes.
 	MaxFileBytes int64
 
-	reg *tool.Registry // TODO(jbd): Remove registry.
+	reg       *tool.Registry // TODO(jbd): Remove registry.
+	mcpServer *mcp.Server
+}
+
+// MCPServer returns the guest's MCP server instance.
+func (s *Server) MCPServer() *mcp.Server {
+	return s.mcpServer
 }
 
 // Handler returns the http.Handler serving the guest API.
@@ -79,8 +86,10 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/dir", func(w http.ResponseWriter, r *http.Request) { s.handleMkdir(fsSys, w, r) })
 	mux.HandleFunc("DELETE /v1/dir", func(w http.ResponseWriter, r *http.Request) { s.handleDelete(fsSys, w, r) })
 	mux.HandleFunc("GET /v1/stat", func(w http.ResponseWriter, r *http.Request) { s.handleStat(fsSys, w, r) })
-	mux.HandleFunc("GET /v1/tools", s.handleTools)
-	mux.HandleFunc("POST /v1/tools", s.handleToolUse)
+
+	mcpSrv := mcp.NewServer(reg)
+	s.mcpServer = mcpSrv
+	mux.HandleFunc("POST /mcp", mcpSrv.ServeHTTP)
 
 	return mux, nil
 }
@@ -384,68 +393,4 @@ func (s *Server) handleStat(fsSys *guestsys.FS, w http.ResponseWriter, r *http.R
 	writeJSON(w, entry)
 }
 
-type toolsResponse struct {
-	Tools []tool.ToolDefinition `json:"tools"`
-}
 
-func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, toolsResponse{Tools: s.reg.Definitions()})
-}
-
-func (s *Server) handleToolUse(w http.ResponseWriter, r *http.Request) {
-	var step FunctionCall
-	if err := json.NewDecoder(r.Body).Decode(&step); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"type": "error",
-			"error": map[string]string{
-				"type":    "invalid_request_error",
-				"message": fmt.Sprintf("invalid JSON body: %v", err),
-			},
-		})
-		return
-	}
-
-	callID := step.CallID
-	if callID == "" {
-		callID = step.ID
-	}
-
-	rawArgs := step.Arguments
-	if len(rawArgs) == 0 {
-		rawArgs = step.Args
-	}
-	if len(rawArgs) == 0 {
-		rawArgs = step.Input
-	}
-	if len(rawArgs) == 0 {
-		rawArgs = json.RawMessage("{}")
-	}
-
-	tu := tool.ToolUse{
-		ID:    callID,
-		Name:  step.Name,
-		Input: rawArgs,
-	}
-
-	res := s.reg.Invoke(r.Context(), tu)
-
-	parts := make([]InteractionContent, len(res.Content))
-	for i, c := range res.Content {
-		parts[i] = InteractionContent{
-			Type: c.Type,
-			Text: c.Text,
-		}
-	}
-
-	out := FunctionResult{
-		Type:    "function_result",
-		Name:    step.Name,
-		CallID:  callID,
-		Result:  parts,
-		IsError: res.IsError,
-	}
-
-	writeJSON(w, out)
-}
