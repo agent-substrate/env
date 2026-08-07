@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/tool"
-	"github.com/agent-substrate/sandbox/internal/tool/shell"
+	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/tool"
+	"github.com/agent-substrate/env/internal/tool/shell"
 )
 
 func TestShellTool(t *testing.T) {

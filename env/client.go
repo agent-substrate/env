@@ -1,8 +1,8 @@
-// Package sandbox is the Go SDK for the sandbox service. It talks to the
-// sbx-api service, which bridges to the Substrate
-// control plane and router; `sbx deploy` runs that service
+// Package env is the Go SDK for the environment service. It talks to the
+// ate-env-api service, which bridges to the Substrate
+// control plane and router; `ate-env deploy` runs that service
 // in-cluster.
-package sandbox
+package env
 
 import (
 	"bytes"
@@ -14,16 +14,16 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/agent-substrate/sandbox/internal/guest"
-	"github.com/agent-substrate/sandbox/internal/service"
+	"github.com/agent-substrate/env/internal/guest"
+	"github.com/agent-substrate/env/internal/service"
 )
 
-// ErrNotFound is returned when a sandbox, file, or directory does not exist.
+// ErrNotFound is returned when a env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
 
 // ClientOptions configures a Client.
 type ClientOptions struct {
-	// Endpoint is the base URL of the sbx-api service, e.g.
+	// Endpoint is the base URL of the ate-env-api service, e.g.
 	// "http://localhost:7777". Required.
 	Endpoint string
 
@@ -31,7 +31,7 @@ type ClientOptions struct {
 	HTTPClient *http.Client
 }
 
-// Client manages sandboxes against a sbx-api endpoint over HTTP.
+// Client manages environments against a ate-env-api endpoint over HTTP.
 type Client struct {
 	endpoint string
 	opts     ClientOptions
@@ -41,7 +41,7 @@ type Client struct {
 // NewClient returns a Client targeting endpoint.
 func NewClient(opts ClientOptions) (*Client, error) {
 	if opts.Endpoint == "" {
-		return nil, errors.New("sandbox: ClientOptions.Endpoint is required")
+		return nil, errors.New("env: ClientOptions.Endpoint is required")
 	}
 	endpoint := strings.TrimRight(opts.Endpoint, "/")
 	httpClient := opts.HTTPClient
@@ -77,30 +77,30 @@ func WithNamespace(namespace string) CreateOption {
 	return func(c *createConfig) { c.templateNamespace = namespace }
 }
 
-// Create registers a new sandbox with the given ID (a DNS-1123 label) and
+// Create registers a new env with the given ID (a DNS-1123 label) and
 // starts it.
-func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*Sandbox, error) {
+func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*Env, error) {
 	var cfg createConfig
 	for _, o := range opts {
 		o(&cfg)
 	}
 	template := cfg.template
 	namespace := cfg.templateNamespace
-	req := service.CreateSandboxRequest{
+	req := service.CreateEnvRequest{
 		ID:        id,
 		Template:  template,
 		Namespace: namespace,
 	}
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/sandboxes", req, nil); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/envs", req, nil); err != nil {
 		return nil, err
 	}
-	return &Sandbox{id: id, client: c}, nil
+	return &Env{id: id, client: c}, nil
 }
 
-// Sandbox returns a handle to a sandbox by ID without checking that it
+// Env returns a handle to an environment by ID without checking that it
 // exists.
-func (c *Client) Sandbox(id string) *Sandbox {
-	return &Sandbox{id: id, client: c}
+func (c *Client) Env(id string) *Env {
+	return &Env{id: id, client: c}
 }
 
 // do performs an HTTP request against the API service. Non-2xx responses
@@ -109,14 +109,14 @@ func (c *Client) do(ctx context.Context, method, path string, contentType string
 	u := c.endpoint + path
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: building request: %w", err)
+		return nil, fmt.Errorf("env: building request: %w", err)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: reaching the API at %q: %w", c.endpoint, err)
+		return nil, fmt.Errorf("env: reaching the API at %q: %w", c.endpoint, err)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil
@@ -127,11 +127,11 @@ func (c *Client) do(ctx context.Context, method, path string, contentType string
 	var apiErr guest.Error
 	if jsonErr := json.Unmarshal(payload, &apiErr); jsonErr == nil && apiErr.Message != "" {
 		if apiErr.Code == guest.CodeNotFound {
-			return nil, fmt.Errorf("sandbox: %w: %s", ErrNotFound, apiErr.Message)
+			return nil, fmt.Errorf("env: %w: %s", ErrNotFound, apiErr.Message)
 		}
-		return nil, fmt.Errorf("sandbox: %s", apiErr.Message)
+		return nil, fmt.Errorf("env: %s", apiErr.Message)
 	}
-	return nil, fmt.Errorf("sandbox: API returned HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(payload))
+	return nil, fmt.Errorf("env: API returned HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(payload))
 }
 
 // doJSON performs a request with an optional JSON body (in) and decodes
@@ -142,7 +142,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) e
 	if in != nil {
 		data, err := json.Marshal(in)
 		if err != nil {
-			return fmt.Errorf("sandbox: encoding request: %w", err)
+			return fmt.Errorf("env: encoding request: %w", err)
 		}
 		body = bytes.NewReader(data)
 		contentType = "application/json"
@@ -156,7 +156,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) e
 		return nil
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("sandbox: decoding response: %w", err)
+		return fmt.Errorf("env: decoding response: %w", err)
 	}
 	return nil
 }

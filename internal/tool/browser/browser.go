@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/agent-substrate/sandbox/internal/tool"
+	"github.com/agent-substrate/env/internal/tool"
 )
 
 // Config configures the web browsing tool.

@@ -1,11 +1,11 @@
-SBX_IMAGE_REPO ?= us-central1-docker.pkg.dev/agent-substrate/sandbox
+ATE_ENV_IMAGE_REPO ?= us-central1-docker.pkg.dev/agent-substrate/env
 
 .PHONY: build install test vet clean images
 
 build:
 	go build ./...
 
-# Install sbx and sbx-api to $GOBIN (or $GOPATH/bin).
+# Install ate-env and ate-env-api to $GOBIN (or $GOPATH/bin).
 install:
 	go install ./cmd/...
 
@@ -16,9 +16,9 @@ vet:
 	go vet ./...
 
 images:
-	@echo "Building and pushing container images to $(SBX_IMAGE_REPO)..."
-	@guest_img=$$(KO_DOCKER_REPO=$(SBX_IMAGE_REPO)/sbx-guest ko build --bare ./cmd/sbx-guest); \
-	api_img=$$(KO_DOCKER_REPO=$(SBX_IMAGE_REPO)/sbx-api ko build --bare ./cmd/sbx-api); \
+	@echo "Building and pushing container images to $(ATE_ENV_IMAGE_REPO)..."
+	@guest_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-guest ko build --bare ./cmd/ate-env-guest); \
+	api_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-api ko build --bare ./cmd/ate-env-api); \
 	echo "Updating README.md with published image SHAs..."; \
 	python3 -c 'import re; g="'"$$guest_img"'"; a="'"$$api_img"'"; r=open("README.md").read(); r=re.sub(r"(--guest-image\s+)\S+", r"\1"+g, r); r=re.sub(r"(--api-image\s+)\S+", r"\1"+a, r); open("README.md","w").write(r)'; \
 	echo "Published images updated in README.md:" && \

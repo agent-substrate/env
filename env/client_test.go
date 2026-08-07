@@ -1,4 +1,4 @@
-package sandbox_test
+package env_test
 
 import (
 	"errors"
@@ -7,21 +7,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/sandbox/internal/ate"
-	"github.com/agent-substrate/sandbox/internal/guest"
-	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
-	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
-	"github.com/agent-substrate/sandbox/internal/service"
-	"github.com/agent-substrate/sandbox/sandbox"
+	"github.com/agent-substrate/env/env"
+	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/guest"
+	"github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
+	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
+	"github.com/agent-substrate/env/internal/service"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
 // fixture runs the full stack the SDK talks to: a fake Substrate control
-// plane and router behind a real sbx-api handler.
+// plane and router behind a real ate-env-api handler.
 type fixture struct {
 	router *fakerouter.Router
-	client *sandbox.Client
+	client *env.Client
 	guest  string // guest workdir
 	apiURL string
 }
@@ -56,7 +56,7 @@ func newFixture(t *testing.T) *fixture {
 	srv := httptest.NewServer(service.Handler(directClient))
 	t.Cleanup(srv.Close)
 
-	client, err := sandbox.NewClient(sandbox.ClientOptions{
+	client, err := env.NewClient(env.ClientOptions{
 		Endpoint: srv.URL,
 	})
 	if err != nil {
@@ -67,8 +67,8 @@ func newFixture(t *testing.T) *fixture {
 	return &fixture{router: router, client: client, guest: t.TempDir(), apiURL: srv.URL}
 }
 
-// create makes a sandbox whose guest handler serves from a temp dir.
-func (f *fixture) create(t *testing.T, id string, opts ...sandbox.CreateOption) *sandbox.Sandbox {
+// create makes a env whose guest handler serves from a temp dir.
+func (f *fixture) create(t *testing.T, id string, opts ...env.CreateOption) *env.Env {
 	t.Helper()
 	fsSys, _ := guestsys.New(f.guest)
 	h, err := (&guest.Server{}).Handler(fsSys)
@@ -76,15 +76,15 @@ func (f *fixture) create(t *testing.T, id string, opts ...sandbox.CreateOption) 
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	opts = append([]sandbox.CreateOption{sandbox.WithTemplate("default"), sandbox.WithNamespace("sandboxes")}, opts...)
+	opts = append([]env.CreateOption{env.WithTemplate("default"), env.WithNamespace("sandboxes")}, opts...)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
-		t.Fatalf("creating sandbox %q: %v", id, err)
+		t.Fatalf("creating env %q: %v", id, err)
 	}
 	return sb
 }
 
-func TestCreateStartsSandbox(t *testing.T) {
+func TestCreateStartsEnv(t *testing.T) {
 	f := newFixture(t)
 	sb := f.create(t, "sb-1")
 	if sb.ID() != "sb-1" {
@@ -165,7 +165,7 @@ func TestCmdAndFilesystem(t *testing.T) {
 	if err := sb.Remove(ctx, "project"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, sandbox.ErrNotFound) {
+	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, env.ErrNotFound) {
 		t.Errorf("stat after remove = %v, want ErrNotFound", err)
 	}
 }

@@ -1,6 +1,6 @@
 // Package fakerouter implements a test double for the atenet router: it
-// resolves the target sandbox from the request's Host header and forwards
-// to that sandbox's guest handler, returning 503 when the sandbox is not
+// resolves the target environment from the request's Host header and forwards
+// to that environment's guest handler, returning 503 when the environment is not
 // running.
 package fakerouter
 
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/agent-substrate/sandbox/internal/ate"
+	"github.com/agent-substrate/env/internal/ate"
 )
 
 // Router is a fake atenet router.
@@ -29,7 +29,7 @@ func New() *Router {
 	return &Router{guests: make(map[string]http.Handler)}
 }
 
-// Register installs the guest handler serving a sandbox ID.
+// Register installs the guest handler serving a environment ID.
 func (r *Router) Register(id string, h http.Handler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

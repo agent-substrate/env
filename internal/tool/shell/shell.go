@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/tool"
+	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/tool"
 )
 
 const defaultShell = "/bin/sh"

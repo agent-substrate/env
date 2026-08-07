@@ -1,6 +1,6 @@
 // Package guest implements the HTTP server that runs inside a Substrate
 // actor and provides command execution and filesystem access for the
-// sandbox it lives in. Its state (filesystem and process memory) is
+// environment it lives in. Its state (filesystem and process memory) is
 // snapshotted and restored by Substrate across suspend/resume cycles.
 package guest
 
@@ -20,11 +20,11 @@ import (
 	"syscall"
 	"time"
 
-	guestsys "github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/tool"
-	"github.com/agent-substrate/sandbox/internal/tool/browser"
-	fstool "github.com/agent-substrate/sandbox/internal/tool/fs"
-	"github.com/agent-substrate/sandbox/internal/tool/shell"
+	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/tool"
+	"github.com/agent-substrate/env/internal/tool/browser"
+	fstool "github.com/agent-substrate/env/internal/tool/fs"
+	"github.com/agent-substrate/env/internal/tool/shell"
 )
 
 // DefaultMaxOutputBytes is the per-stream (stdout/stderr) cap on captured

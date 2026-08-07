@@ -1,10 +1,10 @@
-// Command quickstart demonstrates the sandbox SDK end to end: create a
-// sandbox, write and run code in it, suspend it, then resume and observe
+// Command quickstart demonstrates the environment SDK end to end: create a
+// environment, write and run code in it, suspend it, then resume and observe
 // that its filesystem survived the hibernation cycle.
 //
-// It expects a port-forward to the sbx-api service:
+// It expects a port-forward to the ate-env-api service:
 //
-//	kubectl port-forward -n ate-sandbox svc/sbx-api 7777:7777
+//	kubectl port-forward -n ate-env svc/ate-env-api 7777:7777
 package main
 
 import (
@@ -14,13 +14,13 @@ import (
 	"log"
 	"strings"
 
-	"github.com/agent-substrate/sandbox/sandbox"
+	"github.com/agent-substrate/env/env"
 )
 
 func main() {
 	ctx := context.Background()
 
-	client, err := sandbox.NewClient(sandbox.ClientOptions{
+	client, err := env.NewClient(env.ClientOptions{
 		Endpoint: "http://localhost:7777",
 	})
 	if err != nil {
@@ -28,13 +28,13 @@ func main() {
 	}
 	defer client.Close()
 
-	sb, err := client.Create(ctx, "quickstart-1", sandbox.WithTemplate("sandbox"))
+	sb, err := client.Create(ctx, "quickstart-1", env.WithTemplate("env"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer sb.Delete(ctx)
 
-	// Write a script into the sandbox and run it.
+	// Write a script into the environment and run it.
 	script := "#!/bin/sh\necho \"hello from $(hostname)\"\ndate > /workspace/last-run\n"
 	if err := sb.WriteFile(ctx, "/workspace/hello.sh", strings.NewReader(script), 0o755); err != nil {
 		log.Fatal(err)

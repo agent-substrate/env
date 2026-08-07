@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/sandbox/internal/ate"
-	"github.com/agent-substrate/sandbox/internal/guest"
-	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
-	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
-	"github.com/agent-substrate/sandbox/internal/service"
+	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/guest"
+	"github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
+	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
+	"github.com/agent-substrate/env/internal/service"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
@@ -82,18 +82,18 @@ func TestLifecycleAndExec(t *testing.T) {
 	router.Register("web-1", h)
 
 	// Create.
-	resp := do(t, "POST", srv.URL+"/v1/sandboxes", `{"id":"web-1","template":"default","namespace":"sandboxes"}`)
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"web-1","template":"default","namespace":"sandboxes"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}
 
 	// Write and read a file through the API.
 	content := base64.StdEncoding.EncodeToString([]byte("file body"))
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/file", `{"path":"app/main.txt","content":"`+content+`"}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/file", `{"path":"app/main.txt","content":"`+content+`"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("write file status = %d, want 204", resp.StatusCode)
 	}
-	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/file", `{"path":"app/main.txt"}`)
+	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/file", `{"path":"app/main.txt"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("read file status = %d, want 200", resp.StatusCode)
 	}
@@ -108,7 +108,7 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// Exec.
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/cmd", `{"command":["sh","-c","cat app/main.txt"]}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/cmd", `{"command":["sh","-c","cat app/main.txt"]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cmd status = %d, want 200", resp.StatusCode)
 	}
@@ -118,15 +118,15 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// Suspend, then resume and exec again.
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/suspend", "")
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/suspend", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("suspend status = %d, want 200", resp.StatusCode)
 	}
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/resume", "")
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/resume", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("resume status = %d, want 200", resp.StatusCode)
 	}
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/cmd", `{"command":["sh","-c","echo back"]}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/cmd", `{"command":["sh","-c","echo back"]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cmd after resume status = %d, want 200", resp.StatusCode)
 	}
@@ -135,40 +135,40 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// List directory.
-	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/dir", `{"path":"app"}`)
+	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/dir", `{"path":"app"}`)
 	listing := decode[guest.ListDirResponse](t, resp)
 	if len(listing.Entries) != 1 || listing.Entries[0].Name != "main.txt" {
 		t.Fatalf("listing = %+v, want [main.txt]", listing.Entries)
 	}
 
 	// A file deletes cleanly through the file endpoint.
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/file", `{"path":"app/main.txt"}`)
+	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1/file", `{"path":"app/main.txt"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete file status = %d, want 204", resp.StatusCode)
 	}
 
 	// Delete the directory tree.
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1/dir", `{"path":"app"}`)
+	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1/dir", `{"path":"app"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete dir status = %d, want 204", resp.StatusCode)
 	}
-	resp = do(t, "GET", srv.URL+"/v1/sandboxes/web-1/dir", `{"path":"app"}`)
+	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/dir", `{"path":"app"}`)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("list after delete status = %d, want 404", resp.StatusCode)
 	}
 
 	// Delete.
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes/web-1/suspend", "")
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/suspend", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("suspend before delete status = %d, want 200", resp.StatusCode)
 	}
-	resp = do(t, "DELETE", srv.URL+"/v1/sandboxes/web-1", "")
+	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1", "")
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204", resp.StatusCode)
 	}
 }
 
-func TestCreateStartsSandbox(t *testing.T) {
+func TestCreateStartsEnv(t *testing.T) {
 	srv, router := newAPI(t)
 	fsSys, _ := guestsys.New(t.TempDir())
 	h, err := (&guest.Server{}).Handler(fsSys)
@@ -177,8 +177,8 @@ func TestCreateStartsSandbox(t *testing.T) {
 	}
 	router.Register("started", h)
 
-	// Create starts the sandbox.
-	resp := do(t, "POST", srv.URL+"/v1/sandboxes", `{"id":"started","template":"default","namespace":"sandboxes"}`)
+	// Create starts the environment.
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"started","template":"default","namespace":"sandboxes"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("create status = %d, want 201", resp.StatusCode)
 	}
@@ -187,12 +187,12 @@ func TestCreateStartsSandbox(t *testing.T) {
 func TestValidation(t *testing.T) {
 	srv, _ := newAPI(t)
 
-	resp := do(t, "POST", srv.URL+"/v1/sandboxes", `{}`)
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("create without id status = %d, want 400", resp.StatusCode)
 	}
 	// Omitting template and namespace falls back to the defaults.
-	resp = do(t, "POST", srv.URL+"/v1/sandboxes", `{"id":"bare"}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs", `{"id":"bare"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("create with defaults status = %d, want 201", resp.StatusCode)
 	}

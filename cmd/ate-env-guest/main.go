@@ -1,7 +1,7 @@
-// Command sbx-guest is the daemon that runs inside a Substrate actor
+// Command ate-env-guest is the daemon that runs inside a Substrate actor
 // and exposes command execution and filesystem access over HTTP. It is the
-// in-sandbox half of the sandbox service; the atenet router forwards
-// per-sandbox traffic to it.
+// in-env half of the env service; the atenet router forwards
+// per-env traffic to it.
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/agent-substrate/sandbox/internal/guest"
+	"github.com/agent-substrate/env/internal/guest"
 )
 
 func main() {
@@ -32,6 +32,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("initializing guest server: %v", err)
 	}
-	log.Printf("sbx-guest listening on %s", *addr)
+	log.Printf("ate-env-guest listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, h))
 }

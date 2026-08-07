@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/agent-substrate/sandbox/internal/ate"
-	"github.com/agent-substrate/sandbox/internal/guest"
-	"github.com/agent-substrate/sandbox/internal/guest/guestsys"
-	"github.com/agent-substrate/sandbox/internal/internaltest/fakecontrol"
-	"github.com/agent-substrate/sandbox/internal/internaltest/fakerouter"
+	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/guest"
+	"github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
+	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
@@ -52,8 +52,8 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
-// create makes a sandbox whose guest handler serves from a temp dir.
-func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate.SandboxClient {
+// create makes a env whose guest handler serves from a temp dir.
+func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate.ActorClient {
 	t.Helper()
 	fsSys, _ := guestsys.New(f.guest)
 	h, err := (&guest.Server{}).Handler(fsSys)
@@ -64,12 +64,12 @@ func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate
 	opts = append([]ate.CreateOption{ate.WithTemplate("default"), ate.WithNamespace("sandboxes")}, opts...)
 	sb, err := f.client.Create(t.Context(), id, opts...)
 	if err != nil {
-		t.Fatalf("creating sandbox %q: %v", id, err)
+		t.Fatalf("creating actor %q: %v", id, err)
 	}
 	return sb
 }
 
-func TestCreateStartsSandbox(t *testing.T) {
+func TestCreateStartsEnv(t *testing.T) {
 	f := newFixture(t)
 	sb := f.create(t, "sb-1")
 	if sb.ID() != "sb-1" {

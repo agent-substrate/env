@@ -1,16 +1,16 @@
-// Package ate implements the sandbox abstraction directly on top of
-// Agent Substrate; it backs the sbx-api service. A
-// Sandbox wraps a Substrate actor: it can be created, suspended (full
+// Package ate implements the environment abstraction directly on top of
+// Agent Substrate; it backs the ate-env-api service. A
+// Environment wraps a Substrate actor: it can be created, suspended (full
 // snapshot to object storage), resumed, and deleted, and while running it
 // accepts remote command execution and filesystem operations served by the
-// sbx-guest daemon inside the actor.
+// ate-env-guest daemon inside the actor.
 //
 // Lifecycle operations go to the ateapi gRPC control plane; command and
 // filesystem operations go through the atenet HTTP router, which routes
 // requests by Host header to the actor's guest daemon.
 //
-// Clients outside this repository use the sandbox package, which talks to
-// the sbx-api service instead.
+// Clients outside this repository use the env package, which talks to
+// the ate-env-api service instead.
 package ate
 
 import (
@@ -34,14 +34,14 @@ const DefaultHostSuffix = "actors.resources.substrate.ate.dev"
 
 // DefaultControlAddr and DefaultRouterAddr are the in-cluster addresses of
 // the Substrate control plane and router, as installed by Agent Substrate
-// in the ate-system namespace. They are the defaults for a sbx-api running
+// in the ate-system namespace. They are the defaults for a ate-env-api running
 // inside the cluster.
 const (
 	DefaultControlAddr = "api.ate-system.svc.cluster.local:443"
 	DefaultRouterAddr  = "atenet-router.ate-system.svc.cluster.local:80"
 )
 
-// ErrNotFound is returned when a sandbox, file, or directory does not exist.
+// ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
 
 // Options configures a Client.
@@ -73,7 +73,7 @@ type Options struct {
 	HTTPClient *http.Client
 }
 
-// Client manages sandboxes on a Substrate cluster.
+// Client manages environments on a Substrate cluster.
 type Client struct {
 	opts    Options
 	conn    *grpc.ClientConn
@@ -85,7 +85,7 @@ type Client struct {
 // lazily on first use.
 func New(opts Options) (*Client, error) {
 	if opts.ControlAddr == "" {
-		return nil, errors.New("sandbox: Options.ControlAddr is required")
+		return nil, errors.New("ate: Options.ControlAddr is required")
 	}
 	if opts.HostSuffix == "" {
 		opts.HostSuffix = DefaultHostSuffix
@@ -100,7 +100,7 @@ func New(opts Options) (*Client, error) {
 
 	conn, err := grpc.NewClient(opts.ControlAddr, grpc.WithTransportCredentials(creds))
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: dialing control plane: %w", err)
+		return nil, fmt.Errorf("ate: dialing control plane: %w", err)
 	}
 
 	httpClient := opts.HTTPClient
@@ -121,11 +121,11 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// ProxyGuest reverse-proxies an HTTP request to the guest daemon inside sandbox id.
+// ProxyGuest reverse-proxies an HTTP request to the guest daemon inside env id.
 // subPath is the path on guest, e.g. "/v1/cmd" or "/v1/file".
 func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r *http.Request) {
 	if c.opts.RouterAddr == "" {
-		http.Error(w, `{"code":"internal","error":"sandbox: Options.RouterAddr is required for command and filesystem operations"}`, http.StatusInternalServerError)
+		http.Error(w, `{"code":"internal","error":"ate: Options.RouterAddr is required for command and filesystem operations"}`, http.StatusInternalServerError)
 		return
 	}
 	director := func(req *http.Request) {
@@ -148,7 +148,7 @@ func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r 
 func (c *Client) templateRef(overrideNamespace, overrideName string) (namespace, name string, err error) {
 	name = overrideName
 	if name == "" {
-		return "", "", errors.New("sandbox: no ActorTemplate specified (use WithTemplate)")
+		return "", "", errors.New("ate: no ActorTemplate specified (use WithTemplate)")
 	}
 	namespace = overrideNamespace
 	if namespace == "" {
@@ -195,9 +195,9 @@ func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	return nil
 }
 
-// Create registers a new sandbox with the given ID (a DNS-1123 label) and
+// Create registers a new actor with the given ID (a DNS-1123 label) and
 // starts it.
-func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*SandboxClient, error) {
+func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*ActorClient, error) {
 	var cfg createConfig
 	for _, o := range opts {
 		o(&cfg)
@@ -209,7 +209,7 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 
 	const atespace = "default"
 	if err := c.EnsureAtespace(ctx, atespace); err != nil {
-		return nil, fmt.Errorf("sandbox: creating %q: %w", id, err)
+		return nil, fmt.Errorf("ate: creating %q: %w", id, err)
 	}
 
 	actor := &ateapipb.Actor{
@@ -221,22 +221,22 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 		ActorTemplateName:      name,
 	}
 	if _, err := c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: actor}); err != nil {
-		return nil, fmt.Errorf("sandbox: creating %q: %w", id, wrapGRPCError(err))
+		return nil, fmt.Errorf("ate: creating %q: %w", id, wrapGRPCError(err))
 	}
 
-	sb := &SandboxClient{id: id, client: c}
+	sb := &ActorClient{id: id, client: c}
 	return sb, nil
 }
 
-// ref returns the ObjectRef identifying the actor backing sandbox id.
+// ref returns the ObjectRef identifying the actor backing actor id.
 func (c *Client) ref(id string) *ateapipb.ObjectRef {
 	return &ateapipb.ObjectRef{Atespace: "default", Name: id}
 }
 
-// Sandbox returns a handle to a sandbox by ID without checking that it
+// Actor returns a handle to an actor by ID without checking that it
 // exists.
-func (c *Client) Sandbox(id string) *SandboxClient {
-	return &SandboxClient{id: id, client: c}
+func (c *Client) Actor(id string) *ActorClient {
+	return &ActorClient{id: id, client: c}
 }
 
 func wrapGRPCError(err error) error {
