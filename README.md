@@ -15,14 +15,14 @@ while this project adds the environment-shaped API on top.
 ## Overview
 
 ```
- ╭──────────╮   ╭──────────────╮  lifecycle ╭────────────╮
- │  Client  │   │              ├───────────▶│   ateapi   │  Substrate control plane
- │  ate-env CLI ├──▶│   ate-env-api    │            ╰────────────╯
- ╰──────────╯   │ (API server) │  cmd/fs    ╭────────────╮     ╭──────────────────────╮
-                │              ├───────────▶│   atenet   ├────▶│ actor                │
-                ╰──────────────╯            │   router   │     │  └ ate-env-guest         │
-                                            ╰────────────╯     │    /v1/envs/*   │
-                                                               ╰──────────────────────╯
+ ╭──────────────╮    ╭──────────────╮ lifecycle  ╭────────────╮
+ │    Clients   │    │              ├───────────▶│   ateapi   │ Substrate control plane
+ │  ate-env CLI ├───▶│ ate-env-api  │            ╰────────────╯
+ ╰──────────────╯    │ (API server) │  cmd/fs    ╭────────────╮     ╭──────────────────────╮
+                     │              ├───────────▶│   atenet   ├────▶│ actor                │
+                     ╰──────────────╯            │   router   │     │  └ ate-env-guest     │
+                                                 ╰────────────╯     │    /v1/envs/*        │
+                                                                    ╰──────────────────────╯
 ```
 
 - **`cmd/ate-env`** — Provides a CLI over the API, and utilies to
