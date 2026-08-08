@@ -746,32 +746,36 @@ func (s *FS) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 	cmd.Cancel = func() error { return killProcessGroup(cmd) }
 	cmd.WaitDelay = 2 * time.Second
 
-	start := time.Now()
 	runErr := cmd.Run()
-	elapsed := time.Since(start).Round(time.Millisecond)
-
-	var out strings.Builder
-	fmt.Fprintf(&out, "$ %s\n", command)
-	exitCode := cmd.ProcessState.ExitCode()
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
 
-	switch {
-	case timedOut:
-		fmt.Fprintf(&out, "timed out after %s (process group killed)\n", timeout)
-	case runErr != nil && exitCode < 0:
-		fmt.Fprintf(&out, "failed to run: %v\n", runErr)
-	default:
-		fmt.Fprintf(&out, "exit code: %d (%s)\n", exitCode, elapsed)
+	if timedOut {
+		return "", fmt.Errorf("timed out after %s (process group killed)", timeout)
 	}
 
 	maxBytes := opts.MaxOutputBytes
 	if maxBytes <= 0 {
 		maxBytes = 1 << 20
 	}
-	writeStream(&out, "stdout", stdout.String(), maxBytes)
-	writeStream(&out, "stderr", stderr.String(), maxBytes)
 
-	return out.String(), nil
+	outStr := stdout.String()
+	errStr := stderr.String()
+
+	if len(outStr)+len(errStr) > maxBytes {
+		if len(outStr) > maxBytes {
+			outStr = outStr[:maxBytes]
+			errStr = ""
+		} else {
+			errStr = errStr[:maxBytes-len(outStr)]
+		}
+	}
+
+	combined := outStr + errStr
+	if combined == "" && runErr != nil {
+		return "", runErr
+	}
+
+	return combined, nil
 }
 
 func setProcessGroup(cmd *exec.Cmd) {
@@ -788,19 +792,4 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	return nil
 }
 
-func writeStream(out *strings.Builder, name, body string, max int) {
-	if body == "" {
-		return
-	}
-	truncated := false
-	if len(body) > max {
-		body, truncated = body[:max], true
-	}
-	fmt.Fprintf(out, "\n--- %s ---\n%s", name, body)
-	if !strings.HasSuffix(body, "\n") {
-		out.WriteByte('\n')
-	}
-	if truncated {
-		fmt.Fprintf(out, "[%s truncated at %d bytes]\n", name, max)
-	}
-}
+
