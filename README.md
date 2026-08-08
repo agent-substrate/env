@@ -156,9 +156,7 @@ environment ID `dev1`. `GET` and `DELETE` endpoints take their target path as a
 
 ### Environments
 
-`POST /v1/envs` creates and starts an environment. `template` defaults to
-`default-env` and `namespace` defaults to `ate-env`. Responds `201 Created`
-with an empty body.
+`POST /v1/envs` creates and starts an environment.
 
 ```bash
 curl -X POST localhost:7777/v1/envs \
@@ -166,7 +164,7 @@ curl -X POST localhost:7777/v1/envs \
 ```
 
 `POST /v1/envs/{id}/fork` creates a new environment from `{id}`'s latest
-snapshot, inheriting its template. Responds `201 Created`.
+snapshot, inheriting its template.
 
 Substrate snapshots an environment when it goes idle, and the fork is taken from
 that snapshot — the source is left untouched, so the copy reflects its state as
@@ -177,17 +175,7 @@ curl -X POST localhost:7777/v1/envs/dev1/fork \
      -d '{"dest_id": "dev2"}'
 ```
 
-Forking fails with `409 Conflict` and code `failed_precondition` when the source
-has never been snapshotted, or is still resuming:
-
-```json
-{
-  "code": "failed_precondition",
-  "error": "ate: precondition failed: \"dev1\" has no snapshot to fork from; suspend it first"
-}
-```
-
-`DELETE /v1/envs/{id}` deletes an environment. Responds `204 No Content`.
+`DELETE /v1/envs/{id}` deletes an environment.
 
 ```bash
 curl -X DELETE localhost:7777/v1/envs/dev1
@@ -254,8 +242,7 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 ```
 
 A command that runs but fails is not an API error: the response is still
-`200 OK`, with the failure reported in `stderr` and `exit_code`. Only a command
-that cannot be started at all returns `400` with code `invalid_argument`.
+`200 OK`, with the failure reported in `stderr` and `exit_code`.
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/shell \
@@ -269,13 +256,7 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 
 ### Filesystem
 
-`GET` and `DELETE` endpoints identify their target with a `path` query
-parameter; `POST` endpoints carry `"path"` in a JSON body. Relative paths
-resolve against the guest daemon's working directory. File `content` is
-base64-encoded in both requests and responses, and `mode` is an octal string
-defaulting to `"644"` for files and `"755"` for directories.
-
-Write a file (responds `204 No Content`):
+Write a file:
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/file \
@@ -293,13 +274,13 @@ curl 'localhost:7777/v1/envs/dev1/file?path=/app/main.txt'
 }
 ```
 
-Delete a file or directory, recursively (responds `204 No Content`):
+Delete a file or directory, recursively:
 
 ```bash
 curl -X DELETE 'localhost:7777/v1/envs/dev1/file?path=/app/main.txt'
 ```
 
-Create a directory, including parents (responds `204 No Content`):
+Create a directory, including parents:
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/dir \
@@ -324,8 +305,7 @@ curl 'localhost:7777/v1/envs/dev1/dir?path=/app'
 }
 ```
 
-`DELETE /v1/envs/{id}/dir` is an alias of `DELETE /v1/envs/{id}/file`; both
-remove a file or directory recursively:
+Remove a directory recursively:
 
 ```bash
 curl -X DELETE 'localhost:7777/v1/envs/dev1/dir?path=/app/logs'
@@ -364,10 +344,6 @@ Non-2xx responses use a JSON error envelope:
 | `not_file`         | `400` | The path is a directory but the operation expects a file          |
 | `not_directory`    | `400` | The path is a file but the operation expects a directory          |
 | `internal`         | `500` | The request failed for any other reason                           |
-
-Writing a file larger than the guest's 64 MiB limit is the one exception to the
-status mapping: it returns `413 Request Entity Too Large` with code
-`invalid_argument`.
 
 ## Built-in MCP Server
 
