@@ -53,7 +53,7 @@ func New() *Server {
 func (s *Server) SetStatus(name string, st ateapipb.Actor_Status) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if a, ok := s.actors[key("default", name)]; ok {
+	if a := s.find(name); a != nil {
 		a.Status = st
 	}
 }
@@ -63,7 +63,7 @@ func (s *Server) SetStatus(name string, st ateapipb.Actor_Status) {
 func (s *Server) SnapshotOf(name string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.actors[key("default", name)].GetLatestSnapshot().GetName()
+	return s.find(name).GetLatestSnapshot().GetName()
 }
 
 // Serve starts the fake on a random localhost port and returns its
@@ -108,19 +108,24 @@ func selfSignedCert() (tls.Certificate, error) {
 
 func key(atespace, name string) string { return atespace + "/" + name }
 
-// Status returns the current status of the actor with the given name in
-// the global atespace, or STATUS_UNSPECIFIED if it does not exist.
+// Status returns the current status of the actor with the given name, or
+// STATUS_UNSPECIFIED if it does not exist.
 func (s *Server) Status(name string) ateapipb.Actor_Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	a, ok := s.actors[key("", name)]
-	if !ok {
-		a, ok = s.actors[key("default", name)]
+	return s.find(name).GetStatus()
+}
+
+// find returns the actor with the given name, whichever atespace holds it, or
+// nil when no actor has that name. The helpers above address actors by name
+// alone so tests do not have to know which atespace a client placed them in.
+func (s *Server) find(name string) *ateapipb.Actor {
+	for _, a := range s.actors {
+		if a.GetMetadata().GetName() == name {
+			return a
+		}
 	}
-	if !ok {
-		return ateapipb.Actor_STATUS_UNSPECIFIED
-	}
-	return a.GetStatus()
+	return nil
 }
 
 func (s *Server) get(ref *ateapipb.ObjectRef) (*ateapipb.Actor, error) {
@@ -235,8 +240,8 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 func (s *Server) Suspend(name string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	a, ok := s.actors[key("default", name)]
-	if !ok {
+	a := s.find(name)
+	if a == nil {
 		return ""
 	}
 	s.suspend(a)

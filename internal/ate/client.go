@@ -42,8 +42,8 @@ const (
 	DefaultRouterAddr  = "atenet-router.ate-system.svc.cluster.local:80"
 )
 
-// atespace is the Substrate atespace every environment actor lives in.
-const atespace = "default"
+// DefaultAtespace is the Substrate atespace every environment actor lives in.
+const DefaultAtespace = "default"
 
 // ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
@@ -140,7 +140,7 @@ func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r 
 		req.URL.Scheme = "http"
 		req.URL.Host = c.opts.RouterAddr
 		req.URL.Path = subPath
-		req.Host = id + ".default." + c.opts.HostSuffix
+		req.Host = id + "." + DefaultAtespace + "." + c.opts.HostSuffix
 	}
 	transport := c.http.Transport
 	if transport == nil {
@@ -154,10 +154,10 @@ func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r 
 }
 
 // EnsureAtespace creates the atespace with name if it does not already exist.
-// If name is empty, it defaults to "default".
+// If name is empty, it defaults to DefaultAtespace.
 func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	if name == "" {
-		name = "default"
+		name = DefaultAtespace
 	}
 	_, err := c.control.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
 		Atespace: &ateapipb.Atespace{
@@ -183,13 +183,13 @@ func (c *Client) Create(ctx context.Context, req env.CreateRequest) error {
 		return errors.New("ate: CreateRequest.Template is required")
 	}
 
-	if err := c.EnsureAtespace(ctx, atespace); err != nil {
+	if err := c.EnsureAtespace(ctx, DefaultAtespace); err != nil {
 		return fmt.Errorf("ate: creating %q: %w", req.ID, err)
 	}
 
 	actor := &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{
-			Atespace: atespace,
+			Atespace: DefaultAtespace,
 			Name:     req.ID,
 		},
 		ActorTemplateNamespace: req.Namespace,
@@ -232,7 +232,7 @@ func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
 	// A snapshot is only usable as a source once it carries a tag, and the tag
 	// also pins it against garbage collection for the life of the fork.
 	tag := &ateapipb.ObjectRef{
-		Atespace: atespace,
+		Atespace: DefaultAtespace,
 		Name:     fmt.Sprintf("fork-%s-%d", dstID, time.Now().UnixNano()),
 	}
 	if _, err := c.control.TagActorSnapshot(ctx, &ateapipb.TagActorSnapshotRequest{
@@ -249,7 +249,7 @@ func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
 
 	_, err = c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{
 		Actor: &ateapipb.Actor{
-			Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: dstID},
+			Metadata:               &ateapipb.ResourceMetadata{Atespace: DefaultAtespace, Name: dstID},
 			ActorTemplateNamespace: src.GetActorTemplateNamespace(),
 			ActorTemplateName:      src.GetActorTemplateName(),
 		},
@@ -278,7 +278,7 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 
 // ref returns the ObjectRef identifying the actor backing actor id.
 func (c *Client) ref(id string) *ateapipb.ObjectRef {
-	return &ateapipb.ObjectRef{Atespace: "default", Name: id}
+	return &ateapipb.ObjectRef{Atespace: DefaultAtespace, Name: id}
 }
 
 func wrapGRPCError(err error) error {
