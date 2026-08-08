@@ -64,14 +64,11 @@ func main() {
 		Short: "Create and start an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := []env.CreateOption{}
-			if createTemplate != "" {
-				opts = append(opts, env.WithTemplate(createTemplate))
-			}
-			if createNamespace != "" {
-				opts = append(opts, env.WithNamespace(createNamespace))
-			}
-			_, err := client.Create(cmd.Context(), args[0], opts...)
+			_, err := client.Create(cmd.Context(), env.CreateEnvRequest{
+				ID:        args[0],
+				Template:  createTemplate,
+				Namespace: createNamespace,
+			})
 			return err
 		},
 	}

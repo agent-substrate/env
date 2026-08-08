@@ -68,7 +68,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 // create makes a env whose guest handler serves from a temp dir.
-func (f *fixture) create(t *testing.T, id string, opts ...env.CreateOption) *env.Env {
+func (f *fixture) create(t *testing.T, id string) *env.Env {
 	t.Helper()
 	fsSys, _ := guestsys.New(f.guest)
 	h, err := (&guest.Server{}).Handler(fsSys)
@@ -76,8 +76,11 @@ func (f *fixture) create(t *testing.T, id string, opts ...env.CreateOption) *env
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	opts = append([]env.CreateOption{env.WithTemplate("default-env"), env.WithNamespace("envs")}, opts...)
-	sb, err := f.client.Create(t.Context(), id, opts...)
+	sb, err := f.client.Create(t.Context(), env.CreateEnvRequest{
+		ID:        id,
+		Template:  "default-env",
+		Namespace: "envs",
+	})
 	if err != nil {
 		t.Fatalf("creating env %q: %v", id, err)
 	}

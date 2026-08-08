@@ -55,43 +55,14 @@ func NewClient(opts ClientOptions) (*Client, error) {
 // Close releases the client's resources.
 func (c *Client) Close() error { return nil }
 
-// CreateOption customizes Create.
-type CreateOption func(*createConfig)
-
-type createConfig struct {
-	template          string
-	templateNamespace string
-}
-
-// WithTemplate overrides the client's default ActorTemplate name.
-func WithTemplate(name string) CreateOption {
-	return func(c *createConfig) { c.template = name }
-}
-
-// WithNamespace overrides the Kubernetes namespace the ActorTemplate is
-// looked up in.
-func WithNamespace(namespace string) CreateOption {
-	return func(c *createConfig) { c.templateNamespace = namespace }
-}
-
-// Create registers a new env with the given ID (a DNS-1123 label) and
-// starts it.
-func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*Env, error) {
-	var cfg createConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	template := cfg.template
-	namespace := cfg.templateNamespace
-	req := CreateEnvRequest{
-		ID:        id,
-		Template:  template,
-		Namespace: namespace,
-	}
+// Create registers a new env with the ID given in req (a DNS-1123 label) and
+// starts it. An empty Template or Namespace falls back to the service's
+// default.
+func (c *Client) Create(ctx context.Context, req CreateEnvRequest) (*Env, error) {
 	if err := c.do(ctx, http.MethodPost, "/v1/envs", req, nil); err != nil {
 		return nil, err
 	}
-	return &Env{id: id, client: c}, nil
+	return &Env{id: req.ID, client: c}, nil
 }
 
 // Env returns a handle to an environment by ID without checking that it

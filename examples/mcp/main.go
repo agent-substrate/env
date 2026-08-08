@@ -28,11 +28,11 @@ func main() {
 	}
 	defer c.Close()
 
-	env, err := c.Create(ctx, "mcp-demo")
+	e, err := c.Create(ctx, env.CreateEnvRequest{ID: "mcp-demo"})
 	if err != nil {
 		log.Fatalf("creating environment: %v", err)
 	}
-	defer env.Delete(ctx)
+	defer e.Delete(ctx)
 
 	// 2. Initialize MCP Client using official go-sdk.
 	mcpClient := mcp.NewClient(&mcp.Implementation{

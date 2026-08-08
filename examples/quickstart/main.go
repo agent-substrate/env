@@ -27,24 +27,24 @@ func main() {
 	}
 	defer client.Close()
 
-	sb, err := client.Create(ctx, "quickstart-1")
+	env, err := client.Create(ctx, env.CreateEnvRequest{ID: "quickstart-1"})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer sb.Delete(ctx)
+	defer env.Delete(ctx)
 
 	// Write a script into the environment and run it.
 	script := "#!/bin/sh\necho \"hello from $(hostname)\"\ndate > /workspace/last-run\n"
-	if err := sb.WriteFile(ctx, "/workspace/hello.sh", strings.NewReader(script), 0o755); err != nil {
+	if err := env.WriteFile(ctx, "/workspace/hello.sh", strings.NewReader(script), 0o755); err != nil {
 		log.Fatal(err)
 	}
-	res, err := sb.Shell(ctx, "/workspace/hello.sh")
+	res, err := env.Shell(ctx, "/workspace/hello.sh")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Print(res.Stdout)
 
-	rc, err := sb.ReadFile(ctx, "/workspace/last-run")
+	rc, err := env.ReadFile(ctx, "/workspace/last-run")
 	if err != nil {
 		log.Fatal(err)
 	}
