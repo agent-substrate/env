@@ -157,10 +157,10 @@ func (s *Sys) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append 
 		return err
 	}
 	_, err = f.Write(data)
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
 	if err != nil {
+		return err
+	}
+	if err := f.Close(); err == nil {
 		return err
 	}
 	// OpenFile applies mode only when it creates the file, so set it
