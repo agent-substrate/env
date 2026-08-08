@@ -236,7 +236,7 @@ func (s *Server) handleWriteFile(sys *guestsys.Sys, w http.ResponseWriter, r *ht
 		return
 	}
 
-	if _, err := sys.WriteFile(req.Path, req.Content, mode, true, false, s.maxFile()); err != nil {
+	if err := sys.WriteFile(req.Path, req.Content, mode, true, false); err != nil {
 		writeFSError(w, err)
 		return
 	}
@@ -285,7 +285,7 @@ func (s *Server) handleListDir(sys *guestsys.Sys, w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
-	entries, err := sys.ListDir(path, false, true, nil)
+	entries, err := sys.ListDir(path, true, nil)
 	if err != nil {
 		writeFSError(w, err)
 		return

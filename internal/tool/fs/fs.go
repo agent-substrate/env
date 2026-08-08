@@ -112,13 +112,16 @@ func writeFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p writeFileParams) (string, error) {
+		if cfg.MaxWriteBytes > 0 && len(p.Content) > cfg.MaxWriteBytes {
+			return "", fmt.Errorf("content is %d bytes, over the %d byte limit", len(p.Content), cfg.MaxWriteBytes)
+		}
 		abs, err := sys.Resolve(p.Path)
 		if err != nil {
 			return "", err
 		}
 		_, statErr := os.Stat(abs)
 		existed := statErr == nil
-		if _, err := sys.WriteFile(p.Path, []byte(p.Content), 0o644, true, p.Append, int64(cfg.MaxWriteBytes)); err != nil {
+		if err := sys.WriteFile(p.Path, []byte(p.Content), 0o644, true, p.Append); err != nil {
 			return "", err
 		}
 		verb := "Created"
@@ -171,21 +174,19 @@ func editFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 
 type listDirParams struct {
 	Path          string `json:"path"`
-	Recursive     bool   `json:"recursive"`
 	IncludeHidden *bool  `json:"include_hidden"`
 }
 
 func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "list_dir",
-		Description: "List the contents of a directory. Directories are suffixed with a slash. " +
-			"Set recursive to walk the whole subtree; noisy directories such as .git and " +
-			"node_modules are automatically skipped.",
+		Description: "List the immediate contents of a directory. Directories are suffixed with a " +
+			"slash. Subdirectories are not walked; use glob to search a whole subtree. Noisy " +
+			"directories such as .git and node_modules are omitted.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path":           map[string]any{"type": "string", "description": "Directory path relative to the workspace root."},
-				"recursive":      map[string]any{"type": "boolean", "description": "Walk subdirectories. Defaults to false."},
 				"include_hidden": map[string]any{"type": "boolean", "description": "Include entries starting with a dot. Defaults to false."},
 			},
 			"required": []string{"path"},
@@ -196,7 +197,7 @@ func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		if p.IncludeHidden != nil {
 			includeHidden = *p.IncludeHidden
 		}
-		entries, err := sys.ListDir(p.Path, p.Recursive, includeHidden, cfg.SkipDirs)
+		entries, err := sys.ListDir(p.Path, includeHidden, cfg.SkipDirs)
 		if err != nil {
 			return "", err
 		}
@@ -364,19 +365,17 @@ func mkdirTool(sys *guestsys.Sys) tool.Tool {
 type mvParams struct {
 	Source      string `json:"source"`
 	Destination string `json:"destination"`
-	Overwrite   bool   `json:"overwrite"`
 }
 
 func mvTool(sys *guestsys.Sys) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "mv",
-		Description: "Move or rename a file or directory within the workspace. Refuses to overwrite an existing destination unless overwrite is set.",
+		Description: "Move or rename a file or directory within the workspace. An existing destination is replaced.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"source":      map[string]any{"type": "string", "description": "Source file or directory path relative to the workspace root."},
 				"destination": map[string]any{"type": "string", "description": "Destination file or directory path relative to the workspace root."},
-				"overwrite":   map[string]any{"type": "boolean", "description": "If true, replace existing destination. Defaults to false."},
 			},
 			"required": []string{"source", "destination"},
 		},
@@ -390,7 +389,7 @@ func mvTool(sys *guestsys.Sys) tool.Tool {
 		if err != nil {
 			return "", err
 		}
-		if err := sys.Move(p.Source, p.Destination, p.Overwrite); err != nil {
+		if err := sys.Move(p.Source, p.Destination); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Moved %s to %s.", srcAbs, dstAbs), nil

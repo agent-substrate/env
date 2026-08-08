@@ -72,7 +72,7 @@ func (s *Sys) ReadFileRaw(p string, maxBytes int64) (*os.File, fs.FileInfo, erro
 }
 
 // ReadFileText reads a text file, optionally starting at a 1-based line offset
-// and prefixing each line with its number.
+// and prefixing each line with its number. Binary files are rejected.
 func (s *Sys) ReadFileText(p string, offset int, lineNumbers bool) (string, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
@@ -85,7 +85,10 @@ func (s *Sys) ReadFileText(p string, offset int, lineNumbers bool) (string, erro
 	defer f.Close()
 
 	head := make([]byte, binarySniffBytes)
-	n, _ := io.ReadFull(f, head)
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", err
+	}
 	if isBinary(head[:n]) {
 		return "", fmt.Errorf("file %s is binary", abs)
 	}
@@ -103,7 +106,6 @@ func (s *Sys) ReadFileText(p string, offset int, lineNumbers bool) (string, erro
 	var out strings.Builder
 	lineNo := 0
 	linesReturned := 0
-
 	for scanner.Scan() {
 		lineNo++
 		if lineNo < offset {
@@ -114,15 +116,15 @@ func (s *Sys) ReadFileText(p string, offset int, lineNumbers bool) (string, erro
 			line = fmt.Sprintf("%6d\t%s", lineNo, line)
 		}
 		if linesReturned > 0 {
-			line = "\n" + line
+			out.WriteString("\n")
 		}
 		out.WriteString(line)
 		linesReturned++
 	}
-
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
+
 	if linesReturned == 0 {
 		if lineNo == 0 {
 			return fmt.Sprintf("File %s is empty.", abs), nil
@@ -132,20 +134,18 @@ func (s *Sys) ReadFileText(p string, offset int, lineNumbers bool) (string, erro
 	return out.String(), nil
 }
 
-// WriteFile writes data to the file at p and returns the number of bytes
-// written. Parent directories are created when mkdirs is set. Data is appended
-// when append is set, and replaces the file's contents otherwise.
-func (s *Sys) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append bool, maxBytes int64) (int, error) {
-	if maxBytes > 0 && int64(len(data)) > maxBytes {
-		return 0, fmt.Errorf("file content exceeds the %d byte limit", maxBytes)
-	}
+// WriteFile writes data to the file at p, creating it with mode when it does
+// not exist and applying mode to it when it does. Parent directories are
+// created when mkdirs is set. Data is appended when append is set, and replaces
+// the file's contents otherwise.
+func (s *Sys) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append bool) error {
 	abs, err := s.Resolve(p)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if mkdirs {
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return 0, err
+			return err
 		}
 	}
 	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
@@ -154,21 +154,18 @@ func (s *Sys) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append 
 	}
 	f, err := os.OpenFile(abs, flags, mode)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	n, err := f.Write(data)
+	_, err = f.Write(data)
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
-		return n, err
+		return err
 	}
-	// OpenFile only applies mode when it creates the file, so set it
-	// explicitly for a file that already existed.
-	if err := os.Chmod(abs, mode); err != nil {
-		return n, err
-	}
-	return n, nil
+	// OpenFile applies mode only when it creates the file, so set it
+	// explicitly in case the file already existed.
+	return os.Chmod(abs, mode)
 }
 
 // EditFile replaces oldStr with newStr in the file at p. oldStr must match
@@ -226,8 +223,13 @@ func (s *Sys) Remove(p string) error {
 	return os.RemoveAll(abs)
 }
 
-// ListDir lists the entries of the directory at p, optionally recursively.
-func (s *Sys) ListDir(p string, recursive, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
+// errNotDir reports that a walk root was not a directory. It never escapes
+// ListDir.
+var errNotDir = errors.New("walk root is not a directory")
+
+// ListDir lists the immediate entries of the directory at p. It does not
+// descend into subdirectories.
+func (s *Sys) ListDir(p string, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
 	}
@@ -235,43 +237,47 @@ func (s *Sys) ListDir(p string, recursive, includeHidden bool, skipDirs []string
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(abs)
-	if err != nil {
+	entries, err := readDirEntries(abs, includeHidden, skipDirs)
+	if errors.Is(err, errNotDir) {
+		// ReadDir does not follow a symlinked directory, but the rest of Sys
+		// follows symlinks, so retry on the link target before giving up.
+		if target, evalErr := filepath.EvalSymlinks(abs); evalErr == nil && target != abs {
+			entries, err = readDirEntries(target, includeHidden, skipDirs)
+		}
+	}
+	switch {
+	case errors.Is(err, errNotDir):
+		return nil, fmt.Errorf("%s is not a directory", abs)
+	case err != nil:
 		return nil, err
 	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", abs)
-	}
+	return entries, nil
+}
 
-	var entries []env.DirEntry
-	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+// readDirEntries lists dir's immediate entries. Entries whose metadata cannot
+// be read are skipped.
+func readDirEntries(dir string, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
+	des, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, syscall.ENOTDIR) {
+			return nil, errNotDir
 		}
-		if path == abs {
-			return nil
-		}
+		return nil, err
+	}
+	entries := make([]env.DirEntry, 0, len(des))
+	for _, d := range des {
 		name := d.Name()
 		if !includeHidden && strings.HasPrefix(name, ".") {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+			continue
 		}
 		if d.IsDir() && slices.Contains(skipDirs, name) {
-			return fs.SkipDir
+			continue
 		}
-		fi, fiErr := d.Info()
-		if fiErr == nil {
-			entries = append(entries, buildDirEntry(path, fi))
+		fi, infoErr := d.Info()
+		if infoErr != nil {
+			continue
 		}
-		if d.IsDir() && !recursive {
-			return fs.SkipDir
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
+		entries = append(entries, buildDirEntry(filepath.Join(dir, name), fi))
 	}
 	return entries, nil
 }
@@ -429,9 +435,9 @@ func (s *Sys) Stat(p string) (env.DirEntry, error) {
 	return buildDirEntry(abs, fi), nil
 }
 
-// Move renames src to dst, creating dst's parent directories as needed. It
-// refuses to replace an existing dst unless overwrite is set.
-func (s *Sys) Move(src, dst string, overwrite bool) error {
+// Move renames src to dst, creating dst's parent directories as needed. An
+// existing dst is replaced.
+func (s *Sys) Move(src, dst string) error {
 	srcAbs, err := s.Resolve(src)
 	if err != nil {
 		return err
@@ -442,12 +448,6 @@ func (s *Sys) Move(src, dst string, overwrite bool) error {
 	}
 	if srcAbs == string(filepath.Separator) {
 		return fmt.Errorf("refusing to move %s", srcAbs)
-	}
-	if _, err := os.Stat(srcAbs); err != nil {
-		return err
-	}
-	if _, err := os.Stat(dstAbs); err == nil && !overwrite {
-		return fmt.Errorf("%s already exists; set overwrite to replace it", dstAbs)
 	}
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
 		return err
@@ -610,14 +610,14 @@ func (s *Sys) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 	cmd.Cancel = func() error { return killProcessGroup(cmd) }
 	cmd.WaitDelay = killGracePeriod
 
-	runErr := cmd.Run()
+	err := cmd.Run()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("timed out after %s (process group killed)", opts.Timeout)
 	}
 
 	combined := stdout.String() + stderr.String()
-	if combined == "" && runErr != nil {
-		return "", runErr
+	if combined == "" && err != nil {
+		return "", err
 	}
 	return combined, nil
 }
