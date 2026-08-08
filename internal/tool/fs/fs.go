@@ -125,8 +125,9 @@ func writeFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		if err != nil {
 			return "", err
 		}
-		_, existed, err := fsSys.WriteFile(p.Path, []byte(p.Content), 0o644, true, p.Append, int64(cfg.MaxWriteBytes))
-		if err != nil {
+		_, statErr := os.Stat(abs)
+		existed := statErr == nil
+		if _, err := fsSys.WriteFile(p.Path, []byte(p.Content), 0o644, true, p.Append, int64(cfg.MaxWriteBytes)); err != nil {
 			return "", err
 		}
 		verb := "Created"

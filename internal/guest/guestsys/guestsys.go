@@ -144,46 +144,43 @@ func (s *FS) ReadFileText(p string, offset, limit int, lineNumbers bool, maxByte
 	return result, nil
 }
 
-// WriteFile writes raw bytes to path.
-func (s *FS) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, appendMode bool, maxBytes int64) (int, bool, error) {
+// WriteFile writes data to the file at p and returns the number of bytes
+// written. Parent directories are created when mkdirs is set. Data is appended
+// when append is set, and replaces the file's contents otherwise.
+func (s *FS) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append bool, maxBytes int64) (int, error) {
 	if maxBytes > 0 && int64(len(data)) > maxBytes {
-		return 0, false, fmt.Errorf("file content exceeds the %d byte limit", maxBytes)
+		return 0, fmt.Errorf("file content exceeds the %d byte limit", maxBytes)
 	}
 	abs, err := s.Resolve(p)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
 	if mkdirs {
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return 0, false, err
+			return 0, err
 		}
 	}
-	existed := false
-	if _, err := os.Stat(abs); err == nil {
-		existed = true
-	}
-	flags := os.O_CREATE | os.O_WRONLY
-	if appendMode {
-		flags |= os.O_APPEND
-	} else {
-		flags |= os.O_TRUNC
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	if append {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	}
 	f, err := os.OpenFile(abs, flags, mode)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
-	n, writeErr := f.Write(data)
-	closeErr := f.Close()
-	if writeErr != nil {
-		return n, existed, writeErr
+	n, err := f.Write(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
 	}
-	if closeErr != nil {
-		return n, existed, closeErr
+	if err != nil {
+		return n, err
 	}
+	// OpenFile only applies mode when it creates the file, so set it
+	// explicitly for a file that already existed.
 	if err := os.Chmod(abs, mode); err != nil {
-		return n, existed, err
+		return n, err
 	}
-	return n, existed, nil
+	return n, nil
 }
 
 // EditFile replaces oldStr with newStr in a file. Returns the relative path, match count, and error.

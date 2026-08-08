@@ -236,8 +236,7 @@ func (s *Server) handleWriteFile(fsSys *guestsys.FS, w http.ResponseWriter, r *h
 		return
 	}
 
-	_, _, err := fsSys.WriteFile(req.Path, req.Content, mode, true, false, s.maxFile())
-	if err != nil {
+	if _, err := fsSys.WriteFile(req.Path, req.Content, mode, true, false, s.maxFile()); err != nil {
 		writeFSError(w, err)
 		return
 	}
