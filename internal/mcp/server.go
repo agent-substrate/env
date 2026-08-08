@@ -23,8 +23,8 @@ func NewServer(reg *tool.Registry) *Server {
 		Version: "1.0.0",
 	}, nil)
 
-	for _, toolObj := range reg.Definitions() {
-		mcpSrv.AddTool(toolObj, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	for _, t := range reg.Definitions() {
+		mcpSrv.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return reg.Invoke(ctx, req.Params.Name, req.Params.Arguments), nil
 		})
 	}
@@ -41,11 +41,6 @@ func NewServer(reg *tool.Registry) *Server {
 		mcpServer: mcpSrv,
 		handler:   handler,
 	}
-}
-
-// MCPServer returns the underlying *mcp.Server.
-func (s *Server) MCPServer() *mcp.Server {
-	return s.mcpServer
 }
 
 // ServeHTTP handles MCP HTTP transport requests.
