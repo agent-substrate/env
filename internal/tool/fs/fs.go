@@ -38,25 +38,25 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// New returns the filesystem tool set, backed by fsSys.
-func New(fsSys *guestsys.FS, cfg Config) []tool.Tool {
+// New returns the filesystem tool set, backed by sys.
+func New(sys *guestsys.Sys, cfg Config) []tool.Tool {
 	cfg = cfg.withDefaults()
 	ts := []tool.Tool{
-		readFileTool(fsSys, cfg),
-		listDirTool(fsSys, cfg),
-		globTool(fsSys, cfg),
-		grepTool(fsSys, cfg),
-		statTool(fsSys),
+		readFileTool(sys, cfg),
+		listDirTool(sys, cfg),
+		globTool(sys, cfg),
+		grepTool(sys, cfg),
+		statTool(sys),
 	}
 	if cfg.ReadOnly {
 		return ts
 	}
 	return append(ts,
-		writeFileTool(fsSys, cfg),
-		editFileTool(fsSys, cfg),
-		mkdirTool(fsSys),
-		mvTool(fsSys),
-		rmTool(fsSys),
+		writeFileTool(sys, cfg),
+		editFileTool(sys, cfg),
+		mkdirTool(sys),
+		mvTool(sys),
+		rmTool(sys),
 	)
 }
 
@@ -69,7 +69,7 @@ type readFileParams struct {
 	LineNumbers *bool  `json:"line_numbers"`
 }
 
-func readFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
+func readFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "read_file",
 		Description: "Read a text file from the workspace. Returns the file contents with line " +
@@ -92,7 +92,7 @@ func readFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		if p.LineNumbers != nil {
 			lineNumbers = *p.LineNumbers
 		}
-		return fsSys.ReadFileText(p.Path, p.Offset, p.Limit, lineNumbers, cfg.MaxReadBytes)
+		return sys.ReadFileText(p.Path, p.Offset, p.Limit, lineNumbers, cfg.MaxReadBytes)
 	})
 }
 
@@ -104,7 +104,7 @@ type writeFileParams struct {
 	Append  bool   `json:"append"`
 }
 
-func writeFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
+func writeFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "write_file",
 		Description: "Write a text file in the workspace, creating parent directories as needed. " +
@@ -121,13 +121,13 @@ func writeFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p writeFileParams) (string, error) {
-		abs, err := fsSys.Resolve(p.Path)
+		abs, err := sys.Resolve(p.Path)
 		if err != nil {
 			return "", err
 		}
 		_, statErr := os.Stat(abs)
 		existed := statErr == nil
-		if _, err := fsSys.WriteFile(p.Path, []byte(p.Content), 0o644, true, p.Append, int64(cfg.MaxWriteBytes)); err != nil {
+		if _, err := sys.WriteFile(p.Path, []byte(p.Content), 0o644, true, p.Append, int64(cfg.MaxWriteBytes)); err != nil {
 			return "", err
 		}
 		verb := "Created"
@@ -150,7 +150,7 @@ type editFileParams struct {
 	ReplaceAll bool   `json:"replace_all"`
 }
 
-func editFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
+func editFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "edit_file",
 		Description: "Edit a text file by replacing exact occurrences of old_string with new_string. " +
@@ -168,7 +168,7 @@ func editFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p editFileParams) (string, error) {
-		rel, count, err := fsSys.EditFile(p.Path, p.OldString, p.NewString, p.ReplaceAll, cfg.MaxWriteBytes)
+		rel, count, err := sys.EditFile(p.Path, p.OldString, p.NewString, p.ReplaceAll, cfg.MaxWriteBytes)
 		if err != nil {
 			return "", err
 		}
@@ -185,7 +185,7 @@ type listDirParams struct {
 	MaxEntries    int    `json:"max_entries"`
 }
 
-func listDirTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
+func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "list_dir",
 		Description: "List the contents of a directory. Directories are suffixed with a slash. " +
@@ -207,11 +207,11 @@ func listDirTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		if p.IncludeHidden != nil {
 			includeHidden = *p.IncludeHidden
 		}
-		entries, truncated, err := fsSys.ListDir(p.Path, p.Recursive, includeHidden, p.MaxEntries, cfg.SkipDirs)
+		entries, truncated, err := sys.ListDir(p.Path, p.Recursive, includeHidden, p.MaxEntries, cfg.SkipDirs)
 		if err != nil {
 			return "", err
 		}
-		abs, err := fsSys.Resolve(p.Path)
+		abs, err := sys.Resolve(p.Path)
 		if err != nil {
 			return "", err
 		}
@@ -244,7 +244,7 @@ type globParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
-func globTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
+func globTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "glob",
 		Description: "Search for files matching a glob pattern relative to path. Supports * within a " +
@@ -261,7 +261,7 @@ func globTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p globParams) (string, error) {
-		relBase, matches, truncated, err := fsSys.Glob(ctx, p.Path, p.Pattern, p.MaxResults, cfg.SkipDirs)
+		relBase, matches, truncated, err := sys.Glob(ctx, p.Path, p.Pattern, p.MaxResults, cfg.SkipDirs)
 		if err != nil {
 			return "", err
 		}
@@ -286,7 +286,7 @@ type grepParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
-func grepTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
+func grepTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	def := &mcp.Tool{
 		Name: "grep",
 		Description: "Search file contents for a regular expression (RE2 syntax). Returns matching " +
@@ -303,7 +303,7 @@ func grepTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p grepParams) (string, error) {
-		return fsSys.Grep(ctx, p.Path, p.Pattern, p.Include, p.MaxResults, cfg.SkipDirs)
+		return sys.Grep(ctx, p.Path, p.Pattern, p.Include, p.MaxResults, cfg.SkipDirs)
 	})
 }
 
@@ -313,7 +313,7 @@ type statParams struct {
 	Path string `json:"path"`
 }
 
-func statTool(fsSys *guestsys.FS) tool.Tool {
+func statTool(sys *guestsys.Sys) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "stat",
 		Description: "Return file metadata: type, size, permissions, and modification time.",
@@ -326,7 +326,7 @@ func statTool(fsSys *guestsys.FS) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p statParams) (string, error) {
-		abs, err := fsSys.Resolve(p.Path)
+		abs, err := sys.Resolve(p.Path)
 		if err != nil {
 			return "", err
 		}
@@ -356,7 +356,7 @@ type mkdirParams struct {
 	Path string `json:"path"`
 }
 
-func mkdirTool(fsSys *guestsys.FS) tool.Tool {
+func mkdirTool(sys *guestsys.Sys) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "mkdir",
 		Description: "Create a directory, including any missing parent directories. Succeeds if it already exists.",
@@ -369,11 +369,11 @@ func mkdirTool(fsSys *guestsys.FS) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p mkdirParams) (string, error) {
-		abs, err := fsSys.Resolve(p.Path)
+		abs, err := sys.Resolve(p.Path)
 		if err != nil {
 			return "", err
 		}
-		if err := fsSys.Mkdir(p.Path, 0o755); err != nil {
+		if err := sys.Mkdir(p.Path, 0o755); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Created directory %s.", abs), nil
@@ -388,7 +388,7 @@ type mvParams struct {
 	Overwrite   bool   `json:"overwrite"`
 }
 
-func mvTool(fsSys *guestsys.FS) tool.Tool {
+func mvTool(sys *guestsys.Sys) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "mv",
 		Description: "Move or rename a file or directory within the workspace. Refuses to overwrite an existing destination unless overwrite is set.",
@@ -403,15 +403,15 @@ func mvTool(fsSys *guestsys.FS) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p mvParams) (string, error) {
-		srcAbs, err := fsSys.Resolve(p.Source)
+		srcAbs, err := sys.Resolve(p.Source)
 		if err != nil {
 			return "", err
 		}
-		dstAbs, err := fsSys.Resolve(p.Destination)
+		dstAbs, err := sys.Resolve(p.Destination)
 		if err != nil {
 			return "", err
 		}
-		if err := fsSys.Move(p.Source, p.Destination, p.Overwrite); err != nil {
+		if err := sys.Move(p.Source, p.Destination, p.Overwrite); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Moved %s to %s.", srcAbs, dstAbs), nil
@@ -425,7 +425,7 @@ type rmParams struct {
 	Recursive bool   `json:"recursive"`
 }
 
-func rmTool(fsSys *guestsys.FS) tool.Tool {
+func rmTool(sys *guestsys.Sys) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "rm",
 		Description: "Delete a file, or an empty directory. Deleting a non-empty directory requires recursive=true.",
@@ -439,7 +439,7 @@ func rmTool(fsSys *guestsys.FS) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p rmParams) (string, error) {
-		abs, err := fsSys.Resolve(p.Path)
+		abs, err := sys.Resolve(p.Path)
 		if err != nil {
 			return "", err
 		}
@@ -454,7 +454,7 @@ func rmTool(fsSys *guestsys.FS) tool.Tool {
 		if isDir && !p.Recursive {
 			return "", fmt.Errorf("%s is a directory; set recursive to delete it and its contents", abs)
 		}
-		if err := fsSys.Remove(p.Path); err != nil {
+		if err := sys.Remove(p.Path); err != nil {
 			return "", err
 		}
 		if isDir && p.Recursive {

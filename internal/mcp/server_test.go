@@ -14,9 +14,9 @@ import (
 func TestMCPServer(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	fsSys := guestsys.New()
+	sys := guestsys.New()
 	reg := tool.NewRegistry()
-	if err := reg.Register(shell.New(fsSys, shell.Config{})); err != nil {
+	if err := reg.Register(shell.New(sys, shell.Config{})); err != nil {
 		t.Fatal(err)
 	}
 

@@ -38,8 +38,8 @@ type shellParams struct {
 	Command string `json:"command"`
 }
 
-// New returns the shell command tool, backed by fsSys.
-func New(fsSys *guestsys.FS, cfg Config) tool.Tool {
+// New returns the shell command tool, backed by sys.
+func New(sys *guestsys.Sys, cfg Config) tool.Tool {
 	cfg = cfg.withDefaults()
 
 	desc := "Run a shell command in the workspace and return its stdout, stderr, and exit " +
@@ -69,7 +69,7 @@ func New(fsSys *guestsys.FS, cfg Config) tool.Tool {
 			return "", fmt.Errorf("command must not be empty")
 		}
 
-		return fsSys.ExecShell(ctx, guestsys.ExecOptions{
+		return sys.ExecShell(ctx, guestsys.ExecOptions{
 			Command:        command,
 			Shell:          cfg.Shell,
 			Timeout:        cfg.Timeout,

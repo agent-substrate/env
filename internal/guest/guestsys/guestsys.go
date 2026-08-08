@@ -26,20 +26,20 @@ var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycac
 // when deciding whether it is binary.
 const binarySniffBytes = 8192
 
-// FS performs filesystem operations inside the environment.
-type FS struct{}
+// Sys performs filesystem operations inside the environment.
+type Sys struct{}
 
-// New returns an FS operating on the environment's filesystem.
-func New() *FS { return &FS{} }
+// New returns a Sys operating on the environment's filesystem.
+func New() *Sys { return &Sys{} }
 
 // Resolve cleans p and makes it absolute. Relative paths are resolved against
 // the process working directory.
-func (s *FS) Resolve(p string) (string, error) {
+func (s *Sys) Resolve(p string) (string, error) {
 	return filepath.Abs(p)
 }
 
 // ReadFileRaw opens the file at path for reading.
-func (s *FS) ReadFileRaw(p string, maxBytes int64) (*os.File, fs.FileInfo, error) {
+func (s *Sys) ReadFileRaw(p string, maxBytes int64) (*os.File, fs.FileInfo, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return nil, nil, err
@@ -65,7 +65,7 @@ func (s *FS) ReadFileRaw(p string, maxBytes int64) (*os.File, fs.FileInfo, error
 }
 
 // ReadFileText reads a text file with line numbers, offset, limit, and byte cap.
-func (s *FS) ReadFileText(p string, offset, limit int, lineNumbers bool, maxBytes int) (string, error) {
+func (s *Sys) ReadFileText(p string, offset, limit int, lineNumbers bool, maxBytes int) (string, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return "", err
@@ -147,7 +147,7 @@ func (s *FS) ReadFileText(p string, offset, limit int, lineNumbers bool, maxByte
 // WriteFile writes data to the file at p and returns the number of bytes
 // written. Parent directories are created when mkdirs is set. Data is appended
 // when append is set, and replaces the file's contents otherwise.
-func (s *FS) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append bool, maxBytes int64) (int, error) {
+func (s *Sys) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append bool, maxBytes int64) (int, error) {
 	if maxBytes > 0 && int64(len(data)) > maxBytes {
 		return 0, fmt.Errorf("file content exceeds the %d byte limit", maxBytes)
 	}
@@ -184,7 +184,7 @@ func (s *FS) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append b
 }
 
 // EditFile replaces oldStr with newStr in a file. Returns the relative path, match count, and error.
-func (s *FS) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes int) (string, int, error) {
+func (s *Sys) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes int) (string, int, error) {
 	if oldStr == "" {
 		return "", 0, fmt.Errorf("old_string must not be empty")
 	}
@@ -224,7 +224,7 @@ func (s *FS) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes
 
 // Remove deletes a file or directory tree. Removing a path that does not
 // exist is not an error.
-func (s *FS) Remove(p string) error {
+func (s *Sys) Remove(p string) error {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return err
@@ -236,7 +236,7 @@ func (s *FS) Remove(p string) error {
 }
 
 // ListDir lists directory entries, optionally recursively.
-func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, skipDirs []string) ([]env.DirEntry, bool, error) {
+func (s *Sys) ListDir(p string, recursive, includeHidden bool, maxEntries int, skipDirs []string) ([]env.DirEntry, bool, error) {
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
 	}
@@ -294,7 +294,7 @@ func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, sk
 }
 
 // Glob finds matching files by pattern, newest first.
-func (s *FS) Glob(ctx context.Context, p, pattern string, maxResults int, skipDirs []string) (string, []string, bool, error) {
+func (s *Sys) Glob(ctx context.Context, p, pattern string, maxResults int, skipDirs []string) (string, []string, bool, error) {
 	if strings.TrimSpace(pattern) == "" {
 		return "", nil, false, fmt.Errorf("pattern must not be empty")
 	}
@@ -344,7 +344,7 @@ func (s *FS) Glob(ctx context.Context, p, pattern string, maxResults int, skipDi
 }
 
 // Grep searches file contents using regex.
-func (s *FS) Grep(ctx context.Context, p, pattern, include string, maxResults int, skipDirs []string) (string, error) {
+func (s *Sys) Grep(ctx context.Context, p, pattern, include string, maxResults int, skipDirs []string) (string, error) {
 	if strings.TrimSpace(pattern) == "" {
 		return "", fmt.Errorf("pattern must not be empty")
 	}
@@ -430,7 +430,7 @@ func (s *FS) Grep(ctx context.Context, p, pattern, include string, maxResults in
 }
 
 // Mkdir creates a directory including missing parents.
-func (s *FS) Mkdir(p string, mode fs.FileMode) error {
+func (s *Sys) Mkdir(p string, mode fs.FileMode) error {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return err
@@ -439,7 +439,7 @@ func (s *FS) Mkdir(p string, mode fs.FileMode) error {
 }
 
 // Stat stats path.
-func (s *FS) Stat(p string) (env.DirEntry, error) {
+func (s *Sys) Stat(p string) (env.DirEntry, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return env.DirEntry{}, err
@@ -452,7 +452,7 @@ func (s *FS) Stat(p string) (env.DirEntry, error) {
 }
 
 // Move moves/renames a file or directory.
-func (s *FS) Move(src, dst string, overwrite bool) error {
+func (s *Sys) Move(src, dst string, overwrite bool) error {
 	srcAbs, err := s.Resolve(src)
 	if err != nil {
 		return err
@@ -598,7 +598,7 @@ type ExecOptions struct {
 }
 
 // ExecShell runs a shell command in the process working directory.
-func (s *FS) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
+func (s *Sys) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 	command := strings.TrimSpace(opts.Command)
 	if command == "" {
 		return "", fmt.Errorf("command must not be empty")

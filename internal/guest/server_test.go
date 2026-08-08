@@ -19,8 +19,8 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Chdir(dir)
-	fsSys := guestsys.New()
-	h, err := (&Server{}).Handler(fsSys)
+	sys := guestsys.New()
+	h, err := (&Server{}).Handler(sys)
 	if err != nil {
 		t.Fatal(err)
 	}
