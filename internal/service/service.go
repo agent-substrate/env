@@ -30,6 +30,9 @@ func Handler(client *ate.Client) http.Handler {
 	})
 	mux.HandleFunc("POST /v1/envs", s.create)
 	mux.HandleFunc("DELETE /v1/envs/{id}", s.delete)
+	// More specific than the guest proxy below, so it wins the route match
+	// rather than being forwarded into the environment.
+	mux.HandleFunc("POST /v1/envs/{id}/fork", s.fork)
 	mux.HandleFunc("/v1/envs/{id}/{rest...}", s.proxyGuest)
 	return mux
 }
@@ -57,9 +60,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeErr(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	code := env.CodeInternal
-	if errors.Is(err, ate.ErrNotFound) {
+	switch {
+	case errors.Is(err, ate.ErrNotFound):
 		status = http.StatusNotFound
 		code = env.CodeNotFound
+	case errors.Is(err, ate.ErrPrecondition):
+		status = http.StatusConflict
+		code = env.CodeFailedPrecondition
 	}
 	writeJSON(w, status, env.Error{Code: code, Message: err.Error()})
 }
@@ -88,6 +95,23 @@ func (s *server) create(w http.ResponseWriter, r *http.Request) {
 		req.Namespace = DefaultNamespace
 	}
 	if err := s.client.Create(r.Context(), req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *server) fork(w http.ResponseWriter, r *http.Request) {
+	var req env.ForkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeBadRequest(w, "invalid request body: %v", err)
+		return
+	}
+	if req.DestID == "" {
+		writeBadRequest(w, "dest_id is required")
+		return
+	}
+	if err := s.client.Fork(r.Context(), r.PathValue("id"), req.DestID); err != nil {
 		writeErr(w, err)
 		return
 	}

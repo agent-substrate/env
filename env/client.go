@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -63,6 +64,21 @@ func (c *Client) Create(ctx context.Context, req CreateRequest) (*Env, error) {
 		return nil, err
 	}
 	return &Env{id: req.ID, client: c}, nil
+}
+
+// Fork creates the environment destID from the latest snapshot of the
+// environment id, inheriting its template, and returns a handle to it. The
+// source is left untouched, so the fork captures its state as of its last
+// suspend rather than its state right now.
+//
+// It fails when the source has no snapshot to fork from, or is resuming.
+func (c *Client) Fork(ctx context.Context, id, destID string) (*Env, error) {
+	req := ForkRequest{DestID: destID}
+	path := "/v1/envs/" + url.PathEscape(id) + "/fork"
+	if err := c.do(ctx, http.MethodPost, path, req, nil); err != nil {
+		return nil, err
+	}
+	return &Env{id: destID, client: c}, nil
 }
 
 // Env returns a handle to an environment by ID without checking that it

@@ -59,6 +59,13 @@ type CreateRequest struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+// ForkRequest is the body of POST /v1/envs/{id}/fork.
+type ForkRequest struct {
+	// DestID is the identifier of the new environment (a DNS-1123 label).
+	// Required.
+	DestID string `json:"dest_id"`
+}
+
 // ReadFileResponse is the response of the read file endpoint.
 type ReadFileResponse struct {
 	Content []byte `json:"content"`
@@ -94,11 +101,12 @@ type MkdirRequest struct {
 
 // Error codes returned in Error.Code.
 const (
-	CodeNotFound        = "not_found"
-	CodeInvalidArgument = "invalid_argument"
-	CodeNotFile         = "not_file"
-	CodeNotDirectory    = "not_directory"
-	CodeInternal        = "internal"
+	CodeNotFound           = "not_found"
+	CodeFailedPrecondition = "failed_precondition"
+	CodeInvalidArgument    = "invalid_argument"
+	CodeNotFile            = "not_file"
+	CodeNotDirectory       = "not_directory"
+	CodeInternal           = "internal"
 )
 
 // Error is the JSON error envelope returned by the guest daemon and the

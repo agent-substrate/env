@@ -18,7 +18,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
-func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router) {
+func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router, *fakecontrol.Server) {
 	t.Helper()
 
 	control := fakecontrol.New()
@@ -47,7 +47,7 @@ func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router) {
 
 	srv := httptest.NewServer(service.Handler(client))
 	t.Cleanup(srv.Close)
-	return srv, router
+	return srv, router, control
 }
 
 func do(t *testing.T, method, url, body string) *http.Response {
@@ -74,7 +74,7 @@ func decode[T any](t *testing.T, resp *http.Response) T {
 }
 
 func TestLifecycleAndExec(t *testing.T) {
-	srv, router := newAPI(t)
+	srv, router, _ := newAPI(t)
 	t.Chdir(t.TempDir())
 	sys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(sys)
@@ -163,7 +163,7 @@ func TestLifecycleAndExec(t *testing.T) {
 }
 
 func TestCreateStartsEnv(t *testing.T) {
-	srv, router := newAPI(t)
+	srv, router, _ := newAPI(t)
 	t.Chdir(t.TempDir())
 	sys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(sys)
@@ -180,7 +180,7 @@ func TestCreateStartsEnv(t *testing.T) {
 }
 
 func TestValidation(t *testing.T) {
-	srv, _ := newAPI(t)
+	srv, _, _ := newAPI(t)
 
 	resp := do(t, "POST", srv.URL+"/v1/envs", `{}`)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -190,5 +190,47 @@ func TestValidation(t *testing.T) {
 	resp = do(t, "POST", srv.URL+"/v1/envs", `{"id":"bare"}`)
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("create with defaults status = %d, want 201", resp.StatusCode)
+	}
+}
+
+func TestFork(t *testing.T) {
+	srv, router, control := newAPI(t)
+	t.Chdir(t.TempDir())
+	sys := guestsys.New()
+	h, err := (&guest.Server{}).Handler(sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Register("src", h)
+
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"src","template":"default-env","namespace":"envs"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", resp.StatusCode)
+	}
+
+	// A source that has never been snapshotted cannot be forked. 409 rather
+	// than 500: the request is well-formed, the environment just isn't ready.
+	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{"dest_id":"copy"}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("fork without a snapshot status = %d, want 409", resp.StatusCode)
+	}
+	if got := decode[env.Error](t, resp); got.Code != env.CodeFailedPrecondition {
+		t.Errorf("error code = %q, want %q", got.Code, env.CodeFailedPrecondition)
+	}
+
+	// Once it has gone idle it carries a snapshot, and the fork succeeds.
+	control.Suspend("src")
+	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{"dest_id":"copy"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("fork status = %d, want 201", resp.StatusCode)
+	}
+	if control.SnapshotOf("copy") != control.SnapshotOf("src") {
+		t.Error("fork was not created from the source's snapshot")
+	}
+
+	// dest_id is required.
+	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("fork without dest_id status = %d, want 400", resp.StatusCode)
 	}
 }

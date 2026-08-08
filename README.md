@@ -91,6 +91,7 @@ Lifecycle and deployment are top-level commands; command execution and file oper
 $ ate-env create dev1 --template default-env
 $ ate-env dev1 shell 'uname -a'
 $ ate-env dev1 fs ls /
+$ ate-env fork dev1 dev2
 $ ate-env delete dev1
 ```
 
@@ -108,6 +109,7 @@ Available Commands:
   create      Create and start an environment
   delete      Delete an environment
   deploy      Generate Kubernetes manifests to deploy the system
+  fork        Create an environment from another environment's latest snapshot
   fs          Operate on files and directories in an environment
   help        Help about any command
 
@@ -140,6 +142,7 @@ environment ID `dev1`. `GET` and `DELETE` endpoints take their target path as a
 | Method   | Path                      | Description                                      |
 | -------- | ------------------------- | ------------------------------------------------ |
 | `POST`   | `/v1/envs`                | Create an environment                            |
+| `POST`   | `/v1/envs/{id}/fork`      | Fork an environment from its latest snapshot     |
 | `DELETE` | `/v1/envs/{id}`           | Delete an environment                            |
 | `POST`   | `/v1/envs/{id}/shell`     | Run a shell command line                         |
 | `GET`    | `/v1/envs/{id}/file`      | Read a file (base64 JSON response)               |
@@ -160,6 +163,28 @@ with an empty body.
 ```bash
 curl -X POST localhost:7777/v1/envs \
      -d '{"id": "dev1", "template": "default-env", "namespace": "ate-env"}'
+```
+
+`POST /v1/envs/{id}/fork` creates a new environment from `{id}`'s latest
+snapshot, inheriting its template. Responds `201 Created`.
+
+Substrate snapshots an environment when it goes idle, and the fork is taken from
+that snapshot — the source is left untouched, so the copy reflects its state as
+of the last suspend rather than its state right now.
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/fork \
+     -d '{"dest_id": "dev2"}'
+```
+
+Forking fails with `409 Conflict` and code `failed_precondition` when the source
+has never been snapshotted, or is still resuming:
+
+```json
+{
+  "code": "failed_precondition",
+  "error": "ate: precondition failed: \"dev1\" has no snapshot to fork from; suspend it first"
+}
 ```
 
 `DELETE /v1/envs/{id}` deletes an environment. Responds `204 No Content`.
@@ -334,6 +359,7 @@ Non-2xx responses use a JSON error envelope:
 | Code               | HTTP  | Description                                                       |
 | ------------------ | ----- | ----------------------------------------------------------------- |
 | `not_found`        | `404` | The environment, file, or directory does not exist                |
+| `failed_precondition` | `409` | The environment is not in a state that allows the operation    |
 | `invalid_argument` | `400` | Malformed body, a missing required field, or an invalid path/mode |
 | `not_file`         | `400` | The path is a directory but the operation expects a file          |
 | `not_directory`    | `400` | The path is a file but the operation expects a directory          |

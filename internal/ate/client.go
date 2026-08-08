@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"time"
 
 	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -41,8 +42,15 @@ const (
 	DefaultRouterAddr  = "atenet-router.ate-system.svc.cluster.local:80"
 )
 
+// atespace is the Substrate atespace every environment actor lives in.
+const atespace = "default"
+
 // ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
+
+// ErrPrecondition is returned when an operation is valid but the actor is not
+// in a state that allows it, such as forking one that has never been snapshotted.
+var ErrPrecondition = errors.New("precondition failed")
 
 // Options configures a Client.
 type Options struct {
@@ -175,7 +183,6 @@ func (c *Client) Create(ctx context.Context, req env.CreateRequest) error {
 		return errors.New("ate: CreateRequest.Template is required")
 	}
 
-	const atespace = "default"
 	if err := c.EnsureAtespace(ctx, atespace); err != nil {
 		return fmt.Errorf("ate: creating %q: %w", req.ID, err)
 	}
@@ -192,6 +199,67 @@ func (c *Client) Create(ctx context.Context, req env.CreateRequest) error {
 		return fmt.Errorf("ate: creating %q: %w", req.ID, wrapGRPCError(err))
 	}
 
+	return nil
+}
+
+// Fork creates the actor dstID from the latest snapshot of srcID, inheriting the
+// source's ActorTemplate.
+//
+// Substrate has no fork operation, so this composes one out of the snapshot the
+// source already has: it tags that snapshot — CreateActor only accepts a source
+// snapshot referenced by tag — and creates the destination from the tag. The
+// source is never suspended and is otherwise left untouched, so the fork
+// captures its state as of its last suspend, not its state right now.
+//
+// It fails when the source has no snapshot to fork from, or is resuming and so
+// has no settled state to copy.
+func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
+	if srcID == "" || dstID == "" {
+		return errors.New("ate: source and destination IDs are required")
+	}
+	src, err := c.control.GetActor(ctx, &ateapipb.GetActorRequest{Actor: c.ref(srcID)})
+	if err != nil {
+		return fmt.Errorf("ate: forking %q: %w", srcID, wrapGRPCError(err))
+	}
+	if src.GetStatus() == ateapipb.Actor_STATUS_RESUMING {
+		return fmt.Errorf("ate: %w: %q is resuming; wait for it to settle before forking", ErrPrecondition, srcID)
+	}
+	snapshot := src.GetLatestSnapshot()
+	if snapshot.GetName() == "" {
+		return fmt.Errorf("ate: %w: %q has no snapshot to fork from; suspend it first", ErrPrecondition, srcID)
+	}
+
+	// A snapshot is only usable as a source once it carries a tag, and the tag
+	// also pins it against garbage collection for the life of the fork.
+	tag := &ateapipb.ObjectRef{
+		Atespace: atespace,
+		Name:     fmt.Sprintf("fork-%s-%d", dstID, time.Now().UnixNano()),
+	}
+	if _, err := c.control.TagActorSnapshot(ctx, &ateapipb.TagActorSnapshotRequest{
+		Snapshot: &ateapipb.ActorSnapshotRef{
+			Reference: &ateapipb.ActorSnapshotRef_Snapshot{Snapshot: snapshot},
+		},
+		Tag: &ateapipb.ActorSnapshotTag{
+			Metadata: &ateapipb.ResourceMetadata{Atespace: tag.GetAtespace(), Name: tag.GetName()},
+			Scope:    ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE,
+		},
+	}); err != nil {
+		return fmt.Errorf("ate: tagging snapshot of %q: %w", srcID, wrapGRPCError(err))
+	}
+
+	_, err = c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{
+		Actor: &ateapipb.Actor{
+			Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: dstID},
+			ActorTemplateNamespace: src.GetActorTemplateNamespace(),
+			ActorTemplateName:      src.GetActorTemplateName(),
+		},
+		SourceSnapshot: &ateapipb.ActorSnapshotRef{
+			Reference: &ateapipb.ActorSnapshotRef_Tag{Tag: tag},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("ate: creating %q from %q: %w", dstID, srcID, wrapGRPCError(err))
+	}
 	return nil
 }
 

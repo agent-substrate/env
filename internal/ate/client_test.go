@@ -2,6 +2,7 @@ package ate_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/agent-substrate/env/env"
@@ -111,5 +112,53 @@ func TestCreateRequiresTemplate(t *testing.T) {
 
 	if err := client.Create(context.Background(), env.CreateRequest{ID: "sb-x"}); err == nil {
 		t.Fatal("Create without template succeeded, want error")
+	}
+}
+
+func TestFork(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	f.create(t, "sb-src")
+
+	// A running actor that has never been suspended has nothing to fork from.
+	if err := f.client.Fork(ctx, "sb-src", "sb-fork"); !errors.Is(err, ate.ErrPrecondition) {
+		t.Fatalf("fork without a snapshot: err = %v, want ErrPrecondition", err)
+	}
+
+	// Going idle checkpoints the actor, which is what makes it forkable.
+	snapshot := f.control.Suspend("sb-src")
+	if snapshot == "" {
+		t.Fatal("suspend produced no snapshot")
+	}
+
+	if err := f.client.Fork(ctx, "sb-src", "sb-fork"); err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if got := f.control.SnapshotOf("sb-fork"); got != snapshot {
+		t.Errorf("fork created from snapshot %q, want %q", got, snapshot)
+	}
+	// The source is left alone — forking must not resume or delete it.
+	if got := f.control.Status("sb-src"); got != ateapipb.Actor_STATUS_SUSPENDED {
+		t.Errorf("source status after fork = %v, want SUSPENDED", got)
+	}
+}
+
+func TestForkRejectsResumingSource(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	f.create(t, "sb-resuming")
+	f.control.Suspend("sb-resuming")
+	f.control.SetStatus("sb-resuming", ateapipb.Actor_STATUS_RESUMING)
+
+	// It has a snapshot, but its state is still in flight.
+	if err := f.client.Fork(ctx, "sb-resuming", "sb-fork"); !errors.Is(err, ate.ErrPrecondition) {
+		t.Fatalf("fork of a resuming source: err = %v, want ErrPrecondition", err)
+	}
+}
+
+func TestForkMissingSource(t *testing.T) {
+	f := newFixture(t)
+	if err := f.client.Fork(t.Context(), "sb-nope", "sb-fork"); !errors.Is(err, ate.ErrNotFound) {
+		t.Fatalf("fork of a missing source: err = %v, want ErrNotFound", err)
 	}
 }
