@@ -306,7 +306,7 @@ remove a file or directory recursively:
 
 ```bash
 curl -X DELETE localhost:7777/v1/envs/dev1/dir \
-     -d '{"path": "app/logs"}'
+     -d '{"path": "/app/logs"}'
 ```
 
 Stat a file or directory:
