@@ -30,7 +30,7 @@ type ShellResponse struct {
 
 	// ExitCode is the process exit code. -1 if the process was killed by
 	// a signal or failed to start.
-	ExitCode int `json:"exitCode"`
+	ExitCode int `json:"exit_code"`
 }
 
 // DirEntry describes a file or directory inside an environment.
@@ -39,9 +39,9 @@ type DirEntry struct {
 	Path       string    `json:"path,omitempty"`
 	Size       int64     `json:"size,omitempty"`
 	Mode       uint32    `json:"mode,omitempty"`
-	ModeString string    `json:"modeString,omitempty"`
-	ModTime    time.Time `json:"modTime,omitempty"`
-	IsDir      bool      `json:"isDir,omitempty"`
+	ModeString string    `json:"mode_string,omitempty"`
+	ModTime    time.Time `json:"mod_time,omitempty"`
+	IsDir      bool      `json:"is_dir,omitempty"`
 }
 
 // CreateEnvRequest is the body of POST /v1/envs.

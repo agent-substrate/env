@@ -182,7 +182,7 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 {
   "stdout": "Linux dev1 6.1.0 #1 SMP x86_64 GNU/Linux\n",
   "stderr": "",
-  "exitCode": 0
+  "exit_code": 0
 }
 ```
 
@@ -195,7 +195,7 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 {
   "stdout": "HELLO WORLD\n",
   "stderr": "",
-  "exitCode": 0
+  "exit_code": 0
 }
 ```
 
@@ -211,7 +211,7 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 {
   "stdout": "ok  \tgithub.com/agent-substrate/env/internal/tool/shell\t0.290s\n",
   "stderr": "",
-  "exitCode": 0
+  "exit_code": 0
 }
 ```
 
@@ -224,12 +224,12 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 {
   "stdout": "ce013625030ba8dba906f756967f9e9ca394464a\n",
   "stderr": "",
-  "exitCode": 0
+  "exit_code": 0
 }
 ```
 
 A command that runs but fails is not an API error: the response is still
-`200 OK`, with the failure reported in `stderr` and `exitCode`. Only a command
+`200 OK`, with the failure reported in `stderr` and `exit_code`. Only a command
 that cannot be started at all returns `400` with code `invalid_argument`.
 
 ```bash
@@ -238,7 +238,7 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 {
   "stdout": "",
   "stderr": "fatal: not a git repository (or any of the parent directories): .git\n",
-  "exitCode": 128
+  "exit_code": 128
 }
 ```
 
@@ -294,8 +294,8 @@ curl -X GET localhost:7777/v1/envs/dev1/dir \
       "path": "/app/main.txt",
       "size": 6,
       "mode": 420,
-      "modeString": "-rw-r--r--",
-      "modTime": "2026-01-01T00:00:00Z"
+      "mode_string": "-rw-r--r--",
+      "mod_time": "2026-01-01T00:00:00Z"
     }
   ]
 }
@@ -319,8 +319,8 @@ curl -X GET localhost:7777/v1/envs/dev1/stat \
   "path": "/app/main.txt",
   "size": 6,
   "mode": 420,
-  "modeString": "-rw-r--r--",
-  "modTime": "2026-01-01T00:00:00Z"
+  "mode_string": "-rw-r--r--",
+  "mod_time": "2026-01-01T00:00:00Z"
 }
 ```
 
