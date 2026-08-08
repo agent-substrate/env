@@ -122,7 +122,7 @@ func (c *Client) Close() error {
 }
 
 // ProxyGuest reverse-proxies an HTTP request to the guest daemon inside env id.
-// subPath is the path on guest, e.g. "/v1/cmd" or "/v1/file".
+// subPath is the path on guest, e.g. "/v1/shell" or "/v1/file".
 func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r *http.Request) {
 	if c.opts.RouterAddr == "" {
 		http.Error(w, `{"code":"internal","error":"ate: Options.RouterAddr is required for command and filesystem operations"}`, http.StatusInternalServerError)

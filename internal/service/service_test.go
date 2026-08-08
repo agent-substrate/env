@@ -108,11 +108,11 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// Exec.
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/cmd", `{"command":["sh","-c","cat app/main.txt"]}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/shell", `{"command":["sh","-c","cat app/main.txt"]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cmd status = %d, want 200", resp.StatusCode)
 	}
-	res := decode[guest.CmdResult](t, resp)
+	res := decode[guest.ShellResult](t, resp)
 	if res.Stdout != "file body" || res.ExitCode != 0 {
 		t.Fatalf("cmd result = %+v, want stdout %q", res, "file body")
 	}
@@ -126,11 +126,11 @@ func TestLifecycleAndExec(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("resume status = %d, want 200", resp.StatusCode)
 	}
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/cmd", `{"command":["sh","-c","echo back"]}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/shell", `{"command":["sh","-c","echo back"]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cmd after resume status = %d, want 200", resp.StatusCode)
 	}
-	if res := decode[guest.CmdResult](t, resp); res.Stdout != "back\n" {
+	if res := decode[guest.ShellResult](t, resp); res.Stdout != "back\n" {
 		t.Fatalf("cmd after resume = %+v, want stdout %q", res, "back\n")
 	}
 

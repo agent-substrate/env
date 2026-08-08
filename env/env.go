@@ -14,11 +14,11 @@ import (
 	"github.com/agent-substrate/env/internal/service"
 )
 
-// CmdRequest describes a command to run inside a environment.
-type CmdRequest = guest.CmdRequest
+// ShellRequest describes a command to run inside a environment.
+type ShellRequest = guest.ShellRequest
 
-// CmdResult is the outcome of a CmdRequest.
-type CmdResult = guest.CmdResult
+// ShellResult is the outcome of a ShellRequest.
+type ShellResult = guest.ShellResult
 
 // DirEntry describes a file or directory inside a environment.
 type DirEntry = guest.DirEntry
@@ -59,18 +59,23 @@ func (e *Env) Delete(ctx context.Context) error {
 
 // run runs a command inside the environment and returns its captured output
 // and exit code. The command is executed directly (not through a shell);
-// see Cmd for a shell-friendly shorthand.
-func (e *Env) run(ctx context.Context, req CmdRequest) (*CmdResult, error) {
-	var res CmdResult
-	if err := e.client.doJSON(ctx, http.MethodPost, e.path("/cmd"), req, &res); err != nil {
+// see Shell for a shell-friendly shorthand.
+func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResult, error) {
+	var res ShellResult
+	if err := e.client.doJSON(ctx, http.MethodPost, e.path("/shell"), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
 }
 
-// Cmd runs a shell command line ("sh -c") inside the environment.
-func (e *Env) Cmd(ctx context.Context, commandLine string) (*CmdResult, error) {
-	return e.run(ctx, CmdRequest{Command: []string{"sh", "-c", commandLine}})
+// Shell runs a shell command line ("sh -c") inside the environment.
+func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResult, error) {
+	return e.run(ctx, ShellRequest{Command: []string{"sh", "-c", commandLine}})
+}
+
+// Cmd runs a shell command line ("sh -c") inside the environment. It is an alias for Shell.
+func (e *Env) Cmd(ctx context.Context, commandLine string) (*ShellResult, error) {
+	return e.Shell(ctx, commandLine)
 }
 
 type readFileResponse struct {

@@ -35,10 +35,10 @@ func jsonString(s string) string {
 	return string(b)
 }
 
-func doExec(t *testing.T, srv *httptest.Server, req CmdRequest) CmdResult {
+func doExec(t *testing.T, srv *httptest.Server, req ShellRequest) ShellResult {
 	t.Helper()
 	body, _ := json.Marshal(req)
-	resp, err := http.Post(srv.URL+"/v1/cmd", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(srv.URL+"/v1/shell", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("exec request failed: %v", err)
 	}
@@ -47,7 +47,7 @@ func doExec(t *testing.T, srv *httptest.Server, req CmdRequest) CmdResult {
 		payload, _ := io.ReadAll(resp.Body)
 		t.Fatalf("exec returned %d: %s", resp.StatusCode, payload)
 	}
-	var res CmdResult
+	var res ShellResult
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		t.Fatalf("decoding exec result: %v", err)
 	}
@@ -57,7 +57,7 @@ func doExec(t *testing.T, srv *httptest.Server, req CmdRequest) CmdResult {
 func TestExecCapturesOutputAndExitCode(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	res := doExec(t, srv, CmdRequest{Command: []string{"sh", "-c", "echo out; echo err >&2; exit 3"}})
+	res := doExec(t, srv, ShellRequest{Command: []string{"sh", "-c", "echo out; echo err >&2; exit 3"}})
 	if res.Stdout != "out\n" {
 		t.Errorf("stdout = %q, want %q", res.Stdout, "out\n")
 	}
@@ -74,7 +74,7 @@ func TestExecEnvCwdStdin(t *testing.T) {
 	sub := filepath.Join(dir, "sub")
 	os.Mkdir(sub, 0o755)
 
-	res := doExec(t, srv, CmdRequest{
+	res := doExec(t, srv, ShellRequest{
 		Command: []string{"sh", "-c", "pwd; printf '%s\n' \"$GREETING\"; cat"},
 		Env:     map[string]string{"GREETING": "hello"},
 		Cwd:     "sub",
@@ -98,7 +98,7 @@ func TestExecOutputTruncation(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	res := doExec(t, srv, CmdRequest{Command: []string{"sh", "-c", "printf '0123456789ABCDEF'"}})
+	res := doExec(t, srv, ShellRequest{Command: []string{"sh", "-c", "printf '0123456789ABCDEF'"}})
 	if res.Stdout != "0123456789" {
 		t.Errorf("stdout = %q, want first 10 bytes", res.Stdout)
 	}
@@ -109,8 +109,8 @@ func TestExecOutputTruncation(t *testing.T) {
 
 func TestExecCommandNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	body, _ := json.Marshal(CmdRequest{Command: []string{"definitely-not-a-command-xyz"}})
-	resp, err := http.Post(srv.URL+"/v1/cmd", "application/json", bytes.NewReader(body))
+	body, _ := json.Marshal(ShellRequest{Command: []string{"definitely-not-a-command-xyz"}})
+	resp, err := http.Post(srv.URL+"/v1/shell", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestListDirAndStat(t *testing.T) {
 	if len(listing.Entries) != 2 {
 		t.Fatalf("got %d entries, want 2: %+v", len(listing.Entries), listing.Entries)
 	}
-	byName := map[string]DirEntry{}
+	byName := map[string]guestsys.DirEntry{}
 	for _, e := range listing.Entries {
 		byName[e.Name] = e
 	}
@@ -240,7 +240,7 @@ func TestListDirAndStat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var e DirEntry
+	var e guestsys.DirEntry
 	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
 		t.Fatal(err)
 	}
@@ -298,8 +298,6 @@ func TestDeleteMissingIs404(t *testing.T) {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
 	}
 }
-
-
 
 func TestReadyzEndpoint(t *testing.T) {
 	srv, _ := newTestServer(t)

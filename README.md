@@ -18,7 +18,7 @@ while this project adds the environment-shaped API on top.
  ╭──────────────╮    ╭──────────────╮ lifecycle  ╭────────────╮
  │    Clients   │    │              ├───────────▶│   ateapi   │ Substrate control plane
  │  ate-env CLI ├───▶│ ate-env-api  │            ╰────────────╯
- ╰──────────────╯    │ (API server) │  cmd/fs    ╭────────────╮     ╭──────────────────────╮
+ ╰──────────────╯    │ (API server) │shell/fs/mcp╭────────────╮     ╭──────────────────────╮
                      │              ├───────────▶│   atenet   ├────▶│ actor                │
                      ╰──────────────╯            │   router   │     │  └ ate-env-guest     │
                                                  ╰────────────╯     │    /v1/envs/*        │
@@ -69,8 +69,8 @@ kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 # Create and use an environment. Environment is suspended and resumed
 # automatically after each command.
 ate-env create dev1 --template default-env
-ate-env dev1 cmd 'echo hello > /note.txt'
-ate-env dev1 cmd 'cat /note.txt' # prints hello
+ate-env dev1 shell 'echo hello > /note.txt'
+ate-env dev1 shell 'cat /note.txt' # prints hello
 ate-env delete dev1
 ```
 
@@ -78,7 +78,7 @@ Or use the API directly:
 
 ```bash
 curl -X POST localhost:7777/v1/envs -d '{"id":"dev1","template":"default-env"}'
-curl -X POST localhost:7777/v1/envs/dev1/cmd \
+curl -X POST localhost:7777/v1/envs/dev1/shell \
      -d '{"command":["sh","-c","uname -a"]}'
 # Alternatively, interact over MCP.
 curl -X POST localhost:7777/v1/envs/dev1/mcp \
@@ -88,11 +88,11 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 
 ## CLI
 
-Lifecycle and deployment are top-level commands; command execution and file operations on an environment can also use the environment ID as the first argument (`ate-env <id> ...`):
+Lifecycle and deployment are top-level commands; command execution and file operations on an environment use the environment ID as the first argument (`ate-env <id> ...`):
 
 ```bash
 $ ate-env create dev1 --template default-env
-$ ate-env dev1 cmd 'uname -a'
+$ ate-env dev1 shell 'uname -a'
 $ ate-env dev1 fs ls /
 $ ate-env delete dev1
 ```
@@ -107,7 +107,6 @@ Usage:
   ate-env [command]
 
 Available Commands:
-  cmd         Run a shell command line in the environment
   completion  Generate the autocompletion script for the specified shell
   create      Create and start an environment
   delete      Delete an environment
@@ -124,8 +123,8 @@ Usage:
   ate-env dev1 [command]
 
 Available Commands:
-  cmd         Run a shell command line in the environment
   fs          Operate on files and directories in the environment
+  shell       Run a shell command line in the environment
 
 $ ate-env deploy --help
 Deploy generates Kubernetes manifests for everything environments need on
@@ -163,9 +162,9 @@ Create body:
 | `POST` | `/v1/envs/{id}/suspend` | Snapshot to object storage, free worker  |
 | `POST` | `/v1/envs/{id}/resume`  | Restore from the latest snapshot         |
 
-### Commands
+### Shell
 
-`POST /v1/envs/{id}/cmd`
+`POST /v1/envs/{id}/shell`
 
 ```json
 {                                           {

@@ -107,31 +107,6 @@ func main() {
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
-		Use:   "cmd <id> <cmdline>",
-		Short: "Run a shell command line in the environment",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := client.Env(args[0]).Cmd(cmd.Context(), args[1])
-			if err != nil {
-				return err
-			}
-			if out := strings.Trim(res.Stdout, "\r\n"); out != "" {
-				fmt.Println(out)
-			}
-			if errOut := strings.Trim(res.Stderr, "\r\n"); errOut != "" {
-				fmt.Fprintln(os.Stderr, errOut)
-			}
-			if res.TimedOut {
-				fmt.Fprintln(os.Stderr, "ate-env: command timed out")
-			}
-			if res.ExitCode != 0 {
-				os.Exit(res.ExitCode)
-			}
-			return nil
-		},
-	})
-
 	fsCmd := &cobra.Command{
 		Use:   "fs",
 		Short: "Operate on files and directories in an environment",
@@ -227,11 +202,12 @@ func newEnvCommand(id string, client **env.Client) *cobra.Command {
 	}
 
 	sbCmd.AddCommand(&cobra.Command{
-		Use:   "cmd <cmdline>",
-		Short: "Run a shell command line in the environment",
-		Args:  cobra.ExactArgs(1),
+		Use:     "shell <cmdline>",
+		Aliases: []string{"cmd"},
+		Short:   "Run a shell command line in the environment",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := (*client).Env(id).Cmd(cmd.Context(), args[0])
+			res, err := (*client).Env(id).Shell(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}

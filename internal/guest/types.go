@@ -4,8 +4,8 @@ import (
 	"github.com/agent-substrate/env/internal/guest/guestsys"
 )
 
-// CmdRequest describes a command to run inside an env.
-type CmdRequest struct {
+// ShellRequest describes a command to run inside an env.
+type ShellRequest struct {
 	// Command is the argv of the process to run. It is executed directly,
 	// not through a shell. Use []string{"sh", "-c", "..."} for shell syntax.
 	Command []string `json:"command"`
@@ -23,8 +23,8 @@ type CmdRequest struct {
 	Stdin []byte `json:"stdin,omitempty"`
 }
 
-// CmdResult is the outcome of a CmdRequest.
-type CmdResult struct {
+// ShellResult is the outcome of a ShellRequest.
+type ShellResult struct {
 	// Stdout and Stderr hold the captured output, capped at the guest's
 	// output limit per stream.
 	Stdout string `json:"stdout"`
@@ -47,12 +47,11 @@ type CmdResult struct {
 	Duration string `json:"duration,omitempty"`
 }
 
-// DirEntry describes a file or directory inside the environment.
 type DirEntry = guestsys.DirEntry
 
 // ListDirResponse is the response of the directory listing endpoint.
 type ListDirResponse struct {
-	Entries []DirEntry `json:"entries"`
+	Entries []guestsys.DirEntry `json:"entries"`
 }
 
 // Error codes returned in Error.Code.

@@ -73,7 +73,7 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, "ok\n")
 	})
-	mux.HandleFunc("POST /v1/cmd", func(w http.ResponseWriter, r *http.Request) { s.handleCmd(fsSys, w, r) })
+	mux.HandleFunc("POST /v1/shell", func(w http.ResponseWriter, r *http.Request) { s.handleShell(fsSys, w, r) })
 	mux.HandleFunc("GET /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleReadFile(fsSys, w, r) })
 	mux.HandleFunc("POST /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleWriteFile(fsSys, w, r) })
 	mux.HandleFunc("DELETE /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleDelete(fsSys, w, r) })
@@ -174,8 +174,8 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func (s *Server) handleCmd(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	var req CmdRequest
+func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
+	var req ShellRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid request body: %v", err)
 		return
@@ -225,7 +225,7 @@ func (s *Server) handleCmd(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Re
 	err := cmd.Run()
 	elapsed := time.Since(start)
 
-	res := CmdResult{
+	res := ShellResult{
 		Stdout:          stdout.buf.String(),
 		Stderr:          stderr.buf.String(),
 		StdoutTruncated: stdout.truncated,

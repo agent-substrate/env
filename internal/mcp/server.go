@@ -32,8 +32,9 @@ func NewServer(reg *tool.Registry) *Server {
 	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return mcpSrv
 	}, &mcp.StreamableHTTPOptions{
-		JSONResponse: true,
-		Stateless:    true,
+		JSONResponse:               true,
+		Stateless:                  true,
+		DisableLocalhostProtection: true,
 	})
 
 	return &Server{
