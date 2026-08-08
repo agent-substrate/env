@@ -37,20 +37,14 @@ func (e *Env) Delete(ctx context.Context) error {
 	return e.client.do(ctx, http.MethodDelete, e.path(""), nil, nil)
 }
 
-// run runs a command inside the environment and returns its captured output
-// and exit code. The command is executed directly (not through a shell);
-// see Shell for a shell-friendly shorthand.
-func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResponse, error) {
+// Shell runs a shell command line inside the environment.
+func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, error) {
+	req := ShellRequest{Command: commandLine}
 	var res ShellResponse
 	if err := e.client.do(ctx, http.MethodPost, e.path("/shell"), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
-}
-
-// Shell runs a shell command line inside the environment.
-func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, error) {
-	return e.run(ctx, ShellRequest{Command: commandLine})
 }
 
 // ReadFile streams the contents of the file at path inside the environment.
