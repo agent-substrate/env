@@ -83,7 +83,7 @@ curl -X POST localhost:7777/v1/envs/dev1/cmd \
 # Alternatively, interact over MCP.
 curl -X POST localhost:7777/v1/envs/dev1/mcp \
      -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}'
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shell","arguments":{"command":"echo hi"}}}'
 ```
 
 ## CLI
@@ -229,11 +229,11 @@ The API exposes an MCP endpoint at `POST /v1/envs/{id}/mcp` serving the built-in
 
 TODO: Add support for skills e.g. generaate available_skills, and activate a skill.
 
-### MCP Tool Interactions
+### MCP Server
 
-Clients communicate with the MCP endpoint at `/v1/envs/{id}/mcp` using JSON-RPC 2.0 over HTTP:
+Clients communicate with the built-in MCP server at `/v1/envs/{id}/mcp` using JSON-RPC 2.0 over HTTP:
 
-#### Initialize Handshake
+#### Initialize
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/mcp \
