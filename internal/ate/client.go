@@ -196,19 +196,19 @@ func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 
 // Create registers a new actor with the given ID (a DNS-1123 label) and
 // starts it.
-func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*ActorClient, error) {
+func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) error {
 	var cfg createConfig
 	for _, o := range opts {
 		o(&cfg)
 	}
 	namespace, name, err := c.templateRef(cfg.templateNamespace, cfg.template)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	const atespace = "default"
 	if err := c.EnsureAtespace(ctx, atespace); err != nil {
-		return nil, fmt.Errorf("ate: creating %q: %w", id, err)
+		return fmt.Errorf("ate: creating %q: %w", id, err)
 	}
 
 	actor := &ateapipb.Actor{
@@ -220,22 +220,28 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 		ActorTemplateName:      name,
 	}
 	if _, err := c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: actor}); err != nil {
-		return nil, fmt.Errorf("ate: creating %q: %w", id, wrapGRPCError(err))
+		return fmt.Errorf("ate: creating %q: %w", id, wrapGRPCError(err))
 	}
 
-	sb := &ActorClient{id: id, client: c}
-	return sb, nil
+	return nil
+}
+
+// Delete removes the actor with ID permanently. Substrate only deletes suspended
+// actors, so Delete suspends the actor first.
+func (c *Client) Delete(ctx context.Context, id string) error {
+	if _, err := c.control.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: c.ref(id)}); err != nil {
+		return fmt.Errorf("actor: suspending %q: %w", id, wrapGRPCError(err))
+	}
+	_, err := c.control.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: c.ref(id)})
+	if err != nil {
+		return fmt.Errorf("actor: deleting %q: %w", id, wrapGRPCError(err))
+	}
+	return nil
 }
 
 // ref returns the ObjectRef identifying the actor backing actor id.
 func (c *Client) ref(id string) *ateapipb.ObjectRef {
 	return &ateapipb.ObjectRef{Atespace: "default", Name: id}
-}
-
-// Actor returns a handle to an actor by ID without checking that it
-// exists.
-func (c *Client) Actor(id string) *ActorClient {
-	return &ActorClient{id: id, client: c}
 }
 
 func wrapGRPCError(err error) error {

@@ -122,8 +122,7 @@ func (s *server) create(w http.ResponseWriter, r *http.Request) {
 		ate.WithTemplate(req.Template),
 		ate.WithNamespace(req.Namespace),
 	}
-	_, err := s.client.Create(r.Context(), req.ID, opts...)
-	if err != nil {
+	if err := s.client.Create(r.Context(), req.ID, opts...); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -131,7 +130,7 @@ func (s *server) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) delete(w http.ResponseWriter, r *http.Request) {
-	if err := s.client.Actor(r.PathValue("id")).Delete(r.Context()); err != nil {
+	if err := s.client.Delete(r.Context(), r.PathValue("id")); err != nil {
 		writeErr(w, err)
 		return
 	}

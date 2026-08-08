@@ -53,7 +53,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 // create makes a env whose guest handler serves from a temp dir.
-func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate.ActorClient {
+func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) {
 	t.Helper()
 	fsSys, _ := guestsys.New(f.guest)
 	h, err := (&guest.Server{}).Handler(fsSys)
@@ -62,19 +62,14 @@ func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) *ate
 	}
 	f.router.Register(id, h)
 	opts = append([]ate.CreateOption{ate.WithTemplate("default-env"), ate.WithNamespace("envs")}, opts...)
-	sb, err := f.client.Create(t.Context(), id, opts...)
-	if err != nil {
+	if err := f.client.Create(t.Context(), id, opts...); err != nil {
 		t.Fatalf("creating actor %q: %v", id, err)
 	}
-	return sb
 }
 
 func TestCreateStartsEnv(t *testing.T) {
 	f := newFixture(t)
-	sb := f.create(t, "sb-1")
-	if sb.ID() != "sb-1" {
-		t.Errorf("ID = %s, want sb-1", sb.ID())
-	}
+	f.create(t, "sb-1")
 }
 
 func TestEnsureAtespace(t *testing.T) {
@@ -90,10 +85,10 @@ func TestEnsureAtespace(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	f := newFixture(t)
-	sb := f.create(t, "sb-del")
+	f.create(t, "sb-del")
 	ctx := t.Context()
 
-	if err := sb.Delete(ctx); err != nil {
+	if err := f.client.Delete(ctx, "sb-del"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -112,7 +107,7 @@ func TestCreateRequiresTemplate(t *testing.T) {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	if _, err := client.Create(context.Background(), "sb-x"); err == nil {
+	if err := client.Create(context.Background(), "sb-x"); err == nil {
 		t.Fatal("Create without template succeeded, want error")
 	}
 }
