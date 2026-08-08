@@ -35,10 +35,8 @@ func getText(res *mcp.CallToolResult) string {
 
 func TestFSTools(t *testing.T) {
 	dir := t.TempDir()
-	fsSys, err := guestsys.New(dir)
-	if err != nil {
-		t.Fatalf("guestsys.New: %v", err)
-	}
+	t.Chdir(dir)
+	fsSys := guestsys.New()
 
 	reg := tool.NewRegistry()
 	if err := reg.Register(fstool.New(fsSys, fstool.Config{})...); err != nil {

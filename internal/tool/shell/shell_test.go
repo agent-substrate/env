@@ -14,10 +14,8 @@ import (
 
 func TestShellTool(t *testing.T) {
 	dir := t.TempDir()
-	fsSys, err := guestsys.New(dir)
-	if err != nil {
-		t.Fatalf("guestfs.New: %v", err)
-	}
+	t.Chdir(dir)
+	fsSys := guestsys.New()
 
 	reg := tool.NewRegistry()
 	if err := reg.Register(shell.New(fsSys, shell.Config{})); err != nil {

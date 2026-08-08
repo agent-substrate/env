@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -23,102 +22,20 @@ import (
 
 var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", ".terraform"}
 
-// FS manages filesystem operations rooted inside a workspace directory.
-type FS struct {
-	root string
-}
+// binarySniffBytes is how much of a file's head is inspected for NUL bytes
+// when deciding whether it is binary.
+const binarySniffBytes = 8192
 
-// New returns an FS rooted at dir, resolving symlinks and creating dir if needed.
-func New(dir string) (*FS, error) {
-	if dir == "" {
-		dir = "/"
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve root %q: %w", dir, err)
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		if err := os.MkdirAll(abs, 0o755); err != nil {
-			return nil, fmt.Errorf("stat root %q: %w", abs, err)
-		}
-		info, err = os.Stat(abs)
-		if err != nil {
-			return nil, fmt.Errorf("stat root %q: %w", abs, err)
-		}
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("root %q is not a directory", abs)
-	}
-	return &FS{root: abs}, nil
-}
+// FS performs filesystem operations inside the environment.
+type FS struct{}
 
-// Root returns the absolute environment root.
-func (s *FS) Root() string { return s.root }
+// New returns an FS operating on the environment's filesystem.
+func New() *FS { return &FS{} }
 
-// Resolve resolves a path relative to the root and checks for environment containment.
+// Resolve cleans p and makes it absolute. Relative paths are resolved against
+// the process working directory.
 func (s *FS) Resolve(p string) (string, error) {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return s.root, nil
-	}
-	if strings.HasPrefix(p, "~") {
-		return "", fmt.Errorf("path %q: ~ is not expanded; use a path relative to the workspace root", p)
-	}
-	abs := p
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(s.root, abs)
-	}
-	abs = filepath.Clean(abs)
-	probe := abs
-	for {
-		resolved, err := filepath.EvalSymlinks(probe)
-		if err == nil {
-			suffix := strings.TrimPrefix(abs, probe)
-			abs = filepath.Clean(resolved + suffix)
-			break
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			break
-		}
-		probe = parent
-	}
-
-	if !s.contains(abs) {
-		return "", s.escapeErr(p)
-	}
-	return abs, nil
-}
-
-// Rel renders an absolute path relative to the root.
-func (s *FS) Rel(abs string) string {
-	rel, err := filepath.Rel(s.root, abs)
-	if err != nil {
-		return abs
-	}
-	if rel == "." {
-		return "."
-	}
-	return rel
-}
-
-func (s *FS) contains(abs string) bool {
-	if abs == s.root {
-		return true
-	}
-	prefix := s.root
-	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
-		prefix += string(filepath.Separator)
-	}
-	return strings.HasPrefix(abs, prefix)
-}
-
-func (s *FS) escapeErr(p string) error {
-	return fmt.Errorf("path %q is outside the workspace root %s", p, s.root)
+	return filepath.Abs(p)
 }
 
 // ReadFileRaw opens the file at path for reading.
@@ -159,11 +76,10 @@ func (s *FS) ReadFileText(p string, offset, limit int, lineNumbers bool, maxByte
 	}
 	defer f.Close()
 
-	head := make([]byte, 8192)
+	head := make([]byte, binarySniffBytes)
 	n, _ := io.ReadFull(f, head)
-	head = head[:n]
-	if bytes.IndexByte(head, 0) >= 0 {
-		return "", fmt.Errorf("file %s is binary", s.Rel(abs))
+	if isBinary(head[:n]) {
+		return "", fmt.Errorf("file %s is binary", abs)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return "", err
@@ -216,9 +132,9 @@ func (s *FS) ReadFileText(p string, offset, limit int, lineNumbers bool, maxByte
 	}
 	if linesReturned == 0 {
 		if lineNo == 0 {
-			return fmt.Sprintf("File %s is empty.", s.Rel(abs)), nil
+			return fmt.Sprintf("File %s is empty.", abs), nil
 		}
-		return fmt.Sprintf("File %s has %d lines; offset %d is past the end.", s.Rel(abs), lineNo, offset), nil
+		return fmt.Sprintf("File %s has %d lines; offset %d is past the end.", abs, lineNo, offset), nil
 	}
 
 	result := out.String()
@@ -272,6 +188,9 @@ func (s *FS) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, appendMo
 
 // EditFile replaces oldStr with newStr in a file. Returns the relative path, match count, and error.
 func (s *FS) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes int) (string, int, error) {
+	if oldStr == "" {
+		return "", 0, fmt.Errorf("old_string must not be empty")
+	}
 	if maxBytes > 0 && len(newStr) > maxBytes {
 		return "", 0, fmt.Errorf("replacement is %d bytes, over the %d byte limit", len(newStr), maxBytes)
 	}
@@ -283,32 +202,27 @@ func (s *FS) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes
 	if err != nil {
 		return "", 0, err
 	}
-	if bytes.IndexByte(data, 0) >= 0 {
-		return "", 0, fmt.Errorf("file %s is binary", s.Rel(abs))
+	if isBinary(data) {
+		return "", 0, fmt.Errorf("file %s is binary", abs)
 	}
 	content := string(data)
-	if oldStr == "" {
-		return "", 0, fmt.Errorf("old_string must not be empty")
-	}
 	n := strings.Count(content, oldStr)
 	switch {
 	case n == 0:
-		return "", 0, fmt.Errorf("old_string not found in %s; read the file again to check exact content and indentation", s.Rel(abs))
+		return "", 0, fmt.Errorf("old_string not found in %s; read the file again to check exact content and indentation", abs)
 	case n > 1 && !replaceAll:
-		return "", 0, fmt.Errorf("old_string matches %d times in %s; include more context or set replace_all=true", n, s.Rel(abs))
+		return "", 0, fmt.Errorf("old_string matches %d times in %s; include more context or set replace_all=true", n, abs)
 	}
+	count := 1
 	replaced := strings.Replace(content, oldStr, newStr, 1)
 	if replaceAll {
+		count = n
 		replaced = strings.ReplaceAll(content, oldStr, newStr)
 	}
 	if err := os.WriteFile(abs, []byte(replaced), 0o644); err != nil {
 		return "", 0, err
 	}
-	count := 1
-	if replaceAll {
-		count = n
-	}
-	return s.Rel(abs), count, nil
+	return abs, count, nil
 }
 
 // Remove deletes a file or directory tree.
@@ -317,8 +231,8 @@ func (s *FS) Remove(p string, recursive bool) error {
 	if err != nil {
 		return err
 	}
-	if abs == s.root {
-		return fmt.Errorf("refusing to delete workspace root")
+	if abs == string(filepath.Separator) {
+		return fmt.Errorf("refusing to delete %s", abs)
 	}
 	fi, err := os.Lstat(abs)
 	if err != nil {
@@ -347,7 +261,7 @@ func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, sk
 		return nil, false, err
 	}
 	if !info.IsDir() {
-		return nil, false, fmt.Errorf("%s is not a directory", s.Rel(abs))
+		return nil, false, fmt.Errorf("%s is not a directory", abs)
 	}
 	limit := clampLimit(maxEntries, 1000)
 
@@ -391,8 +305,8 @@ func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, sk
 	return entries, truncated, nil
 }
 
-// Glob finds matching files by pattern.
-func (s *FS) Glob(p, pattern string, maxResults int, skipDirs []string) (string, []string, bool, error) {
+// Glob finds matching files by pattern, newest first.
+func (s *FS) Glob(ctx context.Context, p, pattern string, maxResults int, skipDirs []string) (string, []string, bool, error) {
 	if strings.TrimSpace(pattern) == "" {
 		return "", nil, false, fmt.Errorf("pattern must not be empty")
 	}
@@ -410,16 +324,7 @@ func (s *FS) Glob(p, pattern string, maxResults int, skipDirs []string) (string,
 		mod  time.Time
 	}
 	var hits []hit
-	err = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if path != base && slices.Contains(skipDirs, d.Name()) {
-				return fs.SkipDir
-			}
-			return nil
-		}
+	err = walkFiles(ctx, base, skipDirs, func(path string, d fs.DirEntry) error {
 		rel, relErr := filepath.Rel(base, path)
 		if relErr != nil {
 			return nil
@@ -427,7 +332,7 @@ func (s *FS) Glob(p, pattern string, maxResults int, skipDirs []string) (string,
 		if !matchGlob(pattern, filepath.ToSlash(rel)) {
 			return nil
 		}
-		mod := time.Time{}
+		var mod time.Time
 		if fi, err := d.Info(); err == nil {
 			mod = fi.ModTime()
 		}
@@ -437,7 +342,7 @@ func (s *FS) Glob(p, pattern string, maxResults int, skipDirs []string) (string,
 	if err != nil {
 		return "", nil, false, err
 	}
-	sort.Slice(hits, func(i, j int) bool { return hits[i].mod.After(hits[j].mod) })
+	slices.SortFunc(hits, func(a, b hit) int { return b.mod.Compare(a.mod) })
 
 	truncated := len(hits) > limit
 	if truncated {
@@ -445,9 +350,9 @@ func (s *FS) Glob(p, pattern string, maxResults int, skipDirs []string) (string,
 	}
 	lines := make([]string, len(hits))
 	for i, h := range hits {
-		lines[i] = s.Rel(h.path)
+		lines[i] = h.path
 	}
-	return s.Rel(base), lines, truncated, nil
+	return base, lines, truncated, nil
 }
 
 // Grep searches file contents using regex.
@@ -480,8 +385,8 @@ func (s *FS) Grep(ctx context.Context, p, pattern, include string, maxResults in
 		}
 		defer f.Close()
 		br := bufio.NewReader(f)
-		head, _ := br.Peek(8192)
-		if bytes.IndexByte(head, 0) >= 0 {
+		head, _ := br.Peek(binarySniffBytes)
+		if isBinary(head) {
 			return nil
 		}
 		scanner := bufio.NewScanner(br)
@@ -497,10 +402,10 @@ func (s *FS) Grep(ctx context.Context, p, pattern, include string, maxResults in
 				return fs.SkipAll
 			}
 			filesHit[path] = true
-			lines = append(lines, fmt.Sprintf("%s:%d:%s", s.Rel(path), n, strings.TrimRight(scanner.Text(), "\r")))
+			lines = append(lines, fmt.Sprintf("%s:%d:%s", path, n, strings.TrimRight(scanner.Text(), "\r")))
 		}
 		if err := scanner.Err(); err != nil {
-			lines = append(lines, fmt.Sprintf("%s: could not finish reading: %v", s.Rel(path), err))
+			lines = append(lines, fmt.Sprintf("%s: could not finish reading: %v", path, err))
 		}
 		return nil
 	}
@@ -510,19 +415,7 @@ func (s *FS) Grep(ctx context.Context, p, pattern, include string, maxResults in
 		return "", err
 	}
 	if info.IsDir() {
-		err = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if d.IsDir() {
-				if path != base && slices.Contains(skipDirs, d.Name()) {
-					return fs.SkipDir
-				}
-				return nil
-			}
+		err = walkFiles(ctx, base, skipDirs, func(path string, d fs.DirEntry) error {
 			if include != "" {
 				rel, relErr := filepath.Rel(base, path)
 				if relErr != nil || !matchGlob(include, filepath.ToSlash(rel)) {
@@ -531,15 +424,15 @@ func (s *FS) Grep(ctx context.Context, p, pattern, include string, maxResults in
 			}
 			return searchFile(path)
 		})
-		if err != nil && err != fs.SkipAll {
+		if err != nil {
 			return "", err
 		}
-	} else if err := searchFile(base); err != nil && err != fs.SkipAll {
+	} else if err := searchFile(base); err != nil && !errors.Is(err, fs.SkipAll) {
 		return "", err
 	}
 
 	if len(lines) == 0 {
-		return fmt.Sprintf("No matches for %q under %s.", pattern, s.Rel(base)), nil
+		return fmt.Sprintf("No matches for %q under %s.", pattern, base), nil
 	}
 	out := fmt.Sprintf("%d matching line(s) in %d file(s):\n%s", len(lines), len(filesHit), strings.Join(lines, "\n"))
 	if truncated {
@@ -580,14 +473,14 @@ func (s *FS) Move(src, dst string, overwrite bool) error {
 	if err != nil {
 		return err
 	}
-	if srcAbs == s.root {
-		return fmt.Errorf("refusing to move the workspace root")
+	if srcAbs == string(filepath.Separator) {
+		return fmt.Errorf("refusing to move %s", srcAbs)
 	}
 	if _, err := os.Stat(srcAbs); err != nil {
 		return err
 	}
 	if _, err := os.Stat(dstAbs); err == nil && !overwrite {
-		return fmt.Errorf("%s already exists; set overwrite to replace it", s.Rel(dstAbs))
+		return fmt.Errorf("%s already exists; set overwrite to replace it", dstAbs)
 	}
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
 		return err
@@ -596,6 +489,33 @@ func (s *FS) Move(src, dst string, overwrite bool) error {
 		return err
 	}
 	return nil
+}
+
+// walkFiles walks the tree rooted at base and calls fn for each file it finds,
+// skipping directories named in skipDirs. Entries that cannot be read are
+// skipped instead of failing the whole walk. fn may return fs.SkipAll to stop
+// early, which is not reported as an error.
+func walkFiles(ctx context.Context, base string, skipDirs []string, fn func(path string, d fs.DirEntry) error) error {
+	return filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if d.IsDir() {
+			if path != base && slices.Contains(skipDirs, d.Name()) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		return fn(path, d)
+	})
+}
+
+// isBinary reports whether data looks like binary content rather than text.
+func isBinary(data []byte) bool {
+	return bytes.IndexByte(data, 0) >= 0
 }
 
 func buildDirEntry(path string, fi fs.FileInfo) env.DirEntry {
@@ -640,11 +560,7 @@ func matchSegments(pat, seg []string) bool {
 	return len(seg) == 0
 }
 
-// ClampLimit clamps requested to max if requested <= 0.
-func ClampLimit(requested, max int) int {
-	return clampLimit(requested, max)
-}
-
+// clampLimit returns requested, or max when requested is out of range.
 func clampLimit(requested, max int) int {
 	if requested <= 0 || requested > max {
 		return max
@@ -654,10 +570,6 @@ func clampLimit(requested, max int) int {
 
 // CountLines counts the number of lines in s.
 func CountLines(s string) int {
-	return countLines(s)
-}
-
-func countLines(s string) int {
 	if s == "" {
 		return 0
 	}
@@ -670,10 +582,6 @@ func countLines(s string) int {
 
 // HumanBytes returns a human-readable representation of n bytes.
 func HumanBytes(n int64) string {
-	return humanBytes(n)
-}
-
-func humanBytes(n int64) string {
 	if n < 0 {
 		return "unknown size"
 	}
@@ -701,7 +609,7 @@ type ExecOptions struct {
 	Env            []string
 }
 
-// ExecShell runs a shell command inside the workspace directory.
+// ExecShell runs a shell command in the process working directory.
 func (s *FS) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 	command := strings.TrimSpace(opts.Command)
 	if command == "" {
@@ -713,12 +621,6 @@ func (s *FS) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 		shellPath = "/bin/sh"
 	}
 
-	abs := s.root
-	info, err := os.Stat(abs)
-	if err != nil || !info.IsDir() {
-		return "", fmt.Errorf("root %s is not a directory", s.Rel(abs))
-	}
-
 	timeout := opts.Timeout
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -727,7 +629,6 @@ func (s *FS) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, shellPath, "-c", command)
-	cmd.Dir = abs
 	cmd.Env = opts.Env
 	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
@@ -782,5 +683,3 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	}
 	return nil
 }
-
-

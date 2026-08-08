@@ -28,6 +28,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	t.Chdir(t.TempDir())
 
 	control := fakecontrol.New()
 	controlAddr, stopControl, err := control.Serve()
@@ -70,7 +71,7 @@ func newFixture(t *testing.T) *fixture {
 // create makes a env whose guest handler serves from a temp dir.
 func (f *fixture) create(t *testing.T, id string) *env.Env {
 	t.Helper()
-	fsSys, _ := guestsys.New(f.guest)
+	fsSys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(fsSys)
 	if err != nil {
 		t.Fatalf("creating guest handler: %v", err)

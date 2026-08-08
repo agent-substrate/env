@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -42,11 +41,7 @@ type Server struct {
 // Handler returns the http.Handler serving the guest API.
 func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	if fsSys == nil {
-		var err error
-		fsSys, err = guestsys.New("/")
-		if err != nil {
-			return nil, err
-		}
+		fsSys = guestsys.New()
 	}
 	reg := tool.NewRegistry()
 	if err := reg.Register(fstool.New(fsSys, fstool.Config{})...); err != nil {
@@ -87,16 +82,13 @@ func (s *Server) maxFile() int64 {
 	return DefaultMaxFileBytes
 }
 
-// resolvePath cleans p and resolves relative paths against fsSys.Root().
+// resolvePath cleans p and resolves relative paths against the process
+// working directory.
 func (s *Server) resolvePath(fsSys *guestsys.FS, p string) (string, error) {
 	if p == "" {
 		return "", errors.New("path is required")
 	}
-	if !filepath.IsAbs(p) {
-		base := fsSys.Root()
-		p = filepath.Join(base, p)
-	}
-	return filepath.Clean(p), nil
+	return fsSys.Resolve(p)
 }
 
 func writeError(w http.ResponseWriter, status int, code, format string, args ...any) {
@@ -143,8 +135,6 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 			return
 		}
 		cmd.Dir = cwd
-	} else if fsSys != nil {
-		cmd.Dir = fsSys.Root()
 	}
 	cmd.Env = os.Environ()
 	for k, v := range req.Env {

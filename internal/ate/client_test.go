@@ -37,6 +37,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(stopRouter)
 
 	guestDir := t.TempDir()
+	t.Chdir(guestDir)
 
 	client, err := ate.New(ate.Options{
 		ControlAddr: controlAddr,
@@ -55,7 +56,7 @@ func newFixture(t *testing.T) *fixture {
 // create makes a env whose guest handler serves from a temp dir.
 func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) {
 	t.Helper()
-	fsSys, _ := guestsys.New(f.guest)
+	fsSys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(fsSys)
 	if err != nil {
 		t.Fatalf("creating guest handler: %v", err)

@@ -75,7 +75,8 @@ func decode[T any](t *testing.T, resp *http.Response) T {
 
 func TestLifecycleAndExec(t *testing.T) {
 	srv, router := newAPI(t)
-	fsSys, _ := guestsys.New(t.TempDir())
+	t.Chdir(t.TempDir())
+	fsSys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(fsSys)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +164,8 @@ func TestLifecycleAndExec(t *testing.T) {
 
 func TestCreateStartsEnv(t *testing.T) {
 	srv, router := newAPI(t)
-	fsSys, _ := guestsys.New(t.TempDir())
+	t.Chdir(t.TempDir())
+	fsSys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(fsSys)
 	if err != nil {
 		t.Fatal(err)

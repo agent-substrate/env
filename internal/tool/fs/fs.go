@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -135,7 +136,7 @@ func writeFileTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		case existed:
 			verb = "Overwrote"
 		}
-		return fmt.Sprintf("%s %s (%d bytes, %d lines).", verb, fsSys.Rel(abs), len(p.Content), guestsys.CountLines(p.Content)), nil
+		return fmt.Sprintf("%s %s (%d bytes, %d lines).", verb, abs, len(p.Content), guestsys.CountLines(p.Content)), nil
 	})
 }
 
@@ -213,23 +214,21 @@ func listDirTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		if err != nil {
 			return "", err
 		}
-		rel := fsSys.Rel(abs)
 		if len(entries) == 0 {
-			return fmt.Sprintf("%s is empty.", rel), nil
+			return fmt.Sprintf("%s is empty.", abs), nil
 		}
 		lines := make([]string, 0, len(entries))
 		for _, e := range entries {
-			relPath := fsSys.Rel(e.Path)
 			if e.IsDir {
-				lines = append(lines, relPath+"/")
+				lines = append(lines, e.Path+"/")
 			} else {
-				lines = append(lines, fmt.Sprintf("%s (%s)", relPath, guestsys.HumanBytes(e.Size)))
+				lines = append(lines, fmt.Sprintf("%s (%s)", e.Path, guestsys.HumanBytes(e.Size)))
 			}
 		}
 		sort.Strings(lines)
-		out := fmt.Sprintf("%s (%d entries)\n%s", rel, len(lines), strings.Join(lines, "\n"))
+		out := fmt.Sprintf("%s (%d entries)\n%s", abs, len(lines), strings.Join(lines, "\n"))
 		if truncated {
-			limit := guestsys.ClampLimit(p.MaxEntries, 1000)
+			limit := clampLimit(p.MaxEntries, 1000)
 			out += fmt.Sprintf("\n[truncated at %d entries]", limit)
 		}
 		return out, nil
@@ -261,7 +260,7 @@ func globTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p globParams) (string, error) {
-		relBase, matches, truncated, err := fsSys.Glob(p.Path, p.Pattern, p.MaxResults, cfg.SkipDirs)
+		relBase, matches, truncated, err := fsSys.Glob(ctx, p.Path, p.Pattern, p.MaxResults, cfg.SkipDirs)
 		if err != nil {
 			return "", err
 		}
@@ -270,7 +269,7 @@ func globTool(fsSys *guestsys.FS, cfg Config) tool.Tool {
 		}
 		out := fmt.Sprintf("%d file(s) matching %q:\n%s", len(matches), p.Pattern, strings.Join(matches, "\n"))
 		if truncated {
-			limit := guestsys.ClampLimit(p.MaxResults, 1000)
+			limit := clampLimit(p.MaxResults, 1000)
 			out += fmt.Sprintf("\n[truncated at %d results]", limit)
 		}
 		return out, nil
@@ -333,7 +332,7 @@ func statTool(fsSys *guestsys.FS) tool.Tool {
 		info, err := os.Lstat(abs)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Sprintf("%s does not exist.", fsSys.Rel(abs)), nil
+				return fmt.Sprintf("%s does not exist.", abs), nil
 			}
 			return "", err
 		}
@@ -345,7 +344,7 @@ func statTool(fsSys *guestsys.FS) tool.Tool {
 			kind = "symlink"
 		}
 		return fmt.Sprintf("%s\ntype: %s\nsize: %s (%d bytes)\nmode: %s\nmodified: %s",
-			fsSys.Rel(abs), kind, guestsys.HumanBytes(info.Size()), info.Size(),
+			abs, kind, guestsys.HumanBytes(info.Size()), info.Size(),
 			info.Mode().String(), info.ModTime().UTC().Format(time.RFC3339)), nil
 	})
 }
@@ -376,7 +375,7 @@ func mkdirTool(fsSys *guestsys.FS) tool.Tool {
 		if err := fsSys.Mkdir(p.Path, 0o755); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Created directory %s.", fsSys.Rel(abs)), nil
+		return fmt.Sprintf("Created directory %s.", abs), nil
 	})
 }
 
@@ -414,7 +413,7 @@ func mvTool(fsSys *guestsys.FS) tool.Tool {
 		if err := fsSys.Move(p.Source, p.Destination, p.Overwrite); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Moved %s to %s.", fsSys.Rel(srcAbs), fsSys.Rel(dstAbs)), nil
+		return fmt.Sprintf("Moved %s to %s.", srcAbs, dstAbs), nil
 	})
 }
 
@@ -443,7 +442,7 @@ func rmTool(fsSys *guestsys.FS) tool.Tool {
 		if err != nil {
 			return "", err
 		}
-		if abs == fsSys.Root() {
+		if abs == string(filepath.Separator) {
 			return "", fmt.Errorf("refusing to delete the workspace root")
 		}
 		info, err := os.Lstat(abs)
@@ -453,13 +452,21 @@ func rmTool(fsSys *guestsys.FS) tool.Tool {
 		isDir := info.IsDir()
 		if err := fsSys.Remove(p.Path, p.Recursive); err != nil {
 			if isDir && !p.Recursive {
-				return "", fmt.Errorf("%s is not empty; set recursive to delete it and its contents", fsSys.Rel(abs))
+				return "", fmt.Errorf("%s is not empty; set recursive to delete it and its contents", abs)
 			}
 			return "", err
 		}
 		if isDir && p.Recursive {
-			return fmt.Sprintf("Deleted directory %s and its contents.", fsSys.Rel(abs)), nil
+			return fmt.Sprintf("Deleted directory %s and its contents.", abs), nil
 		}
-		return fmt.Sprintf("Deleted %s.", fsSys.Rel(abs)), nil
+		return fmt.Sprintf("Deleted %s.", abs), nil
 	})
+}
+
+// clampLimit returns requested, or max when requested is out of range.
+func clampLimit(requested, max int) int {
+	if requested <= 0 || requested > max {
+		return max
+	}
+	return requested
 }
