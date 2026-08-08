@@ -9,9 +9,6 @@ type ShellRequest struct {
 	// Command is the shell command line to run inside the environment.
 	Command string `json:"command"`
 
-	// Args holds positional arguments passed to the shell command.
-	Args []string `json:"args,omitempty"`
-
 	// Env holds additional environment variables set for the process, on
 	// top of the guest daemon's environment.
 	Env map[string]string `json:"env,omitempty"`

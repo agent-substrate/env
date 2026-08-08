@@ -170,50 +170,75 @@ curl -X DELETE localhost:7777/v1/envs/dev1
 
 ### Shell
 
-`POST /v1/envs/{id}/shell` runs `command` as a shell command line. `cwd`
-defaults to the guest's root, `env` is layered on top of the guest daemon's
-environment, and `stdin` is base64-encoded.
+`POST /v1/envs/{id}/shell` runs `command` as a shell command line, arguments
+included. `cwd` defaults to the guest's root and `env` is layered on top of the
+guest daemon's environment.
+
+The simplest request is a command line on its own:
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/shell \
-     -d '{
-       "command": "make test",
-       "cwd": "/workspace/app",
-       "env": {"VERBOSE_LOGS": "true"}
-     }'
+     -d '{"command": "uname -a"}'
 {
-  "stdout": "ok\n",
+  "stdout": "Linux dev1 6.1.0 #1 SMP x86_64 GNU/Linux\n",
   "stderr": "",
   "exitCode": 0
 }
 ```
 
-`args` passes positional arguments to the command line, so values do not have
-to be interpolated into `command`. They follow `sh -c` conventions: the first
-element becomes `$0` and the rest become `$1`, `$2`, and so on.
+The command line goes through `sh -c`, so pipelines, redirection, and quoting
+all work. Quote any value that contains spaces or shell metacharacters:
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/shell \
-     -d '{
-       "command": "grep -c \"$2\" \"$1\"",
-       "args": ["count-matches", "app/main.txt", "hello"]
-     }'
+     -d '{"command": "echo \"hello world\" | tr a-z A-Z"}'
 {
-  "stdout": "1\n",
+  "stdout": "HELLO WORLD\n",
   "stderr": "",
   "exitCode": 0
 }
 ```
 
-Feed data on standard input with `stdin`:
+Run a test suite in a checkout, with `cwd` and `env` set:
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/shell \
-     -d '{"command": "wc -c", "stdin": "aGVsbG8K"}'
+     -d '{
+       "command": "go test ./... -run TestShell",
+       "cwd": "/workspace/env",
+       "env": {"GOFLAGS": "-count=1"}
+     }'
 {
-  "stdout": "6\n",
+  "stdout": "ok  \tgithub.com/agent-substrate/env/internal/tool/shell\t0.290s\n",
   "stderr": "",
   "exitCode": 0
+}
+```
+
+Feed data on standard input with `stdin`, which is base64-encoded (here it
+decodes to `hello`):
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/shell \
+     -d '{"command": "git hash-object --stdin", "stdin": "aGVsbG8K"}'
+{
+  "stdout": "ce013625030ba8dba906f756967f9e9ca394464a\n",
+  "stderr": "",
+  "exitCode": 0
+}
+```
+
+A command that runs but fails is not an API error: the response is still
+`200 OK`, with the failure reported in `stderr` and `exitCode`. Only a command
+that cannot be started at all returns `400` with code `invalid_argument`.
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/shell \
+     -d '{"command": "git status --short", "cwd": "/workspace"}'
+{
+  "stdout": "",
+  "stderr": "fatal: not a git repository (or any of the parent directories): .git\n",
+  "exitCode": 128
 }
 ```
 

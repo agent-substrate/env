@@ -135,8 +135,7 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 	}
 
 	ctx := r.Context()
-	args := append([]string{"-c", req.Command}, req.Args...)
-	cmd := exec.CommandContext(ctx, "sh", args...)
+	cmd := exec.CommandContext(ctx, "sh", "-c", req.Command)
 	if req.Cwd != "" {
 		cwd, err := s.resolvePath(fsSys, req.Cwd)
 		if err != nil {
