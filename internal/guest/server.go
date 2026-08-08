@@ -285,7 +285,7 @@ func (s *Server) handleListDir(sys *guestsys.Sys, w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
-	entries, _, err := sys.ListDir(path, false, true, 0, nil)
+	entries, err := sys.ListDir(path, false, true, nil)
 	if err != nil {
 		writeFSError(w, err)
 		return

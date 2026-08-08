@@ -22,9 +22,16 @@ import (
 
 var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", ".terraform"}
 
-// binarySniffBytes is how much of a file's head is inspected for NUL bytes
-// when deciding whether it is binary.
-const binarySniffBytes = 8192
+const (
+	// binarySniffBytes is how much of a file's head is inspected for NUL
+	// bytes when deciding whether it is binary.
+	binarySniffBytes = 8192
+
+	// scannerInitialBytes and scannerMaxBytes size the buffer used to scan
+	// files line by line. Lines longer than scannerMaxBytes fail the scan.
+	scannerInitialBytes = 64 << 10
+	scannerMaxBytes     = 1 << 20
+)
 
 // Sys performs filesystem operations inside the environment.
 type Sys struct{}
@@ -38,7 +45,8 @@ func (s *Sys) Resolve(p string) (string, error) {
 	return filepath.Abs(p)
 }
 
-// ReadFileRaw opens the file at path for reading.
+// ReadFileRaw opens the file at p for reading. The caller owns the returned
+// file and must close it.
 func (s *Sys) ReadFileRaw(p string, maxBytes int64) (*os.File, fs.FileInfo, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
@@ -49,23 +57,23 @@ func (s *Sys) ReadFileRaw(p string, maxBytes int64) (*os.File, fs.FileInfo, erro
 		return nil, nil, err
 	}
 	fi, err := f.Stat()
+	switch {
+	case err != nil:
+	case fi.IsDir():
+		err = syscall.EISDIR
+	case maxBytes > 0 && fi.Size() > maxBytes:
+		err = fmt.Errorf("file is %d bytes, exceeds the %d byte limit", fi.Size(), maxBytes)
+	}
 	if err != nil {
 		f.Close()
 		return nil, nil, err
 	}
-	if fi.IsDir() {
-		f.Close()
-		return nil, nil, syscall.EISDIR
-	}
-	if maxBytes > 0 && fi.Size() > maxBytes {
-		f.Close()
-		return nil, nil, fmt.Errorf("file is %d bytes, exceeds the %d byte limit", fi.Size(), maxBytes)
-	}
 	return f, fi, nil
 }
 
-// ReadFileText reads a text file with line numbers, offset, limit, and byte cap.
-func (s *Sys) ReadFileText(p string, offset, limit int, lineNumbers bool, maxBytes int) (string, error) {
+// ReadFileText reads a text file, optionally starting at a 1-based line offset
+// and prefixing each line with its number.
+func (s *Sys) ReadFileText(p string, offset int, lineNumbers bool) (string, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return "", err
@@ -90,41 +98,26 @@ func (s *Sys) ReadFileText(p string, offset, limit int, lineNumbers bool, maxByt
 	}
 
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, scannerInitialBytes), scannerMaxBytes)
 
 	var out strings.Builder
 	lineNo := 0
 	linesReturned := 0
-	bytesReturned := 0
-	truncated := false
 
 	for scanner.Scan() {
 		lineNo++
 		if lineNo < offset {
 			continue
 		}
-		text := scanner.Text()
-		line := text
+		line := scanner.Text()
 		if lineNumbers {
-			line = fmt.Sprintf("%6d\t%s", lineNo, text)
+			line = fmt.Sprintf("%6d\t%s", lineNo, line)
 		}
-		if lineNo > offset || linesReturned > 0 {
+		if linesReturned > 0 {
 			line = "\n" + line
 		}
-		if maxBytes > 0 && bytesReturned+len(line) > maxBytes && linesReturned > 0 {
-			truncated = true
-			break
-		}
 		out.WriteString(line)
-		bytesReturned += len(line)
 		linesReturned++
-		if limit > 0 && linesReturned >= limit {
-			if scanner.Scan() {
-				truncated = true
-				lineNo++
-			}
-			break
-		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -136,12 +129,7 @@ func (s *Sys) ReadFileText(p string, offset, limit int, lineNumbers bool, maxByt
 		}
 		return fmt.Sprintf("File %s has %d lines; offset %d is past the end.", abs, lineNo, offset), nil
 	}
-
-	result := out.String()
-	if truncated {
-		result += fmt.Sprintf("\n[truncated at %d bytes; use offset=%d to read further]", maxBytes, lineNo)
-	}
-	return result, nil
+	return out.String(), nil
 }
 
 // WriteFile writes data to the file at p and returns the number of bytes
@@ -183,10 +171,12 @@ func (s *Sys) WriteFile(p string, data []byte, mode fs.FileMode, mkdirs, append 
 	return n, nil
 }
 
-// EditFile replaces oldStr with newStr in a file. Returns the relative path, match count, and error.
+// EditFile replaces oldStr with newStr in the file at p. oldStr must match
+// exactly once unless replaceAll is set. It returns the absolute path of the
+// edited file and the number of replacements made.
 func (s *Sys) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes int) (string, int, error) {
 	if oldStr == "" {
-		return "", 0, fmt.Errorf("old_string must not be empty")
+		return "", 0, errors.New("old_string must not be empty")
 	}
 	if maxBytes > 0 && len(newStr) > maxBytes {
 		return "", 0, fmt.Errorf("replacement is %d bytes, over the %d byte limit", len(newStr), maxBytes)
@@ -203,19 +193,20 @@ func (s *Sys) EditFile(p string, oldStr, newStr string, replaceAll bool, maxByte
 		return "", 0, fmt.Errorf("file %s is binary", abs)
 	}
 	content := string(data)
-	n := strings.Count(content, oldStr)
+	matches := strings.Count(content, oldStr)
 	switch {
-	case n == 0:
+	case matches == 0:
 		return "", 0, fmt.Errorf("old_string not found in %s; read the file again to check exact content and indentation", abs)
-	case n > 1 && !replaceAll:
-		return "", 0, fmt.Errorf("old_string matches %d times in %s; include more context or set replace_all=true", n, abs)
+	case matches > 1 && !replaceAll:
+		return "", 0, fmt.Errorf("old_string matches %d times in %s; include more context or set replace_all=true", matches, abs)
 	}
 	count := 1
 	replaced := strings.Replace(content, oldStr, newStr, 1)
 	if replaceAll {
-		count = n
+		count = matches
 		replaced = strings.ReplaceAll(content, oldStr, newStr)
 	}
+	// The file exists, so the mode argument is ignored and its mode is kept.
 	if err := os.WriteFile(abs, []byte(replaced), 0o644); err != nil {
 		return "", 0, err
 	}
@@ -235,27 +226,24 @@ func (s *Sys) Remove(p string) error {
 	return os.RemoveAll(abs)
 }
 
-// ListDir lists directory entries, optionally recursively.
-func (s *Sys) ListDir(p string, recursive, includeHidden bool, maxEntries int, skipDirs []string) ([]env.DirEntry, bool, error) {
+// ListDir lists the entries of the directory at p, optionally recursively.
+func (s *Sys) ListDir(p string, recursive, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
 	}
 	abs, err := s.Resolve(p)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if !info.IsDir() {
-		return nil, false, fmt.Errorf("%s is not a directory", abs)
+		return nil, fmt.Errorf("%s is not a directory", abs)
 	}
-	limit := clampLimit(maxEntries, 1000)
 
 	var entries []env.DirEntry
-	truncated := false
-
 	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -273,10 +261,6 @@ func (s *Sys) ListDir(p string, recursive, includeHidden bool, maxEntries int, s
 		if d.IsDir() && slices.Contains(skipDirs, name) {
 			return fs.SkipDir
 		}
-		if len(entries) >= limit {
-			truncated = true
-			return fs.SkipAll
-		}
 		fi, fiErr := d.Info()
 		if fiErr == nil {
 			entries = append(entries, buildDirEntry(path, fi))
@@ -286,26 +270,26 @@ func (s *Sys) ListDir(p string, recursive, includeHidden bool, maxEntries int, s
 		}
 		return nil
 	})
-	if err != nil && err != fs.SkipAll {
-		return nil, false, err
+	if err != nil {
+		return nil, err
 	}
-
-	return entries, truncated, nil
+	return entries, nil
 }
 
-// Glob finds matching files by pattern, newest first.
-func (s *Sys) Glob(ctx context.Context, p, pattern string, maxResults int, skipDirs []string) (string, []string, bool, error) {
-	if strings.TrimSpace(pattern) == "" {
-		return "", nil, false, fmt.Errorf("pattern must not be empty")
+// Glob returns the paths under p matching pattern, most recently modified
+// first.
+func (s *Sys) Glob(ctx context.Context, p, pattern string, skipDirs []string) ([]string, error) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil, errors.New("pattern must not be empty")
 	}
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
 	}
 	base, err := s.Resolve(p)
 	if err != nil {
-		return "", nil, false, err
+		return nil, err
 	}
-	limit := clampLimit(maxResults, 1000)
 
 	type hit struct {
 		path string
@@ -314,10 +298,7 @@ func (s *Sys) Glob(ctx context.Context, p, pattern string, maxResults int, skipD
 	var hits []hit
 	err = walkFiles(ctx, base, skipDirs, func(path string, d fs.DirEntry) error {
 		rel, relErr := filepath.Rel(base, path)
-		if relErr != nil {
-			return nil
-		}
-		if !matchGlob(pattern, filepath.ToSlash(rel)) {
+		if relErr != nil || !matchGlob(pattern, filepath.ToSlash(rel)) {
 			return nil
 		}
 		var mod time.Time
@@ -328,25 +309,24 @@ func (s *Sys) Glob(ctx context.Context, p, pattern string, maxResults int, skipD
 		return nil
 	})
 	if err != nil {
-		return "", nil, false, err
+		return nil, err
 	}
 	slices.SortFunc(hits, func(a, b hit) int { return b.mod.Compare(a.mod) })
 
-	truncated := len(hits) > limit
-	if truncated {
-		hits = hits[:limit]
-	}
-	lines := make([]string, len(hits))
+	paths := make([]string, len(hits))
 	for i, h := range hits {
-		lines[i] = h.path
+		paths[i] = h.path
 	}
-	return base, lines, truncated, nil
+	return paths, nil
 }
 
-// Grep searches file contents using regex.
-func (s *Sys) Grep(ctx context.Context, p, pattern, include string, maxResults int, skipDirs []string) (string, error) {
-	if strings.TrimSpace(pattern) == "" {
-		return "", fmt.Errorf("pattern must not be empty")
+// Grep returns the lines under p matching pattern, formatted as
+// path:line:text. include optionally restricts the search to files matching a
+// glob pattern.
+func (s *Sys) Grep(ctx context.Context, p, pattern, include string, skipDirs []string) (string, error) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return "", errors.New("pattern must not be empty")
 	}
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
@@ -359,12 +339,11 @@ func (s *Sys) Grep(ctx context.Context, p, pattern, include string, maxResults i
 	if err != nil {
 		return "", err
 	}
-	limit := clampLimit(maxResults, 1000)
 
 	var (
-		lines     []string
-		filesHit  = map[string]bool{}
-		truncated bool
+		lines    []string
+		readErrs []string
+		filesHit = map[string]struct{}{}
 	)
 	searchFile := func(path string) error {
 		f, err := os.Open(path)
@@ -378,22 +357,19 @@ func (s *Sys) Grep(ctx context.Context, p, pattern, include string, maxResults i
 			return nil
 		}
 		scanner := bufio.NewScanner(br)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		n := 0
+		scanner.Buffer(make([]byte, 0, scannerInitialBytes), scannerMaxBytes)
+		lineNo := 0
 		for scanner.Scan() {
-			n++
-			if !re.MatchString(scanner.Text()) {
+			lineNo++
+			line := scanner.Text()
+			if !re.MatchString(line) {
 				continue
 			}
-			if len(lines) >= limit {
-				truncated = true
-				return fs.SkipAll
-			}
-			filesHit[path] = true
-			lines = append(lines, fmt.Sprintf("%s:%d:%s", path, n, strings.TrimRight(scanner.Text(), "\r")))
+			filesHit[path] = struct{}{}
+			lines = append(lines, fmt.Sprintf("%s:%d:%s", path, lineNo, strings.TrimRight(line, "\r")))
 		}
 		if err := scanner.Err(); err != nil {
-			lines = append(lines, fmt.Sprintf("%s: could not finish reading: %v", path, err))
+			readErrs = append(readErrs, fmt.Sprintf("%s: could not finish reading: %v", path, err))
 		}
 		return nil
 	}
@@ -419,12 +395,14 @@ func (s *Sys) Grep(ctx context.Context, p, pattern, include string, maxResults i
 		return "", err
 	}
 
+	var out string
 	if len(lines) == 0 {
-		return fmt.Sprintf("No matches for %q under %s.", pattern, base), nil
+		out = fmt.Sprintf("No matches for %q under %s.", pattern, base)
+	} else {
+		out = fmt.Sprintf("%d matching line(s) in %d file(s):\n%s", len(lines), len(filesHit), strings.Join(lines, "\n"))
 	}
-	out := fmt.Sprintf("%d matching line(s) in %d file(s):\n%s", len(lines), len(filesHit), strings.Join(lines, "\n"))
-	if truncated {
-		out += fmt.Sprintf("\n[truncated at %d matches; narrow the pattern or set include]", limit)
+	if len(readErrs) > 0 {
+		out += "\n" + strings.Join(readErrs, "\n")
 	}
 	return out, nil
 }
@@ -438,7 +416,7 @@ func (s *Sys) Mkdir(p string, mode fs.FileMode) error {
 	return os.MkdirAll(abs, mode)
 }
 
-// Stat stats path.
+// Stat returns metadata for the file or directory at p, following symlinks.
 func (s *Sys) Stat(p string) (env.DirEntry, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
@@ -451,7 +429,8 @@ func (s *Sys) Stat(p string) (env.DirEntry, error) {
 	return buildDirEntry(abs, fi), nil
 }
 
-// Move moves/renames a file or directory.
+// Move renames src to dst, creating dst's parent directories as needed. It
+// refuses to replace an existing dst unless overwrite is set.
 func (s *Sys) Move(src, dst string, overwrite bool) error {
 	srcAbs, err := s.Resolve(src)
 	if err != nil {
@@ -473,10 +452,7 @@ func (s *Sys) Move(src, dst string, overwrite bool) error {
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(srcAbs, dstAbs); err != nil {
-		return err
-	}
-	return nil
+	return os.Rename(srcAbs, dstAbs)
 }
 
 // walkFiles walks the tree rooted at base and calls fn for each file it finds,
@@ -506,6 +482,7 @@ func isBinary(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0
 }
 
+// buildDirEntry converts a stat result at path into an env.DirEntry.
 func buildDirEntry(path string, fi fs.FileInfo) env.DirEntry {
 	return env.DirEntry{
 		Name:       fi.Name(),
@@ -518,11 +495,15 @@ func buildDirEntry(path string, fi fs.FileInfo) env.DirEntry {
 	}
 }
 
+// matchGlob reports whether the slash-separated path name matches pattern.
+// Unlike filepath.Match, "**" matches across any number of path segments.
 func matchGlob(pattern, name string) bool {
 	pattern = strings.TrimPrefix(filepath.ToSlash(pattern), "./")
 	return matchSegments(strings.Split(pattern, "/"), strings.Split(name, "/"))
 }
 
+// matchSegments reports whether the path segments seg match the pattern
+// segments pat, expanding a "**" segment against any number of seg entries.
 func matchSegments(pat, seg []string) bool {
 	for len(pat) > 0 {
 		if pat[0] == "**" {
@@ -548,14 +529,6 @@ func matchSegments(pat, seg []string) bool {
 	return len(seg) == 0
 }
 
-// clampLimit returns requested, or max when requested is out of range.
-func clampLimit(requested, max int) int {
-	if requested <= 0 || requested > max {
-		return max
-	}
-	return requested
-}
-
 // CountLines counts the number of lines in s.
 func CountLines(s string) int {
 	if s == "" {
@@ -568,6 +541,8 @@ func CountLines(s string) int {
 	return n
 }
 
+var byteUnits = []string{"KiB", "MiB", "GiB", "TiB"}
+
 // HumanBytes returns a human-readable representation of n bytes.
 func HumanBytes(n int64) string {
 	if n < 0 {
@@ -577,9 +552,8 @@ func HumanBytes(n int64) string {
 	if n < unit {
 		return fmt.Sprintf("%d B", n)
 	}
-	units := []string{"KiB", "MiB", "GiB", "TiB"}
 	v := float64(n)
-	for _, u := range units {
+	for _, u := range byteUnits {
 		v /= unit
 		if v < unit {
 			return fmt.Sprintf("%.1f %s", v, u)
@@ -588,80 +562,68 @@ func HumanBytes(n int64) string {
 	return fmt.Sprintf("%.1f PiB", v/unit)
 }
 
-// ExecOptions configures shell command execution within the environment workspace.
+const (
+	// defaultShell runs the command line when ExecOptions.Shell is empty.
+	defaultShell = "/bin/sh"
+
+	// killGracePeriod is how long a killed process group has to release the
+	// output pipes before Run stops waiting on them.
+	killGracePeriod = 2 * time.Second
+)
+
+// ExecOptions configures a shell command run by ExecShell.
 type ExecOptions struct {
-	Command        string
-	Shell          string
-	Timeout        time.Duration
-	MaxOutputBytes int
-	Env            []string
+	Command string
+	Shell   string
+	Timeout time.Duration
+	Env     []string
 }
 
-// ExecShell runs a shell command in the process working directory.
+// ExecShell runs a shell command in the process working directory and returns
+// its stdout followed by its stderr. A command that runs but exits non-zero is
+// not an error as long as it produced output.
 func (s *Sys) ExecShell(ctx context.Context, opts ExecOptions) (string, error) {
 	command := strings.TrimSpace(opts.Command)
 	if command == "" {
-		return "", fmt.Errorf("command must not be empty")
+		return "", errors.New("command must not be empty")
 	}
 
 	shellPath := opts.Shell
 	if shellPath == "" {
-		shellPath = "/bin/sh"
+		shellPath = defaultShell
 	}
 
-	timeout := opts.Timeout
-	if timeout > 0 {
+	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
 		defer cancel()
 	}
 
 	cmd := exec.CommandContext(ctx, shellPath, "-c", command)
 	cmd.Env = opts.Env
-	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	setProcessGroup(cmd)
+	// Run in its own process group so a timeout kills the whole tree rather
+	// than just the shell.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return killProcessGroup(cmd) }
-	cmd.WaitDelay = 2 * time.Second
+	cmd.WaitDelay = killGracePeriod
 
 	runErr := cmd.Run()
-	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
-
-	if timedOut {
-		return "", fmt.Errorf("timed out after %s (process group killed)", timeout)
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return "", fmt.Errorf("timed out after %s (process group killed)", opts.Timeout)
 	}
 
-	maxBytes := opts.MaxOutputBytes
-	if maxBytes <= 0 {
-		maxBytes = 1 << 20
-	}
-
-	outStr := stdout.String()
-	errStr := stderr.String()
-
-	if len(outStr)+len(errStr) > maxBytes {
-		if len(outStr) > maxBytes {
-			outStr = outStr[:maxBytes]
-			errStr = ""
-		} else {
-			errStr = errStr[:maxBytes-len(outStr)]
-		}
-	}
-
-	combined := outStr + errStr
+	combined := stdout.String() + stderr.String()
 	if combined == "" && runErr != nil {
 		return "", runErr
 	}
-
 	return combined, nil
 }
 
-func setProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-}
-
+// killProcessGroup kills the whole process group of cmd, falling back to the
+// direct child if the group signal fails.
 func killProcessGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil

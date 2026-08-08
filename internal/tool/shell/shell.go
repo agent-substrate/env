@@ -15,10 +15,9 @@ const defaultShell = "/bin/sh"
 
 // Config configures the shell tool.
 type Config struct {
-	Shell          string
-	Timeout        time.Duration
-	MaxOutputBytes int
-	Env            []string
+	Shell   string
+	Timeout time.Duration
+	Env     []string
 }
 
 func (c Config) withDefaults() Config {
@@ -27,9 +26,6 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Timeout <= 0 {
 		c.Timeout = 30 * time.Second
-	}
-	if c.MaxOutputBytes <= 0 {
-		c.MaxOutputBytes = 1 << 20 // 1 MiB
 	}
 	return c
 }
@@ -70,11 +66,10 @@ func New(sys *guestsys.Sys, cfg Config) tool.Tool {
 		}
 
 		return sys.ExecShell(ctx, guestsys.ExecOptions{
-			Command:        command,
-			Shell:          cfg.Shell,
-			Timeout:        cfg.Timeout,
-			MaxOutputBytes: cfg.MaxOutputBytes,
-			Env:            cfg.Env,
+			Command: command,
+			Shell:   cfg.Shell,
+			Timeout: cfg.Timeout,
+			Env:     cfg.Env,
 		})
 	})
 }

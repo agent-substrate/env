@@ -14,24 +14,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Default limits applied when zero-initialized in Config.
-const (
-	DefaultMaxReadBytes  = 5 << 20  // 5 MiB
-	DefaultMaxWriteBytes = 10 << 20 // 10 MiB
-)
+// DefaultMaxWriteBytes is the write size cap applied when Config leaves it
+// zero.
+const DefaultMaxWriteBytes = 10 << 20 // 10 MiB
 
 // Config configures the filesystem tool set.
 type Config struct {
 	ReadOnly      bool
-	MaxReadBytes  int
 	MaxWriteBytes int
 	SkipDirs      []string
 }
 
 func (c Config) withDefaults() Config {
-	if c.MaxReadBytes <= 0 {
-		c.MaxReadBytes = DefaultMaxReadBytes
-	}
 	if c.MaxWriteBytes <= 0 {
 		c.MaxWriteBytes = DefaultMaxWriteBytes
 	}
@@ -65,7 +59,6 @@ func New(sys *guestsys.Sys, cfg Config) []tool.Tool {
 type readFileParams struct {
 	Path        string `json:"path"`
 	Offset      int    `json:"offset"`
-	Limit       int    `json:"limit"`
 	LineNumbers *bool  `json:"line_numbers"`
 }
 
@@ -74,14 +67,12 @@ func readFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		Name: "read_file",
 		Description: "Read a text file from the workspace. Returns the file contents with line " +
 			"numbers by default, so you can quote exact line ranges back in edits. Use offset " +
-			"and limit to page through a file that is too large to read at once. Rejects " +
-			"binary files.",
+			"to start reading partway through a file. Rejects binary files.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path":         map[string]any{"type": "string", "description": "File path relative to the workspace root."},
 				"offset":       map[string]any{"type": "integer", "description": "1-based line number to start reading from. Defaults to 1."},
-				"limit":        map[string]any{"type": "integer", "description": "Maximum number of lines to return. Defaults to all remaining lines."},
 				"line_numbers": map[string]any{"type": "boolean", "description": "Include 1-based line numbers at the start of each line. Defaults to true."},
 			},
 			"required": []string{"path"},
@@ -92,7 +83,7 @@ func readFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		if p.LineNumbers != nil {
 			lineNumbers = *p.LineNumbers
 		}
-		return sys.ReadFileText(p.Path, p.Offset, p.Limit, lineNumbers, cfg.MaxReadBytes)
+		return sys.ReadFileText(p.Path, p.Offset, lineNumbers)
 	})
 }
 
@@ -182,7 +173,6 @@ type listDirParams struct {
 	Path          string `json:"path"`
 	Recursive     bool   `json:"recursive"`
 	IncludeHidden *bool  `json:"include_hidden"`
-	MaxEntries    int    `json:"max_entries"`
 }
 
 func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
@@ -197,7 +187,6 @@ func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 				"path":           map[string]any{"type": "string", "description": "Directory path relative to the workspace root."},
 				"recursive":      map[string]any{"type": "boolean", "description": "Walk subdirectories. Defaults to false."},
 				"include_hidden": map[string]any{"type": "boolean", "description": "Include entries starting with a dot. Defaults to false."},
-				"max_entries":    map[string]any{"type": "integer", "description": "Maximum entries to return (max 1000). Defaults to 1000."},
 			},
 			"required": []string{"path"},
 		},
@@ -207,7 +196,7 @@ func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		if p.IncludeHidden != nil {
 			includeHidden = *p.IncludeHidden
 		}
-		entries, truncated, err := sys.ListDir(p.Path, p.Recursive, includeHidden, p.MaxEntries, cfg.SkipDirs)
+		entries, err := sys.ListDir(p.Path, p.Recursive, includeHidden, cfg.SkipDirs)
 		if err != nil {
 			return "", err
 		}
@@ -227,21 +216,15 @@ func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 			}
 		}
 		sort.Strings(lines)
-		out := fmt.Sprintf("%s (%d entries)\n%s", abs, len(lines), strings.Join(lines, "\n"))
-		if truncated {
-			limit := clampLimit(p.MaxEntries, 1000)
-			out += fmt.Sprintf("\n[truncated at %d entries]", limit)
-		}
-		return out, nil
+		return fmt.Sprintf("%s (%d entries)\n%s", abs, len(lines), strings.Join(lines, "\n")), nil
 	})
 }
 
 // --- glob --------------------------------------------------------------------
 
 type globParams struct {
-	Path       string `json:"path"`
-	Pattern    string `json:"pattern"`
-	MaxResults int    `json:"max_results"`
+	Path    string `json:"path"`
+	Pattern string `json:"pattern"`
 }
 
 func globTool(sys *guestsys.Sys, cfg Config) tool.Tool {
@@ -253,37 +236,34 @@ func globTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":        map[string]any{"type": "string", "description": "Base directory to search under. Defaults to workspace root."},
-				"pattern":     map[string]any{"type": "string", "description": "Glob pattern, e.g. **/*.go. Matched against paths relative to the search directory."},
-				"max_results": map[string]any{"type": "integer", "description": "Maximum matching files to return (max 1000). Defaults to 1000."},
+				"path":    map[string]any{"type": "string", "description": "Base directory to search under. Defaults to workspace root."},
+				"pattern": map[string]any{"type": "string", "description": "Glob pattern, e.g. **/*.go. Matched against paths relative to the search directory."},
 			},
 			"required": []string{"pattern"},
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p globParams) (string, error) {
-		relBase, matches, truncated, err := sys.Glob(ctx, p.Path, p.Pattern, p.MaxResults, cfg.SkipDirs)
+		matches, err := sys.Glob(ctx, p.Path, p.Pattern, cfg.SkipDirs)
 		if err != nil {
 			return "", err
 		}
 		if len(matches) == 0 {
-			return fmt.Sprintf("No files match %q under %s.", p.Pattern, relBase), nil
+			base, err := sys.Resolve(p.Path)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("No files match %q under %s.", p.Pattern, base), nil
 		}
-		out := fmt.Sprintf("%d file(s) matching %q:\n%s", len(matches), p.Pattern, strings.Join(matches, "\n"))
-		if truncated {
-			limit := clampLimit(p.MaxResults, 1000)
-			out += fmt.Sprintf("\n[truncated at %d results]", limit)
-		}
-		return out, nil
+		return fmt.Sprintf("%d file(s) matching %q:\n%s", len(matches), p.Pattern, strings.Join(matches, "\n")), nil
 	})
 }
 
 // --- grep --------------------------------------------------------------------
 
 type grepParams struct {
-	Path       string `json:"path"`
-	Pattern    string `json:"pattern"`
-	Include    string `json:"include"`
-	MaxResults int    `json:"max_results"`
+	Path    string `json:"path"`
+	Pattern string `json:"pattern"`
+	Include string `json:"include"`
 }
 
 func grepTool(sys *guestsys.Sys, cfg Config) tool.Tool {
@@ -294,16 +274,15 @@ func grepTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":        map[string]any{"type": "string", "description": "Base directory or file to search. Defaults to workspace root."},
-				"pattern":     map[string]any{"type": "string", "description": "Regular expression to match against each line."},
-				"include":     map[string]any{"type": "string", "description": "Optional glob pattern (e.g. *.go or **/*.ts) to restrict which files are searched."},
-				"max_results": map[string]any{"type": "integer", "description": "Maximum matching lines to return across all files (max 1000). Defaults to 1000."},
+				"path":    map[string]any{"type": "string", "description": "Base directory or file to search. Defaults to workspace root."},
+				"pattern": map[string]any{"type": "string", "description": "Regular expression to match against each line."},
+				"include": map[string]any{"type": "string", "description": "Optional glob pattern (e.g. *.go or **/*.ts) to restrict which files are searched."},
 			},
 			"required": []string{"pattern"},
 		},
 	}
 	return tool.New(def, func(ctx context.Context, p grepParams) (string, error) {
-		return sys.Grep(ctx, p.Path, p.Pattern, p.Include, p.MaxResults, cfg.SkipDirs)
+		return sys.Grep(ctx, p.Path, p.Pattern, p.Include, cfg.SkipDirs)
 	})
 }
 
@@ -462,12 +441,4 @@ func rmTool(sys *guestsys.Sys) tool.Tool {
 		}
 		return fmt.Sprintf("Deleted %s.", abs), nil
 	})
-}
-
-// clampLimit returns requested, or max when requested is out of range.
-func clampLimit(requested, max int) int {
-	if requested <= 0 || requested > max {
-		return max
-	}
-	return requested
 }
