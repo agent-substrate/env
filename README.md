@@ -76,7 +76,7 @@ Or use the API directly:
 ```bash
 curl -X POST localhost:7777/v1/envs -d '{"id":"dev1","template":"default-env"}'
 curl -X POST localhost:7777/v1/envs/dev1/shell \
-     -d '{"command":["sh","-c","uname -a"]}'
+     -d '{"command":"uname -a"}'
 # Alternatively, interact over MCP.
 curl -X POST localhost:7777/v1/envs/dev1/mcp \
      -H "Content-Type: application/json" \
