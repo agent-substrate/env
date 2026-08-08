@@ -158,13 +158,12 @@ Create body:
 {                                           {
   "command": ["sh", "-c", "make test"],       "stdout": "ok\n",
   "cwd": "/workspace/app",                    "stderr": "",
-  "env": {"VERBOSE_LOGS": "true"}             "exitCode": 0,
-                                              "duration": "1.2s"
+  "env": {"VERBOSE_LOGS": "true"}             "exitCode": 0
 }                                           }
 ```
 
 Output is capped at 10 MiB per stream; `stdoutTruncated`/`stderrTruncated`
-report when the cap was hit, and `timedOut` reports a timeout kill.
+report when the cap was hit.
 
 ### Filesystem
 

@@ -200,9 +200,6 @@ func newEnvCommand(id string, client **env.Client) *cobra.Command {
 			if errOut := strings.Trim(res.Stderr, "\r\n"); errOut != "" {
 				fmt.Fprintln(os.Stderr, errOut)
 			}
-			if res.TimedOut {
-				fmt.Fprintln(os.Stderr, "ate-env: command timed out")
-			}
 			if res.ExitCode != 0 {
 				os.Exit(res.ExitCode)
 			}

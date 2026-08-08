@@ -34,17 +34,10 @@ type ShellResult struct {
 	// a signal or failed to start.
 	ExitCode int `json:"exitCode"`
 
-	// TimedOut reports whether the command was killed because it exceeded
-	// the requested timeout.
-	TimedOut bool `json:"timedOut,omitempty"`
-
 	// StdoutTruncated / StderrTruncated report whether output exceeded the
 	// per-stream cap and was cut off.
 	StdoutTruncated bool `json:"stdoutTruncated,omitempty"`
 	StderrTruncated bool `json:"stderrTruncated,omitempty"`
-
-	// Duration is how long the command ran, as a Go duration string.
-	Duration string `json:"duration,omitempty"`
 }
 
 type DirEntry = guestsys.DirEntry

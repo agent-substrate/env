@@ -6,7 +6,6 @@ package guest
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,7 +43,6 @@ type Server struct {
 	MaxFileBytes int64
 
 	reg *tool.Registry // TODO(jbd): Remove registry.
-	// mcpServer *mcp.Server
 }
 
 // Handler returns the http.Handler serving the guest API.
@@ -221,17 +219,13 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 	}
 	cmd.WaitDelay = 5 * time.Second
 
-	start := time.Now()
 	err := cmd.Run()
-	elapsed := time.Since(start)
 
 	res := ShellResult{
 		Stdout:          stdout.buf.String(),
 		Stderr:          stderr.buf.String(),
 		StdoutTruncated: stdout.truncated,
 		StderrTruncated: stderr.truncated,
-		TimedOut:        errors.Is(ctx.Err(), context.DeadlineExceeded),
-		Duration:        elapsed.Round(time.Millisecond).String(),
 	}
 	switch {
 	case err == nil:
