@@ -27,7 +27,7 @@ func (e *Env) path(suffix string) string {
 
 // Delete removes the environment permanently.
 func (e *Env) Delete(ctx context.Context) error {
-	return e.client.doJSON(ctx, http.MethodDelete, e.path(""), nil, nil)
+	return e.client.do(ctx, http.MethodDelete, e.path(""), nil, nil)
 }
 
 // run runs a command inside the environment and returns its captured output
@@ -35,7 +35,7 @@ func (e *Env) Delete(ctx context.Context) error {
 // see Shell for a shell-friendly shorthand.
 func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResponse, error) {
 	var res ShellResponse
-	if err := e.client.doJSON(ctx, http.MethodPost, e.path("/shell"), req, &res); err != nil {
+	if err := e.client.do(ctx, http.MethodPost, e.path("/shell"), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -51,7 +51,7 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
 	req := ReadFileRequest{Path: p}
 	var res ReadFileResponse
-	if err := e.client.doJSON(ctx, http.MethodGet, e.path("/file"), req, &res); err != nil {
+	if err := e.client.do(ctx, http.MethodGet, e.path("/file"), req, &res); err != nil {
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(res.Content)), nil
@@ -70,14 +70,14 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 		Mode:    strconv.FormatUint(uint64(mode.Perm()), 8),
 		Content: data,
 	}
-	return e.client.doJSON(ctx, http.MethodPost, e.path("/file"), req, nil)
+	return e.client.do(ctx, http.MethodPost, e.path("/file"), req, nil)
 }
 
 // ListDir lists the entries of the directory at path inside the environment.
 func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 	req := ListDirRequest{Path: p}
 	var out ListDirResponse
-	if err := e.client.doJSON(ctx, http.MethodGet, e.path("/dir"), req, &out); err != nil {
+	if err := e.client.do(ctx, http.MethodGet, e.path("/dir"), req, &out); err != nil {
 		return nil, err
 	}
 	return out.Entries, nil
@@ -87,7 +87,7 @@ func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 func (e *Env) Stat(ctx context.Context, p string) (DirEntry, error) {
 	req := StatRequest{Path: p}
 	var entry DirEntry
-	if err := e.client.doJSON(ctx, http.MethodGet, e.path("/stat"), req, &entry); err != nil {
+	if err := e.client.do(ctx, http.MethodGet, e.path("/stat"), req, &entry); err != nil {
 		return DirEntry{}, err
 	}
 	return entry, nil
@@ -99,12 +99,12 @@ func (e *Env) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
 		Path: p,
 		Mode: strconv.FormatUint(uint64(mode.Perm()), 8),
 	}
-	return e.client.doJSON(ctx, http.MethodPost, e.path("/dir"), req, nil)
+	return e.client.do(ctx, http.MethodPost, e.path("/dir"), req, nil)
 }
 
 // Remove deletes the file or directory tree at path.
 func (e *Env) Remove(ctx context.Context, p string) error {
 	req := RemoveRequest{Path: p}
-	return e.client.doJSON(ctx, http.MethodDelete, e.path("/file"), req, nil)
+	return e.client.do(ctx, http.MethodDelete, e.path("/file"), req, nil)
 }
 

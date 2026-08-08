@@ -88,7 +88,7 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 		Template:  template,
 		Namespace: namespace,
 	}
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/envs", req, nil); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/v1/envs", req, nil); err != nil {
 		return nil, err
 	}
 	return &Env{id: id, client: c}, nil
@@ -100,55 +100,42 @@ func (c *Client) Env(id string) *Env {
 	return &Env{id: id, client: c}
 }
 
-// do performs an HTTP request against the API service. Non-2xx responses
-// are converted to errors.
-func (c *Client) do(ctx context.Context, method, path string, contentType string, body io.Reader) (*http.Response, error) {
-	u := c.endpoint + path
-	req, err := http.NewRequestWithContext(ctx, method, u, body)
-	if err != nil {
-		return nil, fmt.Errorf("env: building request: %w", err)
-	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("env: reaching the API at %q: %w", c.endpoint, err)
-	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return resp, nil
-	}
-	defer resp.Body.Close()
-
-	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	var apiErr Error
-	if jsonErr := json.Unmarshal(payload, &apiErr); jsonErr == nil && apiErr.Message != "" {
-		if apiErr.Code == CodeNotFound {
-			return nil, fmt.Errorf("env: %w: %s", ErrNotFound, apiErr.Message)
-		}
-		return nil, fmt.Errorf("env: %s", apiErr.Message)
-	}
-	return nil, fmt.Errorf("env: API returned HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(payload))
-}
-
-// doJSON performs a request with an optional JSON body (in) and decodes
-// the JSON response into out when non-nil.
-func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) error {
+// do performs an HTTP request against the API service with an optional JSON
+// body (in), and decodes the JSON response into out when non-nil. Non-2xx
+// responses are converted to errors.
+func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
-	contentType := ""
 	if in != nil {
 		data, err := json.Marshal(in)
 		if err != nil {
 			return fmt.Errorf("env: encoding request: %w", err)
 		}
 		body = bytes.NewReader(data)
-		contentType = "application/json"
 	}
-	resp, err := c.do(ctx, method, path, contentType, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+path, body)
 	if err != nil {
-		return err
+		return fmt.Errorf("env: building request: %w", err)
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("env: reaching the API at %q: %w", c.endpoint, err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		var apiErr Error
+		if jsonErr := json.Unmarshal(payload, &apiErr); jsonErr == nil && apiErr.Message != "" {
+			if apiErr.Code == CodeNotFound {
+				return fmt.Errorf("env: %w: %s", ErrNotFound, apiErr.Message)
+			}
+			return fmt.Errorf("env: %s", apiErr.Message)
+		}
+		return fmt.Errorf("env: API returned HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(payload))
+	}
 	if out == nil {
 		return nil
 	}
