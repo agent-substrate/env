@@ -25,6 +25,13 @@ func (e *Env) path(suffix string) string {
 	return "/v1/envs/" + url.PathEscape(e.id) + suffix
 }
 
+// pathQuery returns the API path for the environment with suffix appended and
+// p carried in the "path" query parameter, as the read and delete endpoints
+// expect.
+func (e *Env) pathQuery(suffix, p string) string {
+	return e.path(suffix) + "?" + url.Values{"path": {p}}.Encode()
+}
+
 // Delete removes the environment permanently.
 func (e *Env) Delete(ctx context.Context) error {
 	return e.client.do(ctx, http.MethodDelete, e.path(""), nil, nil)
@@ -49,9 +56,8 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 // ReadFile streams the contents of the file at path inside the environment.
 // The caller must close the returned reader.
 func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
-	req := ReadFileRequest{Path: p}
 	var res ReadFileResponse
-	if err := e.client.do(ctx, http.MethodGet, e.path("/file"), req, &res); err != nil {
+	if err := e.client.do(ctx, http.MethodGet, e.pathQuery("/file", p), nil, &res); err != nil {
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(res.Content)), nil
@@ -75,9 +81,8 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 
 // ListDir lists the entries of the directory at path inside the environment.
 func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
-	req := ListDirRequest{Path: p}
 	var out ListDirResponse
-	if err := e.client.do(ctx, http.MethodGet, e.path("/dir"), req, &out); err != nil {
+	if err := e.client.do(ctx, http.MethodGet, e.pathQuery("/dir", p), nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Entries, nil
@@ -85,9 +90,8 @@ func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 
 // Stat returns information about the file or directory at path.
 func (e *Env) Stat(ctx context.Context, p string) (DirEntry, error) {
-	req := StatRequest{Path: p}
 	var entry DirEntry
-	if err := e.client.do(ctx, http.MethodGet, e.path("/stat"), req, &entry); err != nil {
+	if err := e.client.do(ctx, http.MethodGet, e.pathQuery("/stat", p), nil, &entry); err != nil {
 		return DirEntry{}, err
 	}
 	return entry, nil
@@ -104,7 +108,5 @@ func (e *Env) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
 
 // Remove deletes the file or directory tree at path.
 func (e *Env) Remove(ctx context.Context, p string) error {
-	req := RemoveRequest{Path: p}
-	return e.client.do(ctx, http.MethodDelete, e.path("/file"), req, nil)
+	return e.client.do(ctx, http.MethodDelete, e.pathQuery("/file", p), nil, nil)
 }
-

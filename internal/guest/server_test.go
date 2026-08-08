@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,7 +131,7 @@ func TestFileWriteReadRoundTrip(t *testing.T) {
 		t.Errorf("mode = %o, want 600", fi.Mode().Perm())
 	}
 
-	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/v1/file", bytes.NewReader([]byte(`{"path":`+jsonString(target)+`}`)))
+	req, _ = http.NewRequest(http.MethodGet, srv.URL+"/v1/file?path="+url.QueryEscape(target), nil)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = client.Do(req)
 	if err != nil {
@@ -151,7 +152,7 @@ func TestFileWriteReadRoundTrip(t *testing.T) {
 
 func TestReadMissingFileIs404(t *testing.T) {
 	srv, dir := newTestServer(t)
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/file", bytes.NewReader([]byte(`{"path":`+jsonString(filepath.Join(dir, "nope"))+`}`)))
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/file?path="+url.QueryEscape(filepath.Join(dir, "nope")), nil)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := srv.Client().Do(req)
 	if err != nil {
@@ -172,7 +173,7 @@ func TestReadMissingFileIs404(t *testing.T) {
 
 func TestReadDirectoryIsRejected(t *testing.T) {
 	srv, dir := newTestServer(t)
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/file", bytes.NewReader([]byte(`{"path":`+jsonString(dir)+`}`)))
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/file?path="+url.QueryEscape(dir), nil)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := srv.Client().Do(req)
 	if err != nil {
@@ -189,7 +190,7 @@ func TestListDirAndStat(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("aaa"), 0o644)
 	os.Mkdir(filepath.Join(dir, "subdir"), 0o755)
 
-	req1, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/dir", bytes.NewReader([]byte(`{"path":`+jsonString(dir)+`}`)))
+	req1, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/dir?path="+url.QueryEscape(dir), nil)
 	req1.Header.Set("Content-Type", "application/json")
 	resp, err := srv.Client().Do(req1)
 	if err != nil {
@@ -214,7 +215,7 @@ func TestListDirAndStat(t *testing.T) {
 		t.Errorf("subdir entry = %+v, want directory", e)
 	}
 
-	req2, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/stat", bytes.NewReader([]byte(`{"path":`+jsonString(filepath.Join(dir, "a.txt"))+`}`)))
+	req2, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/stat?path="+url.QueryEscape(filepath.Join(dir, "a.txt")), nil)
 	req2.Header.Set("Content-Type", "application/json")
 	resp, err = srv.Client().Do(req2)
 	if err != nil {
@@ -251,7 +252,7 @@ func TestMkdirAndDelete(t *testing.T) {
 
 	// Delete removes the whole tree.
 	root := filepath.Join(dir, "x")
-	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/v1/file", bytes.NewReader([]byte(`{"path":`+jsonString(root)+`}`)))
+	req, _ = http.NewRequest(http.MethodDelete, srv.URL+"/v1/file?path="+url.QueryEscape(root), nil)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = client.Do(req)
 	if err != nil {
@@ -268,7 +269,7 @@ func TestMkdirAndDelete(t *testing.T) {
 
 func TestDeleteMissingIs404(t *testing.T) {
 	srv, dir := newTestServer(t)
-	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/v1/file", bytes.NewReader([]byte(`{"path":`+jsonString(filepath.Join(dir, "nope"))+`}`)))
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/v1/file?path="+url.QueryEscape(filepath.Join(dir, "nope")), nil)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := srv.Client().Do(req)
 	if err != nil {

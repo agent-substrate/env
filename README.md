@@ -134,8 +134,8 @@ stdout without touching the cluster; apply it with kubectl.
 The API server provides environment management and guest operations over the API. Alternatively, a large number of users may find the built-in MCP tools the primary way to run these operations.
 
 The examples below assume the API is reachable at `localhost:7777` and use the
-environment ID `dev1`. Note that the read endpoints (`GET`) take a JSON request
-body, so `curl` needs an explicit `-X GET` alongside `-d`.
+environment ID `dev1`. `GET` and `DELETE` endpoints take their target path as a
+`path` query parameter; `POST` endpoints take a JSON body.
 
 | Method   | Path                      | Description                                      |
 | -------- | ------------------------- | ------------------------------------------------ |
@@ -244,8 +244,9 @@ curl -X POST localhost:7777/v1/envs/dev1/shell \
 
 ### Filesystem
 
-All filesystem endpoints accept a JSON request body containing `"path"`.
-Relative paths resolve against the guest's root. File `content` is
+`GET` and `DELETE` endpoints identify their target with a `path` query
+parameter; `POST` endpoints carry `"path"` in a JSON body. Relative paths
+resolve against the guest daemon's working directory. File `content` is
 base64-encoded in both requests and responses, and `mode` is an octal string
 defaulting to `"644"` for files and `"755"` for directories.
 
@@ -259,8 +260,7 @@ curl -X POST localhost:7777/v1/envs/dev1/file \
 Read a file back:
 
 ```bash
-curl -X GET localhost:7777/v1/envs/dev1/file \
-     -d '{"path": "/app/main.txt"}'
+curl 'localhost:7777/v1/envs/dev1/file?path=/app/main.txt'
 {
   "content": "aGVsbG8K",
   "mode": "0644",
@@ -271,8 +271,7 @@ curl -X GET localhost:7777/v1/envs/dev1/file \
 Delete a file or directory, recursively (responds `204 No Content`):
 
 ```bash
-curl -X DELETE localhost:7777/v1/envs/dev1/file \
-     -d '{"path": "/app/main.txt"}'
+curl -X DELETE 'localhost:7777/v1/envs/dev1/file?path=/app/main.txt'
 ```
 
 Create a directory, including parents (responds `204 No Content`):
@@ -285,8 +284,7 @@ curl -X POST localhost:7777/v1/envs/dev1/dir \
 List a directory:
 
 ```bash
-curl -X GET localhost:7777/v1/envs/dev1/dir \
-     -d '{"path": "/app"}'
+curl 'localhost:7777/v1/envs/dev1/dir?path=/app'
 {
   "entries": [
     {
@@ -305,15 +303,13 @@ curl -X GET localhost:7777/v1/envs/dev1/dir \
 remove a file or directory recursively:
 
 ```bash
-curl -X DELETE localhost:7777/v1/envs/dev1/dir \
-     -d '{"path": "/app/logs"}'
+curl -X DELETE 'localhost:7777/v1/envs/dev1/dir?path=/app/logs'
 ```
 
 Stat a file or directory:
 
 ```bash
-curl -X GET localhost:7777/v1/envs/dev1/stat \
-     -d '{"path": "/app/main.txt"}'
+curl 'localhost:7777/v1/envs/dev1/stat?path=/app/main.txt'
 {
   "name": "main.txt",
   "path": "/app/main.txt",

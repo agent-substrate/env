@@ -59,12 +59,6 @@ type CreateEnvRequest struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// ReadFileRequest is the request body for reading a file.
-type ReadFileRequest struct {
-	// Path of the file inside the environment. Required.
-	Path string `json:"path"`
-}
-
 // ReadFileResponse is the response of the read file endpoint.
 type ReadFileResponse struct {
 	Content []byte `json:"content"`
@@ -84,12 +78,6 @@ type WriteFileRequest struct {
 	Content []byte `json:"content,omitempty"`
 }
 
-// ListDirRequest is the request body for directory listing.
-type ListDirRequest struct {
-	// Path of the directory inside the environment. Required.
-	Path string `json:"path"`
-}
-
 // ListDirResponse is the response of the directory listing endpoint.
 type ListDirResponse struct {
 	Entries []DirEntry `json:"entries"`
@@ -102,18 +90,6 @@ type MkdirRequest struct {
 
 	// Mode is the octal directory mode, e.g. "755".
 	Mode string `json:"mode,omitempty"`
-}
-
-// StatRequest is the request body for getting file or directory info.
-type StatRequest struct {
-	// Path of the file or directory inside the environment. Required.
-	Path string `json:"path"`
-}
-
-// RemoveRequest is the request body for deleting a file or directory.
-type RemoveRequest struct {
-	// Path of the file or directory inside the environment. Required.
-	Path string `json:"path"`
 }
 
 // Error codes returned in Error.Code.

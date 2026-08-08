@@ -91,6 +91,12 @@ func (s *Server) resolvePath(sys *guestsys.Sys, p string) (string, error) {
 	return sys.Resolve(p)
 }
 
+// queryPath resolves the "path" query parameter, which read and delete
+// endpoints take in place of a request body.
+func (s *Server) queryPath(sys *guestsys.Sys, r *http.Request) (string, error) {
+	return s.resolvePath(sys, r.URL.Query().Get("path"))
+}
+
 func writeError(w http.ResponseWriter, status int, code, format string, args ...any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -179,16 +185,7 @@ func (s *Server) handleShell(sys *guestsys.Sys, w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleReadFile(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	var req env.ReadFileRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
-		return
-	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
-		return
-	}
-	path, err := s.resolvePath(sys, req.Path)
+	path, err := s.queryPath(sys, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
@@ -244,16 +241,7 @@ func (s *Server) handleWriteFile(sys *guestsys.Sys, w http.ResponseWriter, r *ht
 }
 
 func (s *Server) handleDelete(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	var req env.RemoveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
-		return
-	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
-		return
-	}
-	path, err := s.resolvePath(sys, req.Path)
+	path, err := s.queryPath(sys, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
@@ -271,16 +259,7 @@ func (s *Server) handleDelete(sys *guestsys.Sys, w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleListDir(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	var req env.ListDirRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
-		return
-	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
-		return
-	}
-	path, err := s.resolvePath(sys, req.Path)
+	path, err := s.queryPath(sys, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
@@ -320,16 +299,7 @@ func (s *Server) handleMkdir(sys *guestsys.Sys, w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleStat(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	var req env.StatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
-		return
-	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
-		return
-	}
-	path, err := s.resolvePath(sys, req.Path)
+	path, err := s.queryPath(sys, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
