@@ -253,14 +253,14 @@ Write a file (responds `204 No Content`):
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/file \
-     -d '{"path": "app/main.txt", "mode": "644", "content": "aGVsbG8K"}'
+     -d '{"path": "/app/main.txt", "mode": "644", "content": "aGVsbG8K"}'
 ```
 
 Read a file back:
 
 ```bash
 curl -X GET localhost:7777/v1/envs/dev1/file \
-     -d '{"path": "app/main.txt"}'
+     -d '{"path": "/app/main.txt"}'
 {
   "content": "aGVsbG8K",
   "mode": "0644",
@@ -272,21 +272,21 @@ Delete a file or directory, recursively (responds `204 No Content`):
 
 ```bash
 curl -X DELETE localhost:7777/v1/envs/dev1/file \
-     -d '{"path": "app/main.txt"}'
+     -d '{"path": "/app/main.txt"}'
 ```
 
 Create a directory, including parents (responds `204 No Content`):
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/dir \
-     -d '{"path": "app/logs", "mode": "755"}'
+     -d '{"path": "/app/logs", "mode": "755"}'
 ```
 
 List a directory:
 
 ```bash
 curl -X GET localhost:7777/v1/envs/dev1/dir \
-     -d '{"path": "app"}'
+     -d '{"path": "/app"}'
 {
   "entries": [
     {
@@ -313,7 +313,7 @@ Stat a file or directory:
 
 ```bash
 curl -X GET localhost:7777/v1/envs/dev1/stat \
-     -d '{"path": "app/main.txt"}'
+     -d '{"path": "/app/main.txt"}'
 {
   "name": "main.txt",
   "path": "/app/main.txt",
