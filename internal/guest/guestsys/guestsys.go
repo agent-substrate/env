@@ -17,20 +17,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/agent-substrate/env/env"
 )
 
 var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", ".terraform"}
-
-// DirEntry describes a file or directory inside the environment.
-type DirEntry struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`
-	Size       int64     `json:"size"`
-	Mode       uint32    `json:"mode"`
-	ModeString string    `json:"modeString"`
-	IsDir      bool      `json:"isDir"`
-	ModTime    time.Time `json:"modTime"`
-}
 
 // FS manages filesystem operations rooted inside a workspace directory.
 type FS struct {
@@ -343,7 +334,7 @@ func (s *FS) Remove(p string, recursive bool) error {
 }
 
 // ListDir lists directory entries, optionally recursively.
-func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, skipDirs []string) ([]DirEntry, bool, error) {
+func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, skipDirs []string) ([]env.DirEntry, bool, error) {
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
 	}
@@ -360,7 +351,7 @@ func (s *FS) ListDir(p string, recursive, includeHidden bool, maxEntries int, sk
 	}
 	limit := clampLimit(maxEntries, 1000)
 
-	var entries []DirEntry
+	var entries []env.DirEntry
 	truncated := false
 
 	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
@@ -567,14 +558,14 @@ func (s *FS) Mkdir(p string, mode fs.FileMode) error {
 }
 
 // Stat stats path.
-func (s *FS) Stat(p string) (DirEntry, error) {
+func (s *FS) Stat(p string) (env.DirEntry, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
-		return DirEntry{}, err
+		return env.DirEntry{}, err
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return DirEntry{}, err
+		return env.DirEntry{}, err
 	}
 	return buildDirEntry(abs, fi), nil
 }
@@ -607,8 +598,8 @@ func (s *FS) Move(src, dst string, overwrite bool) error {
 	return nil
 }
 
-func buildDirEntry(path string, fi fs.FileInfo) DirEntry {
-	return DirEntry{
+func buildDirEntry(path string, fi fs.FileInfo) env.DirEntry {
+	return env.DirEntry{
 		Name:       fi.Name(),
 		Path:       path,
 		Size:       fi.Size(),

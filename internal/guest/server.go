@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agent-substrate/env/env"
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/mcp"
 	"github.com/agent-substrate/env/internal/tool"
@@ -112,37 +113,22 @@ func (s *Server) resolvePath(fsSys *guestsys.FS, p string) (string, error) {
 	return filepath.Clean(p), nil
 }
 
-type pathRequest struct {
-	Path string `json:"path"`
-}
-
-func (s *Server) getPath(fsSys *guestsys.FS, r *http.Request) (string, error) {
-	var req pathRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return "", fmt.Errorf("decoding request body: %w", err)
-	}
-	if req.Path == "" {
-		return "", errors.New("path is required")
-	}
-	return s.resolvePath(fsSys, req.Path)
-}
-
 func writeError(w http.ResponseWriter, status int, code, format string, args ...any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(Error{Code: code, Message: fmt.Sprintf(format, args...)})
+	json.NewEncoder(w).Encode(env.Error{Code: code, Message: fmt.Sprintf(format, args...)})
 }
 
 func writeFSError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		writeError(w, http.StatusNotFound, CodeNotFound, "%v", err)
+		writeError(w, http.StatusNotFound, env.CodeNotFound, "%v", err)
 	case errors.Is(err, syscall.EISDIR):
-		writeError(w, http.StatusBadRequest, CodeNotFile, "%v", err)
+		writeError(w, http.StatusBadRequest, env.CodeNotFile, "%v", err)
 	case errors.Is(err, syscall.ENOTDIR):
-		writeError(w, http.StatusBadRequest, CodeNotDirectory, "%v", err)
+		writeError(w, http.StatusBadRequest, env.CodeNotDirectory, "%v", err)
 	default:
-		writeError(w, http.StatusInternalServerError, CodeInternal, "%v", err)
+		writeError(w, http.StatusInternalServerError, env.CodeInternal, "%v", err)
 	}
 }
 
@@ -173,13 +159,13 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 
 func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	var req ShellRequest
+	var req env.ShellRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid request body: %v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "invalid request body: %v", err)
 		return
 	}
 	if len(req.Command) == 0 {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "command is required")
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "command is required")
 		return
 	}
 
@@ -188,7 +174,7 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 	if req.Cwd != "" {
 		cwd, err := s.resolvePath(fsSys, req.Cwd)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid cwd: %v", err)
+			writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "invalid cwd: %v", err)
 			return
 		}
 		cmd.Dir = cwd
@@ -221,7 +207,7 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 
 	err := cmd.Run()
 
-	res := ShellResult{
+	res := env.ShellResponse{
 		Stdout:          stdout.buf.String(),
 		Stderr:          stderr.buf.String(),
 		StdoutTruncated: stdout.truncated,
@@ -234,22 +220,25 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 		res.ExitCode = cmd.ProcessState.ExitCode()
 	default:
 		// The process failed to start (e.g. command not found).
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "failed to start command: %v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "failed to start command: %v", err)
 		return
 	}
 	writeJSON(w, res)
 }
 
-type readFileJSONResponse struct {
-	Content []byte `json:"content"`
-	Mode    string `json:"mode,omitempty"`
-	Size    int64  `json:"size"`
-}
-
 func (s *Server) handleReadFile(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	path, err := s.getPath(fsSys, r)
+	var req env.ReadFileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
+		return
+	}
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
+		return
+	}
+	path, err := s.resolvePath(fsSys, req.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
 	f, fi, err := fsSys.ReadFileRaw(path, s.maxFile())
@@ -263,40 +252,34 @@ func (s *Server) handleReadFile(fsSys *guestsys.FS, w http.ResponseWriter, r *ht
 		writeFSError(w, err)
 		return
 	}
-	writeJSON(w, readFileJSONResponse{
+	writeJSON(w, env.ReadFileResponse{
 		Content: data,
 		Mode:    "0" + strconv.FormatUint(uint64(fi.Mode().Perm()), 8),
 		Size:    fi.Size(),
 	})
 }
 
-type writeFileJSONRequest struct {
-	Path    string `json:"path"`
-	Mode    string `json:"mode,omitempty"`
-	Content []byte `json:"content,omitempty"`
-}
-
 func (s *Server) handleWriteFile(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	var req writeFileJSONRequest
+	var req env.WriteFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "decoding request body: %v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
 		return
 	}
 	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "path is required")
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
 		return
 	}
 	mode := fs.FileMode(0o644)
 	if req.Mode != "" {
 		v, err := strconv.ParseUint(req.Mode, 8, 32)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
+			writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
 			return
 		}
 		mode = fs.FileMode(v).Perm()
 	}
 	if int64(len(req.Content)) > s.maxFile() {
-		writeError(w, http.StatusRequestEntityTooLarge, CodeInvalidArgument,
+		writeError(w, http.StatusRequestEntityTooLarge, env.CodeInvalidArgument,
 			"file content exceeds the %d byte limit", s.maxFile())
 		return
 	}
@@ -310,9 +293,18 @@ func (s *Server) handleWriteFile(fsSys *guestsys.FS, w http.ResponseWriter, r *h
 }
 
 func (s *Server) handleDelete(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	path, err := s.getPath(fsSys, r)
+	var req env.RemoveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
+		return
+	}
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
+		return
+	}
+	path, err := s.resolvePath(fsSys, req.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
 	if err := fsSys.Remove(path, true); err != nil {
@@ -323,9 +315,18 @@ func (s *Server) handleDelete(fsSys *guestsys.FS, w http.ResponseWriter, r *http
 }
 
 func (s *Server) handleListDir(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	path, err := s.getPath(fsSys, r)
+	var req env.ListDirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
+		return
+	}
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
+		return
+	}
+	path, err := s.resolvePath(fsSys, req.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
 	entries, _, err := fsSys.ListDir(path, false, true, 0, nil)
@@ -333,29 +334,24 @@ func (s *Server) handleListDir(fsSys *guestsys.FS, w http.ResponseWriter, r *htt
 		writeFSError(w, err)
 		return
 	}
-	writeJSON(w, ListDirResponse{Entries: entries})
-}
-
-type mkdirRequest struct {
-	Path string `json:"path"`
-	Mode string `json:"mode,omitempty"`
+	writeJSON(w, env.ListDirResponse{Entries: entries})
 }
 
 func (s *Server) handleMkdir(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	var req mkdirRequest
+	var req env.MkdirRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "decoding request body: %v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
 		return
 	}
 	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "path is required")
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
 		return
 	}
 	mode := fs.FileMode(0o755)
 	if req.Mode != "" {
 		v, err := strconv.ParseUint(req.Mode, 8, 32)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
+			writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
 			return
 		}
 		mode = fs.FileMode(v).Perm()
@@ -368,9 +364,18 @@ func (s *Server) handleMkdir(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleStat(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
-	path, err := s.getPath(fsSys, r)
+	var req env.StatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
+		return
+	}
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
+		return
+	}
+	path, err := s.resolvePath(fsSys, req.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, CodeInvalidArgument, "%v", err)
+		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
 	entry, err := fsSys.Stat(path)

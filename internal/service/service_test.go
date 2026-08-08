@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/guest"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
@@ -112,14 +113,14 @@ func TestLifecycleAndExec(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cmd status = %d, want 200", resp.StatusCode)
 	}
-	res := decode[guest.ShellResult](t, resp)
+	res := decode[env.ShellResponse](t, resp)
 	if res.Stdout != "file body" || res.ExitCode != 0 {
 		t.Fatalf("cmd result = %+v, want stdout %q", res, "file body")
 	}
 
 	// List directory.
 	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/dir", `{"path":"app"}`)
-	listing := decode[guest.ListDirResponse](t, resp)
+	listing := decode[env.ListDirResponse](t, resp)
 	if len(listing.Entries) != 1 || listing.Entries[0].Name != "main.txt" {
 		t.Fatalf("listing = %+v, want [main.txt]", listing.Entries)
 	}

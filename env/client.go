@@ -13,9 +13,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/agent-substrate/env/internal/guest"
-	"github.com/agent-substrate/env/internal/service"
 )
 
 // ErrNotFound is returned when a env, file, or directory does not exist.
@@ -86,7 +83,7 @@ func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) (*
 	}
 	template := cfg.template
 	namespace := cfg.templateNamespace
-	req := service.CreateEnvRequest{
+	req := CreateEnvRequest{
 		ID:        id,
 		Template:  template,
 		Namespace: namespace,
@@ -124,9 +121,9 @@ func (c *Client) do(ctx context.Context, method, path string, contentType string
 	defer resp.Body.Close()
 
 	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	var apiErr guest.Error
+	var apiErr Error
 	if jsonErr := json.Unmarshal(payload, &apiErr); jsonErr == nil && apiErr.Message != "" {
-		if apiErr.Code == guest.CodeNotFound {
+		if apiErr.Code == CodeNotFound {
 			return nil, fmt.Errorf("env: %w: %s", ErrNotFound, apiErr.Message)
 		}
 		return nil, fmt.Errorf("env: %s", apiErr.Message)

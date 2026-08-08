@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/ate"
-	"github.com/agent-substrate/env/internal/guest"
 )
 
 // DefaultTemplate is the ActorTemplate name used when a create request
@@ -20,37 +20,6 @@ const DefaultTemplate = "default-env"
 // looked up in when a create request does not specify one. It matches the
 // default namespace of `ate-env deploy`.
 const DefaultNamespace = "ate-env"
-
-// CreateEnvRequest is the body of POST /v1/envs.
-type CreateEnvRequest struct {
-	// ID is the environment identifier (a DNS-1123 label). Required.
-	ID string `json:"id"`
-
-	// Template is the name of the ActorTemplate the environment is created
-	// from. Defaults to the service's default template.
-	Template string `json:"template,omitempty"`
-
-	// Namespace is the Kubernetes namespace the ActorTemplate lives in.
-	// Defaults to "ate-env", the default namespace of
-	// `ate-env deploy`.
-	Namespace string `json:"namespace,omitempty"`
-}
-
-// FSRequest is the body of the filesystem endpoints
-// (POST /v1/envs/{id}/{file,dir,stat}).
-type FSRequest struct {
-	// Path of the file or directory inside the environment. Relative paths
-	// resolve against the guest's workdir. Required.
-	Path string `json:"path"`
-
-	// Mode is the octal file mode for write and mkdir, e.g. "644".
-	// Defaults to "644" for files and "755" for directories.
-	Mode string `json:"mode,omitempty"`
-
-	// Content is the file content for write. It is base64-encoded in
-	// JSON.
-	Content []byte `json:"content,omitempty"`
-}
 
 // Handler serves the environment API backed by client.
 func Handler(client *ate.Client) http.Handler {
@@ -87,23 +56,23 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeErr(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
-	code := guest.CodeInternal
+	code := env.CodeInternal
 	if errors.Is(err, ate.ErrNotFound) {
 		status = http.StatusNotFound
-		code = guest.CodeNotFound
+		code = env.CodeNotFound
 	}
-	writeJSON(w, status, guest.Error{Code: code, Message: err.Error()})
+	writeJSON(w, status, env.Error{Code: code, Message: err.Error()})
 }
 
 func writeBadRequest(w http.ResponseWriter, format string, args ...any) {
-	writeJSON(w, http.StatusBadRequest, guest.Error{
-		Code:    guest.CodeInvalidArgument,
+	writeJSON(w, http.StatusBadRequest, env.Error{
+		Code:    env.CodeInvalidArgument,
 		Message: fmt.Sprintf(format, args...),
 	})
 }
 
 func (s *server) create(w http.ResponseWriter, r *http.Request) {
-	var req CreateEnvRequest
+	var req env.CreateEnvRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeBadRequest(w, "invalid request body: %v", err)
 		return

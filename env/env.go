@@ -9,19 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-
-	"github.com/agent-substrate/env/internal/guest"
-	"github.com/agent-substrate/env/internal/service"
 )
-
-// ShellRequest describes a command to run inside a environment.
-type ShellRequest = guest.ShellRequest
-
-// ShellResult is the outcome of a ShellRequest.
-type ShellResult = guest.ShellResult
-
-// DirEntry describes a file or directory inside a environment.
-type DirEntry = guest.DirEntry
 
 // Env is a handle to a single environment.
 type Env struct {
@@ -45,8 +33,8 @@ func (e *Env) Delete(ctx context.Context) error {
 // run runs a command inside the environment and returns its captured output
 // and exit code. The command is executed directly (not through a shell);
 // see Shell for a shell-friendly shorthand.
-func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResult, error) {
-	var res ShellResult
+func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResponse, error) {
+	var res ShellResponse
 	if err := e.client.doJSON(ctx, http.MethodPost, e.path("/shell"), req, &res); err != nil {
 		return nil, err
 	}
@@ -54,26 +42,20 @@ func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResult, error) {
 }
 
 // Shell runs a shell command line ("sh -c") inside the environment.
-func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResult, error) {
+func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, error) {
 	return e.run(ctx, ShellRequest{Command: []string{"sh", "-c", commandLine}})
 }
 
 // Cmd runs a shell command line ("sh -c") inside the environment. It is an alias for Shell.
-func (e *Env) Cmd(ctx context.Context, commandLine string) (*ShellResult, error) {
+func (e *Env) Cmd(ctx context.Context, commandLine string) (*ShellResponse, error) {
 	return e.Shell(ctx, commandLine)
-}
-
-type readFileResponse struct {
-	Content []byte `json:"content"`
-	Mode    string `json:"mode,omitempty"`
-	Size    int64  `json:"size"`
 }
 
 // ReadFile streams the contents of the file at path inside the environment.
 // The caller must close the returned reader.
 func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
-	req := service.FSRequest{Path: p}
-	var res readFileResponse
+	req := ReadFileRequest{Path: p}
+	var res ReadFileResponse
 	if err := e.client.doJSON(ctx, http.MethodGet, e.path("/file"), req, &res); err != nil {
 		return nil, err
 	}
@@ -88,7 +70,7 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 	if err != nil {
 		return fmt.Errorf("env: reading data for %q: %w", p, err)
 	}
-	req := service.FSRequest{
+	req := WriteFileRequest{
 		Path:    p,
 		Mode:    strconv.FormatUint(uint64(mode.Perm()), 8),
 		Content: data,
@@ -98,8 +80,8 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 
 // ListDir lists the entries of the directory at path inside the environment.
 func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
-	req := service.FSRequest{Path: p}
-	var out guest.ListDirResponse
+	req := ListDirRequest{Path: p}
+	var out ListDirResponse
 	if err := e.client.doJSON(ctx, http.MethodGet, e.path("/dir"), req, &out); err != nil {
 		return nil, err
 	}
@@ -108,7 +90,7 @@ func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
 
 // Stat returns information about the file or directory at path.
 func (e *Env) Stat(ctx context.Context, p string) (DirEntry, error) {
-	req := service.FSRequest{Path: p}
+	req := StatRequest{Path: p}
 	var entry DirEntry
 	if err := e.client.doJSON(ctx, http.MethodGet, e.path("/stat"), req, &entry); err != nil {
 		return DirEntry{}, err
@@ -118,7 +100,7 @@ func (e *Env) Stat(ctx context.Context, p string) (DirEntry, error) {
 
 // Mkdir creates the directory at path, along with any missing parents.
 func (e *Env) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
-	req := service.FSRequest{
+	req := MkdirRequest{
 		Path: p,
 		Mode: strconv.FormatUint(uint64(mode.Perm()), 8),
 	}
@@ -127,6 +109,7 @@ func (e *Env) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
 
 // Remove deletes the file or directory tree at path.
 func (e *Env) Remove(ctx context.Context, p string) error {
-	req := service.FSRequest{Path: p}
+	req := RemoveRequest{Path: p}
 	return e.client.doJSON(ctx, http.MethodDelete, e.path("/file"), req, nil)
 }
+
