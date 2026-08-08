@@ -225,8 +225,9 @@ func (s *FS) EditFile(p string, oldStr, newStr string, replaceAll bool, maxBytes
 	return abs, count, nil
 }
 
-// Remove deletes a file or directory tree.
-func (s *FS) Remove(p string, recursive bool) error {
+// Remove deletes a file or directory tree. Removing a path that does not
+// exist is not an error.
+func (s *FS) Remove(p string) error {
 	abs, err := s.Resolve(p)
 	if err != nil {
 		return err
@@ -234,17 +235,7 @@ func (s *FS) Remove(p string, recursive bool) error {
 	if abs == string(filepath.Separator) {
 		return fmt.Errorf("refusing to delete %s", abs)
 	}
-	fi, err := os.Lstat(abs)
-	if err != nil {
-		return err
-	}
-	if fi.IsDir() && !recursive {
-		return syscall.EISDIR
-	}
-	if recursive {
-		return os.RemoveAll(abs)
-	}
-	return os.Remove(abs)
+	return os.RemoveAll(abs)
 }
 
 // ListDir lists directory entries, optionally recursively.

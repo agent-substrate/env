@@ -259,7 +259,12 @@ func (s *Server) handleDelete(fsSys *guestsys.FS, w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
 		return
 	}
-	if err := fsSys.Remove(path, true); err != nil {
+	// Report a missing path as 404; Remove itself treats it as a no-op.
+	if _, err := os.Lstat(path); err != nil {
+		writeFSError(w, err)
+		return
+	}
+	if err := fsSys.Remove(path); err != nil {
 		writeFSError(w, err)
 		return
 	}

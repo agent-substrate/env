@@ -450,10 +450,10 @@ func rmTool(fsSys *guestsys.FS) tool.Tool {
 			return "", err
 		}
 		isDir := info.IsDir()
-		if err := fsSys.Remove(p.Path, p.Recursive); err != nil {
-			if isDir && !p.Recursive {
-				return "", fmt.Errorf("%s is not empty; set recursive to delete it and its contents", abs)
-			}
+		if isDir && !p.Recursive {
+			return "", fmt.Errorf("%s is a directory; set recursive to delete it and its contents", abs)
+		}
+		if err := fsSys.Remove(p.Path); err != nil {
 			return "", err
 		}
 		if isDir && p.Recursive {
