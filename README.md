@@ -133,65 +133,198 @@ stdout without touching the cluster; apply it with kubectl.
 
 The API server provides environment management and guest operations over the API. Alternatively, a large number of users may find the built-in MCP tools the primary way to run these operations.
 
+The examples below assume the API is reachable at `localhost:7777` and use the
+environment ID `dev1`. Note that the read endpoints (`GET`) take a JSON request
+body, so `curl` needs an explicit `-X GET` alongside `-d`.
+
+| Method   | Path                      | Description                                      |
+| -------- | ------------------------- | ------------------------------------------------ |
+| `POST`   | `/v1/envs`                | Create an environment                            |
+| `DELETE` | `/v1/envs/{id}`           | Delete an environment                            |
+| `POST`   | `/v1/envs/{id}/shell`     | Run a shell command line                         |
+| `GET`    | `/v1/envs/{id}/file`      | Read a file (base64 JSON response)               |
+| `POST`   | `/v1/envs/{id}/file`      | Write a file                                     |
+| `DELETE` | `/v1/envs/{id}/file`      | Delete a file or directory                       |
+| `GET`    | `/v1/envs/{id}/dir`       | List a directory                                 |
+| `POST`   | `/v1/envs/{id}/dir`       | Create a directory (mkdir -p)                    |
+| `DELETE` | `/v1/envs/{id}/dir`       | Delete a directory or file                       |
+| `GET`    | `/v1/envs/{id}/stat`      | Stat a path                                      |
+| `POST`   | `/v1/envs/{id}/mcp`       | Model Context Protocol (MCP) streamable endpoint |
+
 ### Environments
 
-| Method   | Path                 | Description                            |
-| -------- | -------------------- | -------------------------------------- |
-| `POST`   | `/v1/envs`      | Create an environment                        |
-| `DELETE` | `/v1/envs/{id}` | Delete an environment                   |
+`POST /v1/envs` creates and starts an environment. `template` defaults to
+`default-env` and `namespace` defaults to `ate-env`. Responds `201 Created`
+with an empty body.
 
-Create body:
+```bash
+curl -X POST localhost:7777/v1/envs \
+     -d '{"id": "dev1", "template": "default-env", "namespace": "ate-env"}'
+```
 
-```json
-{
-  "id": "dev1",
-  "template": "default-env",
-  "namespace": "ate-env"
-}
+`DELETE /v1/envs/{id}` deletes an environment. Responds `204 No Content`.
+
+```bash
+curl -X DELETE localhost:7777/v1/envs/dev1
 ```
 
 ### Shell
 
-`POST /v1/envs/{id}/shell`
+`POST /v1/envs/{id}/shell` runs `command` as a shell command line. `cwd`
+defaults to the guest's root, `env` is layered on top of the guest daemon's
+environment, and `stdin` is base64-encoded.
 
-```json
-{                                           {
-  "command": ["sh", "-c", "make test"],       "stdout": "ok\n",
-  "cwd": "/workspace/app",                    "stderr": "",
-  "env": {"VERBOSE_LOGS": "true"}             "exitCode": 0
-}                                           }
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/shell \
+     -d '{
+       "command": "make test",
+       "cwd": "/workspace/app",
+       "env": {"VERBOSE_LOGS": "true"}
+     }'
+{
+  "stdout": "ok\n",
+  "stderr": "",
+  "exitCode": 0
+}
+```
+
+`args` passes positional arguments to the command line, so values do not have
+to be interpolated into `command`. They follow `sh -c` conventions: the first
+element becomes `$0` and the rest become `$1`, `$2`, and so on.
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/shell \
+     -d '{
+       "command": "grep -c \"$2\" \"$1\"",
+       "args": ["count-matches", "app/main.txt", "hello"]
+     }'
+{
+  "stdout": "1\n",
+  "stderr": "",
+  "exitCode": 0
+}
+```
+
+Feed data on standard input with `stdin`:
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/shell \
+     -d '{"command": "wc -c", "stdin": "aGVsbG8K"}'
+{
+  "stdout": "6\n",
+  "stderr": "",
+  "exitCode": 0
+}
 ```
 
 ### Filesystem
 
 All filesystem endpoints accept a JSON request body containing `"path"`.
+Relative paths resolve against the guest's root. File `content` is
+base64-encoded in both requests and responses, and `mode` is an octal string
+defaulting to `"644"` for files and `"755"` for directories.
 
-| Method   | Path                       | Description                        |
-| -------- | -------------------------- | ---------------------------------- |
-| `GET`    | `/v1/envs/{id}/file`  | Read a file (base64 JSON response) |
-| `POST`   | `/v1/envs/{id}/file`  | Write a file                       |
-| `DELETE` | `/v1/envs/{id}/file`  | Delete a file or directory         |
-| `GET`    | `/v1/envs/{id}/dir`   | List a directory                   |
-| `POST`   | `/v1/envs/{id}/dir`   | Create a directory (mkdir -p)      |
-| `GET`    | `/v1/envs/{id}/stat`  | Stat a path                        |
-
-Write a file, then read it back (`content` is base64-encoded in both requests and responses; `mode` is an octal string defaulting to `"644"`):
+Write a file (responds `204 No Content`):
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/file \
      -d '{"path": "app/main.txt", "mode": "644", "content": "aGVsbG8K"}'
-curl -X GET localhost:7777/v1/envs/dev1/file \
-     -d '{"path": "app/main.txt"}'
-# Response: {"content":"aGVsbG8K","mode":"0644","size":6}
 ```
 
-## Built-in MCP Tools
+Read a file back:
+
+```bash
+curl -X GET localhost:7777/v1/envs/dev1/file \
+     -d '{"path": "app/main.txt"}'
+{
+  "content": "aGVsbG8K",
+  "mode": "0644",
+  "size": 6
+}
+```
+
+Delete a file or directory, recursively (responds `204 No Content`):
+
+```bash
+curl -X DELETE localhost:7777/v1/envs/dev1/file \
+     -d '{"path": "app/main.txt"}'
+```
+
+Create a directory, including parents (responds `204 No Content`):
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/dir \
+     -d '{"path": "app/logs", "mode": "755"}'
+```
+
+List a directory:
+
+```bash
+curl -X GET localhost:7777/v1/envs/dev1/dir \
+     -d '{"path": "app"}'
+{
+  "entries": [
+    {
+      "name": "main.txt",
+      "path": "/app/main.txt",
+      "size": 6,
+      "mode": 420,
+      "modeString": "-rw-r--r--",
+      "modTime": "2026-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+`DELETE /v1/envs/{id}/dir` is an alias of `DELETE /v1/envs/{id}/file`; both
+remove a file or directory recursively:
+
+```bash
+curl -X DELETE localhost:7777/v1/envs/dev1/dir \
+     -d '{"path": "app/logs"}'
+```
+
+Stat a file or directory:
+
+```bash
+curl -X GET localhost:7777/v1/envs/dev1/stat \
+     -d '{"path": "app/main.txt"}'
+{
+  "name": "main.txt",
+  "path": "/app/main.txt",
+  "size": 6,
+  "mode": 420,
+  "modeString": "-rw-r--r--",
+  "modTime": "2026-01-01T00:00:00Z"
+}
+```
+
+### Errors
+
+Non-2xx responses use a JSON error envelope:
+
+```json
+{
+  "code": "not_found",
+  "error": "stat /app/missing.txt: no such file or directory"
+}
+```
+
+| Code               | HTTP  | Description                                                       |
+| ------------------ | ----- | ----------------------------------------------------------------- |
+| `not_found`        | `404` | The environment, file, or directory does not exist                |
+| `invalid_argument` | `400` | Malformed body, a missing required field, or an invalid path/mode |
+| `not_file`         | `400` | The path is a directory but the operation expects a file          |
+| `not_directory`    | `400` | The path is a file but the operation expects a directory          |
+| `internal`         | `500` | The request failed for any other reason                           |
+
+Writing a file larger than the guest's 64 MiB limit is the one exception to the
+status mapping: it returns `413 Request Entity Too Large` with code
+`invalid_argument`.
+
+## Built-in MCP Server
 
 The API exposes an MCP endpoint at `POST /v1/envs/{id}/mcp` serving the built-in tools.
-
-| Method | Path                        | Description                      |
-| ------ | --------------------------- | -------------------------------- |
-| `POST` | `/v1/envs/{id}/mcp`    | Model Context Protocol (MCP) streamable endpoint |
 
 ### Available Tools
 
@@ -212,7 +345,7 @@ The API exposes an MCP endpoint at `POST /v1/envs/{id}/mcp` serving the built-in
 
 TODO: Add support for skills e.g. generate available_skills, and activate a skill.
 
-### MCP Server
+### Requests
 
 Clients communicate with the built-in MCP server at `/v1/envs/{id}/mcp` using JSON-RPC 2.0 over HTTP:
 
