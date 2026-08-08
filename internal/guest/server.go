@@ -28,18 +28,11 @@ import (
 	"github.com/agent-substrate/env/internal/tool/shell"
 )
 
-// DefaultMaxOutputBytes is the per-stream (stdout/stderr) cap on captured
-// exec output.
-const DefaultMaxOutputBytes = 10 << 20 // 10 MiB
-
 // DefaultMaxFileBytes caps file content size for reads and writes.
 const DefaultMaxFileBytes = 64 << 20 // 64 MiB
 
 // Server serves the guest API. The zero value is usable with defaults.
 type Server struct {
-	// MaxOutputBytes caps captured stdout/stderr per exec, per stream.
-	MaxOutputBytes int64
-
 	// MaxFileBytes caps file content size for reads and writes.
 	MaxFileBytes int64
 
@@ -87,13 +80,6 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	return mux, nil
 }
 
-func (s *Server) maxOutput() int64 {
-	if s.MaxOutputBytes > 0 {
-		return s.MaxOutputBytes
-	}
-	return DefaultMaxOutputBytes
-}
-
 func (s *Server) maxFile() int64 {
 	if s.MaxFileBytes > 0 {
 		return s.MaxFileBytes
@@ -137,27 +123,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// limitedBuffer captures up to max bytes and discards (but counts) the rest.
-type limitedBuffer struct {
-	buf       bytes.Buffer
-	max       int64
-	truncated bool
-}
-
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	if remaining := b.max - int64(b.buf.Len()); remaining > 0 {
-		if int64(n) > remaining {
-			p = p[:remaining]
-			b.truncated = true
-		}
-		b.buf.Write(p)
-	} else if n > 0 {
-		b.truncated = true
-	}
-	return n, nil
-}
-
 func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.Request) {
 	var req env.ShellRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -189,10 +154,9 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
 
-	stdout := &limitedBuffer{max: s.maxOutput()}
-	stderr := &limitedBuffer{max: s.maxOutput()}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	// Run the command in its own process group so that a timeout kills the
 	// whole tree, not just the direct child.
@@ -208,10 +172,8 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 	err := cmd.Run()
 
 	res := env.ShellResponse{
-		Stdout:          stdout.buf.String(),
-		Stderr:          stderr.buf.String(),
-		StdoutTruncated: stdout.truncated,
-		StderrTruncated: stderr.truncated,
+		Stdout: stdout.String(),
+		Stderr: stderr.String(),
 	}
 	switch {
 	case err == nil:

@@ -25,19 +25,13 @@ type ShellRequest struct {
 
 // ShellResponse is the outcome of a ShellRequest.
 type ShellResponse struct {
-	// Stdout and Stderr hold the captured output, capped at the guest's
-	// output limit per stream.
+	// Stdout and Stderr hold the captured output.
 	Stdout string `json:"stdout"`
 	Stderr string `json:"stderr"`
 
 	// ExitCode is the process exit code. -1 if the process was killed by
 	// a signal or failed to start.
 	ExitCode int `json:"exitCode"`
-
-	// StdoutTruncated / StderrTruncated report whether output exceeded the
-	// per-stream cap and was cut off.
-	StdoutTruncated bool `json:"stdoutTruncated,omitempty"`
-	StderrTruncated bool `json:"stderrTruncated,omitempty"`
 }
 
 // DirEntry describes a file or directory inside an environment.

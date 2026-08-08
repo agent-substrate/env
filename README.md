@@ -162,9 +162,6 @@ Create body:
 }                                           }
 ```
 
-Output is capped at 10 MiB per stream; `stdoutTruncated`/`stderrTruncated`
-report when the cap was hit.
-
 ### Filesystem
 
 All filesystem endpoints accept a JSON request body containing `"path"`.

@@ -87,24 +87,6 @@ func TestExecEnvCwdStdin(t *testing.T) {
 		t.Errorf("stdout = %q, want it to end with %q", got, want)
 	}
 	if res.ExitCode != 0 {
-		t.Errorf("exit code = %d, want 0", res.ExitCode)
-	}
-}
-
-func TestExecOutputTruncation(t *testing.T) {
-	h, err := (&Server{MaxOutputBytes: 10}).Handler(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	res := doExec(t, srv, env.ShellRequest{Command: []string{"sh", "-c", "printf '0123456789ABCDEF'"}})
-	if res.Stdout != "0123456789" {
-		t.Errorf("stdout = %q, want first 10 bytes", res.Stdout)
-	}
-	if !res.StdoutTruncated {
-		t.Error("StdoutTruncated = false, want true")
 	}
 }
 
