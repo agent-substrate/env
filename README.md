@@ -51,8 +51,8 @@ API:
 
 ```bash
 ate-env deploy \
-  --guest-image  gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:a986e4d622891233a63016765bec840e1977ee73fd9d3bec83e9230fc6c7f7a3 \
-  --api-image    gcr.io/dberkov-gke-dev3/ate-env-api@sha256:46ed8632e7d5eb99123730f984977c4776c73a64f894ed6062d95b225a820b94 \
+  --guest-image  gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:4dc143b9eab67481a65c471c930e7ff460fb74f6405936ce1f22a8d00e12b3eb \
+  --api-image    gcr.io/dberkov-gke-dev3/ate-env-api@sha256:10e56af837e79171eccfd37555fd7d5e45934690cf03f3dd2cb710118671546f \
   --ateom-image gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 
@@ -284,8 +284,8 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 ## Examples
 
 For complete runnable Go programs:
-- **Environment SDK**: See [examples/quickstart](examples/quickstart/main.go) to create, manage, suspend, resume environments, write files, and execute commands.
-- **MCP**: See [examples/mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
+- **Environment SDK**: See [quickstart](examples/quickstart/main.go) to manage environments, write files, and execute commands.
+- **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 
 ## Cleanup
 

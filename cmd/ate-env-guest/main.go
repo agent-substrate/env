@@ -32,6 +32,6 @@ func main() {
 		log.Fatalf("initializing guest server: %v", err)
 	}
 
-	log.Printf("ate-env-guest listening on %s (serving REST API and /mcp)", *addr)
+	log.Printf("ate-env-guest listening on %s (serving REST API and /v1/mcp)", *addr)
 	log.Fatal(http.ListenAndServe(*addr, h))
 }

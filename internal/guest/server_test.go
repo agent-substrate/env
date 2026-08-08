@@ -323,21 +323,21 @@ func TestMCPEndpoint(t *testing.T) {
 	srv, _ := newTestServer(t)
 
 	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}`
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/mcp", strings.NewReader(initReq))
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/mcp", strings.NewReader(initReq))
 	if err != nil {
-		t.Fatalf("building POST /mcp request: %v", err)
+		t.Fatalf("building POST /v1/mcp request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("POST /mcp failed: %v", err)
+		t.Fatalf("POST /v1/mcp failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("POST /mcp status = %d, want 200: %s", resp.StatusCode, body)
+		t.Fatalf("POST /v1/mcp status = %d, want 200: %s", resp.StatusCode, body)
 	}
 }

@@ -83,7 +83,7 @@ func (s *Server) Handler(fsSys *guestsys.FS) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/stat", func(w http.ResponseWriter, r *http.Request) { s.handleStat(fsSys, w, r) })
 
 	mcpSrv := mcp.NewServer(reg)
-	mux.HandleFunc("POST /mcp", mcpSrv.ServeHTTP)
+	mux.HandleFunc("POST /v1/mcp", mcpSrv.ServeHTTP)
 
 	return mux, nil
 }

@@ -141,6 +141,19 @@ func TestLifecycleAndExec(t *testing.T) {
 		t.Fatalf("listing = %+v, want [main.txt]", listing.Entries)
 	}
 
+	// MCP endpoint proxied through API (stateless tools/list).
+	mcpReq, _ := http.NewRequest("POST", srv.URL+"/v1/envs/web-1/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
+	mcpReq.Header.Set("Content-Type", "application/json")
+	mcpReq.Header.Set("Accept", "application/json, text/event-stream")
+	mcpResp, err := http.DefaultClient.Do(mcpReq)
+	if err != nil {
+		t.Fatalf("MCP request failed: %v", err)
+	}
+	if mcpResp.StatusCode != http.StatusOK {
+		t.Fatalf("MCP status = %d, want 200", mcpResp.StatusCode)
+	}
+	mcpResp.Body.Close()
+
 	// A file deletes cleanly through the file endpoint.
 	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1/file", `{"path":"app/main.txt"}`)
 	if resp.StatusCode != http.StatusNoContent {
