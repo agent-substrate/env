@@ -4,8 +4,7 @@
 > This is an alpha API and is likely to change until v1.0 is released.
 
 An environment service on top of [Agent Substrate](https://github.com/agent-substrate/substrate): isolated, stateful execution environments
-that can be **suspended**, **resumed** on any available worker,
-and driven remotely with **command execution** and **filesystem operations**.
+driven remotely with **command execution** and **filesystem operations**.
 
 Each environment is a Substrate *actor* running in an isolated container.
 Substrate provides the heavy lifting — snapshotting, scheduling,
@@ -25,15 +24,14 @@ while this project adds the environment-shaped API on top.
                                                                     ╰──────────────────────╯
 ```
 
-- **`cmd/ate-env`** — Provides a CLI over the API, and utilies to
+- **`cmd/ate-env`** — Provides a CLI over the API, and utilities to
   make it easier to deploy Agent Substrate.
 - **`cmd/ate-env-api`** — The API service that bridges clients to
   the Substrate control plane and router.
 - **`cmd/ate-env-guest`** — The daemon server available in the environment. It runs
   inside every actor and serves command executions and filesystem operations.
-- **`env`** — The Go client library that allows creation, suspension,
-resumption, and deletion of environments; as well as file operations and running remote
-commands on the environments.
+- **`env`** — The Go client library that allows creation and deletion of environments,
+  as well as file operations and running remote commands on the environments.
 
 ## Installation
 
@@ -66,8 +64,7 @@ Then create and use an environment:
 # Port-forward the ate-env-api API.
 kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 
-# Create and use an environment. Environment is suspended and resumed
-# automatically after each command.
+# Create and use an environment.
 ate-env create dev1 --template default-env
 ate-env dev1 shell 'echo hello > /note.txt'
 ate-env dev1 shell 'cat /note.txt' # prints hello
@@ -113,8 +110,6 @@ Available Commands:
   deploy      Generate Kubernetes manifests to deploy the system
   fs          Operate on files and directories in an environment
   help        Help about any command
-  resume      Resume from the latest snapshot
-  suspend     Snapshot to external storage and free the worker
 
 $ ate-env dev1
 Operate on environment dev1
@@ -143,7 +138,7 @@ The API server provides environment management and guest operations over the API
 | Method   | Path                 | Description                            |
 | -------- | -------------------- | -------------------------------------- |
 | `POST`   | `/v1/envs`      | Create an environment                        |
-| `DELETE` | `/v1/envs/{id}` | Delete (suspends first if running)      |
+| `DELETE` | `/v1/envs/{id}` | Delete an environment                   |
 
 Create body:
 
@@ -154,13 +149,6 @@ Create body:
   "namespace": "ate-env"
 }
 ```
-
-### Lifecycle
-
-| Method | Path                         | Description                              |
-| ------ | ---------------------------- | ---------------------------------------- |
-| `POST` | `/v1/envs/{id}/suspend` | Snapshot to object storage, free worker  |
-| `POST` | `/v1/envs/{id}/resume`  | Restore from the latest snapshot         |
 
 ### Shell
 
@@ -226,7 +214,7 @@ The API exposes an MCP endpoint at `POST /v1/envs/{id}/mcp` serving the built-in
 | `shell` | Shell | Run a shell command line inside the environment |
 | `browser` | Web | Fetch a web page or API over HTTP(S) and render HTML to Markdown |
 
-TODO: Add support for skills e.g. generaate available_skills, and activate a skill.
+TODO: Add support for skills e.g. generate available_skills, and activate a skill.
 
 ### MCP Server
 

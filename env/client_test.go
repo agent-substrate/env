@@ -92,20 +92,11 @@ func TestCreateStartsEnv(t *testing.T) {
 	}
 }
 
-func TestLifecycle(t *testing.T) {
+func TestDelete(t *testing.T) {
 	f := newFixture(t)
 	sb := f.create(t, "sb-life")
 	ctx := t.Context()
 
-	if err := sb.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := sb.Resume(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := sb.Suspend(ctx); err != nil {
-		t.Fatal(err)
-	}
 	if err := sb.Delete(ctx); err != nil {
 		t.Fatal(err)
 	}

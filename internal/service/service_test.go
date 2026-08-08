@@ -117,23 +117,6 @@ func TestLifecycleAndExec(t *testing.T) {
 		t.Fatalf("cmd result = %+v, want stdout %q", res, "file body")
 	}
 
-	// Suspend, then resume and exec again.
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/suspend", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("suspend status = %d, want 200", resp.StatusCode)
-	}
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/resume", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("resume status = %d, want 200", resp.StatusCode)
-	}
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/shell", `{"command":["sh","-c","echo back"]}`)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("cmd after resume status = %d, want 200", resp.StatusCode)
-	}
-	if res := decode[guest.ShellResult](t, resp); res.Stdout != "back\n" {
-		t.Fatalf("cmd after resume = %+v, want stdout %q", res, "back\n")
-	}
-
 	// List directory.
 	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/dir", `{"path":"app"}`)
 	listing := decode[guest.ListDirResponse](t, resp)
@@ -171,10 +154,6 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// Delete.
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/suspend", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("suspend before delete status = %d, want 200", resp.StatusCode)
-	}
 	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1", "")
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204", resp.StatusCode)

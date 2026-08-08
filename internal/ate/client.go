@@ -1,7 +1,6 @@
 // Package ate implements the environment abstraction directly on top of
 // Agent Substrate; it backs the ate-env-api service. A
-// Environment wraps a Substrate actor: it can be created, suspended (full
-// snapshot to object storage), resumed, and deleted, and while running it
+// Environment wraps a Substrate actor: it can be created and deleted, and while running it
 // accepts remote command execution and filesystem operations served by the
 // ate-env-guest daemon inside the actor.
 //

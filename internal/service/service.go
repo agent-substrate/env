@@ -2,7 +2,6 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,8 +61,6 @@ func Handler(client *ate.Client) http.Handler {
 	})
 	mux.HandleFunc("POST /v1/envs", s.create)
 	mux.HandleFunc("DELETE /v1/envs/{id}", s.delete)
-	mux.HandleFunc("POST /v1/envs/{id}/suspend", s.lifecycle((*ate.ActorClient).Suspend))
-	mux.HandleFunc("POST /v1/envs/{id}/resume", s.lifecycle((*ate.ActorClient).Resume))
 	mux.HandleFunc("/v1/envs/{id}/{rest...}", s.proxyGuest)
 	return mux
 }
@@ -139,15 +136,4 @@ func (s *server) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) lifecycle(op func(*ate.ActorClient, context.Context) error) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sb := s.client.Actor(r.PathValue("id"))
-		if err := op(sb, r.Context()); err != nil {
-			writeErr(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}
 }

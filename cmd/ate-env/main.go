@@ -79,24 +79,7 @@ func main() {
 	createCmd.Flags().StringVar(&createNamespace, "namespace", "ate-env", "Kubernetes namespace of the ActorTemplate")
 	root.AddCommand(createCmd)
 
-	// Top-level legacy commands (ate-env <command> <id> ...)
-	root.AddCommand(&cobra.Command{
-		Use:   "suspend <id>",
-		Short: "Snapshot to external storage and free the worker",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).Suspend(cmd.Context())
-		},
-	})
 
-	root.AddCommand(&cobra.Command{
-		Use:   "resume <id>",
-		Short: "Resume from the latest snapshot",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).Resume(cmd.Context())
-		},
-	})
 
 	root.AddCommand(&cobra.Command{
 		Use:   "delete <id>",

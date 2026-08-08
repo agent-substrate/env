@@ -71,7 +71,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.template, "template", service.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
-	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for suspend snapshots, e.g. gs://bucket/prefix/")
+	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
 	cmd.Flags().StringVar(&cfg.pauseImage, "pause-image", defaultPauseImage, "digest-pinned pause image for the root environment container")
 	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")

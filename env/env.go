@@ -37,22 +37,7 @@ func (e *Env) path(suffix string) string {
 	return "/v1/envs/" + url.PathEscape(e.id) + suffix
 }
 
-// Resume restores the environment from its latest snapshot onto an available
-// worker. It is a no-op on the control plane if the environment is already
-// running.
-func (e *Env) Resume(ctx context.Context) error {
-	return e.client.doJSON(ctx, http.MethodPost, e.path("/resume"), nil, nil)
-}
-
-// Suspend snapshots the environment's full state (memory and filesystem) to
-// external storage and frees its worker. The environment can later be resumed
-// on any eligible worker.
-func (e *Env) Suspend(ctx context.Context) error {
-	return e.client.doJSON(ctx, http.MethodPost, e.path("/suspend"), nil, nil)
-}
-
-// Delete removes the environment permanently, suspending it first if it is
-// running.
+// Delete removes the environment permanently.
 func (e *Env) Delete(ctx context.Context) error {
 	return e.client.doJSON(ctx, http.MethodDelete, e.path(""), nil, nil)
 }

@@ -1,6 +1,5 @@
-// Command quickstart demonstrates the environment SDK end to end: create a
-// environment, write and run code in it, suspend it, then resume and observe
-// that its filesystem survived the hibernation cycle.
+// Command quickstart demonstrates the environment SDK end to end: create an
+// environment, write and run code in it, and read output files back.
 //
 // It expects a port-forward to the ate-env-api service:
 //
@@ -45,16 +44,6 @@ func main() {
 	}
 	fmt.Print(res.Stdout)
 
-	// Suspend: full memory + filesystem snapshot, worker freed.
-	if err := sb.Suspend(ctx); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("suspended.")
-
-	// Resume and verify the filesystem survived.
-	if err := sb.Resume(ctx); err != nil {
-		log.Fatal(err)
-	}
 	rc, err := sb.ReadFile(ctx, "/workspace/last-run")
 	if err != nil {
 		log.Fatal(err)
@@ -64,5 +53,5 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("resumed; state survived: last run at %s", data)
+	fmt.Printf("last run at %s", data)
 }
