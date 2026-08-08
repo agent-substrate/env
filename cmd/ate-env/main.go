@@ -64,7 +64,7 @@ func main() {
 		Short: "Create and start an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := client.Create(cmd.Context(), env.CreateEnvRequest{
+			_, err := client.Create(cmd.Context(), env.CreateRequest{
 				ID:        args[0],
 				Template:  createTemplate,
 				Namespace: createNamespace,

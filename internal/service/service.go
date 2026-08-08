@@ -72,7 +72,7 @@ func writeBadRequest(w http.ResponseWriter, format string, args ...any) {
 }
 
 func (s *server) create(w http.ResponseWriter, r *http.Request) {
-	var req env.CreateEnvRequest
+	var req env.CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeBadRequest(w, "invalid request body: %v", err)
 		return
@@ -87,11 +87,7 @@ func (s *server) create(w http.ResponseWriter, r *http.Request) {
 	if req.Namespace == "" {
 		req.Namespace = DefaultNamespace
 	}
-	opts := []ate.CreateOption{
-		ate.WithTemplate(req.Template),
-		ate.WithNamespace(req.Namespace),
-	}
-	if err := s.client.Create(r.Context(), req.ID, opts...); err != nil {
+	if err := s.client.Create(r.Context(), req); err != nil {
 		writeErr(w, err)
 		return
 	}

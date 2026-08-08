@@ -28,7 +28,7 @@ func main() {
 	}
 	defer c.Close()
 
-	e, err := c.Create(ctx, env.CreateEnvRequest{ID: "mcp-demo"})
+	e, err := c.Create(ctx, env.CreateRequest{ID: "mcp-demo"})
 	if err != nil {
 		log.Fatalf("creating environment: %v", err)
 	}

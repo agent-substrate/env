@@ -27,7 +27,7 @@ func main() {
 	}
 	defer client.Close()
 
-	env, err := client.Create(ctx, env.CreateEnvRequest{ID: "quickstart-1"})
+	env, err := client.Create(ctx, env.CreateRequest{ID: "quickstart-1"})
 	if err != nil {
 		log.Fatal(err)
 	}

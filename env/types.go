@@ -44,8 +44,8 @@ type DirEntry struct {
 	IsDir      bool      `json:"is_dir,omitempty"`
 }
 
-// CreateEnvRequest is the body of POST /v1/envs.
-type CreateEnvRequest struct {
+// CreateRequest is the body of POST /v1/envs.
+type CreateRequest struct {
 	// ID is the environment identifier (a DNS-1123 label). Required.
 	ID string `json:"id"`
 

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 
+	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -144,37 +145,6 @@ func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r 
 	proxy.ServeHTTP(w, r)
 }
 
-func (c *Client) templateRef(overrideNamespace, overrideName string) (namespace, name string, err error) {
-	name = overrideName
-	if name == "" {
-		return "", "", errors.New("ate: no ActorTemplate specified (use WithTemplate)")
-	}
-	namespace = overrideNamespace
-	if namespace == "" {
-		namespace = "default"
-	}
-	return namespace, name, nil
-}
-
-// CreateOption customizes Create.
-type CreateOption func(*createConfig)
-
-type createConfig struct {
-	template          string
-	templateNamespace string
-}
-
-// WithTemplate overrides the client's default ActorTemplate name.
-func WithTemplate(name string) CreateOption {
-	return func(c *createConfig) { c.template = name }
-}
-
-// WithNamespace overrides the Kubernetes namespace the ActorTemplate is
-// looked up in.
-func WithNamespace(namespace string) CreateOption {
-	return func(c *createConfig) { c.templateNamespace = namespace }
-}
-
 // EnsureAtespace creates the atespace with name if it does not already exist.
 // If name is empty, it defaults to "default".
 func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
@@ -194,33 +164,32 @@ func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	return nil
 }
 
-// Create registers a new actor with the given ID (a DNS-1123 label) and
-// starts it.
-func (c *Client) Create(ctx context.Context, id string, opts ...CreateOption) error {
-	var cfg createConfig
-	for _, o := range opts {
-		o(&cfg)
+// Create registers a new actor from req and starts it. ID and Template are
+// required; Namespace is the Kubernetes namespace the ActorTemplate is looked
+// up in.
+func (c *Client) Create(ctx context.Context, req env.CreateRequest) error {
+	if req.ID == "" {
+		return errors.New("ate: CreateRequest.ID is required")
 	}
-	namespace, name, err := c.templateRef(cfg.templateNamespace, cfg.template)
-	if err != nil {
-		return err
+	if req.Template == "" {
+		return errors.New("ate: CreateRequest.Template is required")
 	}
 
 	const atespace = "default"
 	if err := c.EnsureAtespace(ctx, atespace); err != nil {
-		return fmt.Errorf("ate: creating %q: %w", id, err)
+		return fmt.Errorf("ate: creating %q: %w", req.ID, err)
 	}
 
 	actor := &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{
 			Atespace: atespace,
-			Name:     id,
+			Name:     req.ID,
 		},
-		ActorTemplateNamespace: namespace,
-		ActorTemplateName:      name,
+		ActorTemplateNamespace: req.Namespace,
+		ActorTemplateName:      req.Template,
 	}
 	if _, err := c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: actor}); err != nil {
-		return fmt.Errorf("ate: creating %q: %w", id, wrapGRPCError(err))
+		return fmt.Errorf("ate: creating %q: %w", req.ID, wrapGRPCError(err))
 	}
 
 	return nil
@@ -252,5 +221,4 @@ func wrapGRPCError(err error) error {
 }
 
 // TODO(jbd): Allow setting a non-default atespace.
-// TODO(jbd): Remove createConfig, apply changes to ateapipb.Actor.
 // TODO(jbd): Allow setting default atespace.

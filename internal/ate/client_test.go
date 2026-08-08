@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/guest"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
@@ -54,7 +55,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 // create makes a env whose guest handler serves from a temp dir.
-func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) {
+func (f *fixture) create(t *testing.T, id string) {
 	t.Helper()
 	sys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(sys)
@@ -62,8 +63,8 @@ func (f *fixture) create(t *testing.T, id string, opts ...ate.CreateOption) {
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	opts = append([]ate.CreateOption{ate.WithTemplate("default-env"), ate.WithNamespace("envs")}, opts...)
-	if err := f.client.Create(t.Context(), id, opts...); err != nil {
+	req := env.CreateRequest{ID: id, Template: "default-env", Namespace: "envs"}
+	if err := f.client.Create(t.Context(), req); err != nil {
 		t.Fatalf("creating actor %q: %v", id, err)
 	}
 }
@@ -108,7 +109,7 @@ func TestCreateRequiresTemplate(t *testing.T) {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	if err := client.Create(context.Background(), "sb-x"); err == nil {
+	if err := client.Create(context.Background(), env.CreateRequest{ID: "sb-x"}); err == nil {
 		t.Fatal("Create without template succeeded, want error")
 	}
 }

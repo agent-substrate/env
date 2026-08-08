@@ -77,7 +77,7 @@ func (f *fixture) create(t *testing.T, id string) *env.Env {
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	sb, err := f.client.Create(t.Context(), env.CreateEnvRequest{
+	sb, err := f.client.Create(t.Context(), env.CreateRequest{
 		ID:        id,
 		Template:  "default-env",
 		Namespace: "envs",

@@ -58,7 +58,7 @@ func (c *Client) Close() error { return nil }
 // Create registers a new env with the ID given in req (a DNS-1123 label) and
 // starts it. An empty Template or Namespace falls back to the service's
 // default.
-func (c *Client) Create(ctx context.Context, req CreateEnvRequest) (*Env, error) {
+func (c *Client) Create(ctx context.Context, req CreateRequest) (*Env, error) {
 	if err := c.do(ctx, http.MethodPost, "/v1/envs", req, nil); err != nil {
 		return nil, err
 	}
