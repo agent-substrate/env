@@ -6,9 +6,11 @@ import (
 
 // ShellRequest describes a command to run inside an env.
 type ShellRequest struct {
-	// Command is the argv of the process to run. It is executed directly,
-	// not through a shell. Use []string{"sh", "-c", "..."} for shell syntax.
-	Command []string `json:"command"`
+	// Command is the shell command line to run inside the environment.
+	Command string `json:"command"`
+
+	// Args holds positional arguments passed to the shell command.
+	Args []string `json:"args,omitempty"`
 
 	// Env holds additional environment variables set for the process, on
 	// top of the guest daemon's environment.

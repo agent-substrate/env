@@ -58,7 +58,7 @@ func doExec(t *testing.T, srv *httptest.Server, req env.ShellRequest) env.ShellR
 func TestExecCapturesOutputAndExitCode(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	res := doExec(t, srv, env.ShellRequest{Command: []string{"sh", "-c", "echo out; echo err >&2; exit 3"}})
+	res := doExec(t, srv, env.ShellRequest{Command: "echo out; echo err >&2; exit 3"})
 	if res.Stdout != "out\n" {
 		t.Errorf("stdout = %q, want %q", res.Stdout, "out\n")
 	}
@@ -76,7 +76,7 @@ func TestExecEnvCwdStdin(t *testing.T) {
 	os.Mkdir(sub, 0o755)
 
 	res := doExec(t, srv, env.ShellRequest{
-		Command: []string{"sh", "-c", "pwd; printf '%s\n' \"$GREETING\"; cat"},
+		Command: "pwd; printf '%s\n' \"$GREETING\"; cat",
 		Env:     map[string]string{"GREETING": "hello"},
 		Cwd:     "sub",
 		Stdin:   []byte("from stdin"),
@@ -92,7 +92,7 @@ func TestExecEnvCwdStdin(t *testing.T) {
 
 func TestExecCommandNotFound(t *testing.T) {
 	srv, _ := newTestServer(t)
-	body, _ := json.Marshal(env.ShellRequest{Command: []string{"definitely-not-a-command-xyz"}})
+	body, _ := json.Marshal(env.ShellRequest{Command: ""})
 	resp, err := http.Post(srv.URL+"/v1/shell", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)

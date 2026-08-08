@@ -129,13 +129,14 @@ func (s *Server) handleShell(fsSys *guestsys.FS, w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "invalid request body: %v", err)
 		return
 	}
-	if len(req.Command) == 0 {
+	if req.Command == "" {
 		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "command is required")
 		return
 	}
 
 	ctx := r.Context()
-	cmd := exec.CommandContext(ctx, req.Command[0], req.Command[1:]...)
+	args := append([]string{"-c", req.Command}, req.Args...)
+	cmd := exec.CommandContext(ctx, "sh", args...)
 	if req.Cwd != "" {
 		cwd, err := s.resolvePath(fsSys, req.Cwd)
 		if err != nil {

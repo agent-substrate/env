@@ -109,7 +109,7 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 
 	// Exec.
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/shell", `{"command":["sh","-c","cat app/main.txt"]}`)
+	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/shell", `{"command":"cat app/main.txt"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cmd status = %d, want 200", resp.StatusCode)
 	}

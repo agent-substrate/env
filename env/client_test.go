@@ -123,7 +123,7 @@ func TestCmdAndFilesystem(t *testing.T) {
 		t.Errorf("read back %q, want %q", data, "hi there")
 	}
 
-	res, err := sb.Cmd(ctx, "cat project/hello.txt")
+	res, err := sb.Shell(ctx, "cat project/hello.txt")
 	if err != nil {
 		t.Fatal(err)
 	}

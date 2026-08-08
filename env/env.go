@@ -41,14 +41,9 @@ func (e *Env) run(ctx context.Context, req ShellRequest) (*ShellResponse, error)
 	return &res, nil
 }
 
-// Shell runs a shell command line ("sh -c") inside the environment.
+// Shell runs a shell command line inside the environment.
 func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, error) {
-	return e.run(ctx, ShellRequest{Command: []string{"sh", "-c", commandLine}})
-}
-
-// Cmd runs a shell command line ("sh -c") inside the environment. It is an alias for Shell.
-func (e *Env) Cmd(ctx context.Context, commandLine string) (*ShellResponse, error) {
-	return e.Shell(ctx, commandLine)
+	return e.run(ctx, ShellRequest{Command: commandLine})
 }
 
 // ReadFile streams the contents of the file at path inside the environment.

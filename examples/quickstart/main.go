@@ -38,7 +38,7 @@ func main() {
 	if err := sb.WriteFile(ctx, "/workspace/hello.sh", strings.NewReader(script), 0o755); err != nil {
 		log.Fatal(err)
 	}
-	res, err := sb.Cmd(ctx, "/workspace/hello.sh")
+	res, err := sb.Shell(ctx, "/workspace/hello.sh")
 	if err != nil {
 		log.Fatal(err)
 	}
