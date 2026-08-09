@@ -208,17 +208,16 @@ func TestFork(t *testing.T) {
 		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}
 
-	// A source that has never been snapshotted cannot be forked. 409 rather
-	// than 500: the request is well-formed, the environment just isn't ready.
+	// A source that is not suspended cannot be forked. 409 rather than 500.
 	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{"dest_id":"copy"}`)
 	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("fork without a snapshot status = %d, want 409", resp.StatusCode)
+		t.Fatalf("fork of non-suspended source status = %d, want 409", resp.StatusCode)
 	}
 	if got := decode[env.Error](t, resp); got.Code != env.CodeFailedPrecondition {
 		t.Errorf("error code = %q, want %q", got.Code, env.CodeFailedPrecondition)
 	}
 
-	// Once it has gone idle it carries a snapshot, and the fork succeeds.
+	// Once suspended, fork succeeds.
 	control.Suspend("src")
 	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{"dest_id":"copy"}`)
 	if resp.StatusCode != http.StatusCreated {

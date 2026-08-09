@@ -67,11 +67,8 @@ func (c *Client) Create(ctx context.Context, req CreateRequest) (*Env, error) {
 }
 
 // Fork creates the environment destID from the latest snapshot of the
-// environment id, inheriting its template, and returns a handle to it. The
-// source is left untouched, so the fork captures its state as of its last
-// suspend rather than its state right now.
-//
-// It fails when the source has no snapshot to fork from, or is resuming.
+// environment id, inheriting its template, and returns a handle to it.
+// It fails if the source environment is not suspended.
 func (c *Client) Fork(ctx context.Context, id, destID string) (*Env, error) {
 	req := ForkRequest{DestID: destID}
 	path := "/v1/envs/" + url.PathEscape(id) + "/fork"

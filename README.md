@@ -49,8 +49,8 @@ API:
 
 ```bash
 ate-env deploy \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:f6652a5f54d0217ba621c24dd5304c1067275d0986b3b0c7fe728a0d40625e8a \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:3cfb7ffc549930078c5b9ae52d112ea8f5b493519287d5f8e410b123739b84fc \
+  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:d025dfca558e5d6c8e08705d9f6eaa1c10a6ba9a1e47fa7a0deb60fc4759beba \
+  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:2e9bce3d07f2a70c177a41a3aa039c313105c36e97545d3c23dcf86da9ad4d26 \
   --ateom-image gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 
@@ -164,11 +164,7 @@ curl -X POST localhost:7777/v1/envs \
 ```
 
 `POST /v1/envs/{id}/fork` creates a new environment from `{id}`'s latest
-snapshot, inheriting its template.
-
-Substrate snapshots an environment when it goes idle, and the fork is taken from
-that snapshot — the source is left untouched, so the copy reflects its state as
-of the last suspend rather than its state right now.
+snapshot, inheriting its template. The source environment must be suspended.
 
 ```bash
 curl -X POST localhost:7777/v1/envs/dev1/fork \

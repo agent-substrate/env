@@ -80,9 +80,7 @@ func main() {
 		Use:   "fork <id> <dest_id>",
 		Short: "Create an environment from another environment's latest snapshot",
 		Long: "Fork creates the environment <dest_id> from the latest snapshot of <id>,\n" +
-			"inheriting its ActorTemplate. The source is left untouched, so the fork\n" +
-			"captures its state as of its last suspend rather than its state right now.\n" +
-			"It fails if the source has never been snapshotted, or is resuming.",
+			"inheriting its ActorTemplate. The source environment must be suspended.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := client.Fork(cmd.Context(), args[0], args[1])

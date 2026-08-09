@@ -203,16 +203,7 @@ func (c *Client) Create(ctx context.Context, req env.CreateRequest) error {
 }
 
 // Fork creates the actor dstID from the latest snapshot of srcID, inheriting the
-// source's ActorTemplate.
-//
-// Substrate has no fork operation, so this composes one out of the snapshot the
-// source already has: it tags that snapshot — CreateActor only accepts a source
-// snapshot referenced by tag — and creates the destination from the tag. The
-// source is never suspended and is otherwise left untouched, so the fork
-// captures its state as of its last suspend, not its state right now.
-//
-// It fails when the source has no snapshot to fork from, or is resuming and so
-// has no settled state to copy.
+// source's ActorTemplate. The source actor must be suspended.
 func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
 	if srcID == "" || dstID == "" {
 		return errors.New("ate: source and destination IDs are required")
@@ -221,12 +212,12 @@ func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
 	if err != nil {
 		return fmt.Errorf("ate: forking %q: %w", srcID, wrapGRPCError(err))
 	}
-	if src.GetStatus() == ateapipb.Actor_STATUS_RESUMING {
-		return fmt.Errorf("ate: %w: %q is resuming; wait for it to settle before forking", ErrPrecondition, srcID)
+	if src.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
+		return fmt.Errorf("ate: %w: %q is not suspended; suspend it first", ErrPrecondition, srcID)
 	}
 	snapshot := src.GetLatestSnapshot()
 	if snapshot.GetName() == "" {
-		return fmt.Errorf("ate: %w: %q has no snapshot to fork from; suspend it first", ErrPrecondition, srcID)
+		return fmt.Errorf("ate: %w: %q has no snapshot to fork from", ErrPrecondition, srcID)
 	}
 
 	// A snapshot is only usable as a source once it carries a tag, and the tag
