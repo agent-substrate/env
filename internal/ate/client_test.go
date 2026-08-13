@@ -86,6 +86,32 @@ func TestEnsureAtespace(t *testing.T) {
 	}
 }
 
+func TestSuspend(t *testing.T) {
+	f := newFixture(t)
+	f.create(t, "sb-susp")
+	ctx := t.Context()
+
+	if got := f.control.Status("sb-susp"); got != ateapipb.Actor_STATUS_RUNNING {
+		t.Fatalf("status before suspend = %v, want RUNNING", got)
+	}
+	if err := f.client.Suspend(ctx, "sb-susp"); err != nil {
+		t.Fatalf("Suspend: %v", err)
+	}
+	if got := f.control.Status("sb-susp"); got != ateapipb.Actor_STATUS_SUSPENDED {
+		t.Errorf("status after suspend = %v, want SUSPENDED", got)
+	}
+	if snapshot := f.control.SnapshotOf("sb-susp"); snapshot == "" {
+		t.Error("suspend did not create a snapshot")
+	}
+}
+
+func TestSuspendMissing(t *testing.T) {
+	f := newFixture(t)
+	if err := f.client.Suspend(t.Context(), "sb-missing"); !errors.Is(err, ate.ErrNotFound) {
+		t.Fatalf("Suspend of missing actor: err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	f := newFixture(t)
 	f.create(t, "sb-del")

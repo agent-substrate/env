@@ -233,3 +233,41 @@ func TestFork(t *testing.T) {
 		t.Errorf("fork without dest_id status = %d, want 400", resp.StatusCode)
 	}
 }
+
+func TestSuspend(t *testing.T) {
+	srv, router, control := newAPI(t)
+	t.Chdir(t.TempDir())
+	sys := guestsys.New()
+	h, err := (&guest.Server{}).Handler(sys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.Register("susp", h)
+
+	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"susp","template":"default-env","namespace":"envs"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", resp.StatusCode)
+	}
+
+	if got := control.Status("susp"); got != ateapipb.Actor_STATUS_RUNNING {
+		t.Fatalf("status before suspend = %v, want RUNNING", got)
+	}
+
+	resp = do(t, "POST", srv.URL+"/v1/envs/susp/suspend", "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("suspend status = %d, want 204", resp.StatusCode)
+	}
+
+	if got := control.Status("susp"); got != ateapipb.Actor_STATUS_SUSPENDED {
+		t.Errorf("status after suspend = %v, want SUSPENDED", got)
+	}
+
+	// Suspend of missing environment returns 404.
+	resp = do(t, "POST", srv.URL+"/v1/envs/missing/suspend", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("suspend of missing env status = %d, want 404", resp.StatusCode)
+	}
+	if got := decode[env.Error](t, resp); got.Code != env.CodeNotFound {
+		t.Errorf("error code = %q, want %q", got.Code, env.CodeNotFound)
+	}
+}

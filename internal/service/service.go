@@ -33,6 +33,7 @@ func Handler(client *ate.Client) http.Handler {
 	// More specific than the guest proxy below, so it wins the route match
 	// rather than being forwarded into the environment.
 	mux.HandleFunc("POST /v1/envs/{id}/fork", s.fork)
+	mux.HandleFunc("POST /v1/envs/{id}/suspend", s.suspend)
 	mux.HandleFunc("/v1/envs/{id}/{rest...}", s.proxyGuest)
 	return mux
 }
@@ -116,6 +117,14 @@ func (s *server) fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *server) suspend(w http.ResponseWriter, r *http.Request) {
+	if err := s.client.Suspend(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) delete(w http.ResponseWriter, r *http.Request) {

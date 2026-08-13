@@ -151,4 +151,10 @@ func TestWriteManifests(t *testing.T) {
 	if strings.Contains(out, "status") {
 		t.Errorf("output should not contain status fields:\n%s", out)
 	}
+	if strings.Contains(out, "onResume") {
+		t.Errorf("output should not contain empty onResume field:\n%s", out)
+	}
+	if strings.Contains(out, "{}") {
+		t.Errorf("output should not contain empty map literals ({}):\n%s", out)
+	}
 }

@@ -119,6 +119,7 @@ func writeManifests(w io.Writer, objs []any) error {
 			return fmt.Errorf("decoding json: %w", err)
 		}
 		delete(m, "status")
+		prune(m)
 		data, err := yaml.Marshal(m)
 		if err != nil {
 			return fmt.Errorf("encoding manifest: %w", err)
@@ -133,6 +134,35 @@ func writeManifests(w io.Writer, objs []any) error {
 		}
 	}
 	return nil
+}
+
+func prune(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		for k, child := range val {
+			cleaned := prune(child)
+			if cleaned == nil {
+				delete(val, k)
+				continue
+			}
+			if m, ok := cleaned.(map[string]any); ok && len(m) == 0 {
+				delete(val, k)
+				continue
+			}
+			val[k] = cleaned
+		}
+		if len(val) == 0 {
+			return nil
+		}
+		return val
+	case []any:
+		for i, elem := range val {
+			val[i] = prune(elem)
+		}
+		return val
+	default:
+		return val
+	}
 }
 
 func buildNamespace(cfg deployConfig) *corev1.Namespace {

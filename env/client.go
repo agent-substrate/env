@@ -78,6 +78,11 @@ func (c *Client) Fork(ctx context.Context, id, destID string) (*Env, error) {
 	return &Env{id: destID, client: c}, nil
 }
 
+// Suspend checkpoints and stops the environment id.
+func (c *Client) Suspend(ctx context.Context, id string) error {
+	return c.Env(id).Suspend(ctx)
+}
+
 // Env returns a handle to an environment by ID without checking that it
 // exists.
 func (c *Client) Env(id string) *Env {

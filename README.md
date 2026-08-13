@@ -49,8 +49,8 @@ API:
 
 ```bash
 ate-env deploy \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:d025dfca558e5d6c8e08705d9f6eaa1c10a6ba9a1e47fa7a0deb60fc4759beba \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:2e9bce3d07f2a70c177a41a3aa039c313105c36e97545d3c23dcf86da9ad4d26 \
+  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:cae69eb445a7a57d60f083e9d437f0e9ecdaa8778aee10780a512a67bdd8dc34 \
+  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:ae50de13556abc02bf05620018023a05db29a61551751d29537a67fb55316e5e \
   --ateom-image gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 
@@ -91,6 +91,7 @@ Lifecycle and deployment are top-level commands; command execution and file oper
 $ ate-env create dev1 --template default-env
 $ ate-env dev1 shell 'uname -a'
 $ ate-env dev1 fs ls /
+$ ate-env suspend dev1
 $ ate-env fork dev1 dev2
 $ ate-env delete dev1
 ```
@@ -112,6 +113,7 @@ Available Commands:
   fork        Create an environment from another environment's latest snapshot
   fs          Operate on files and directories in an environment
   help        Help about any command
+  suspend     Suspend an environment
 
 $ ate-env dev1
 Operate on environment dev1
@@ -142,6 +144,7 @@ environment ID `dev1`. `GET` and `DELETE` endpoints take their target path as a
 | Method   | Path                      | Description                                      |
 | -------- | ------------------------- | ------------------------------------------------ |
 | `POST`   | `/v1/envs`                | Create an environment                            |
+| `POST`   | `/v1/envs/{id}/suspend`   | Suspend an environment                           |
 | `POST`   | `/v1/envs/{id}/fork`      | Fork an environment from its latest snapshot     |
 | `DELETE` | `/v1/envs/{id}`           | Delete an environment                            |
 | `POST`   | `/v1/envs/{id}/shell`     | Run a shell command line                         |
@@ -161,6 +164,12 @@ environment ID `dev1`. `GET` and `DELETE` endpoints take their target path as a
 ```bash
 curl -X POST localhost:7777/v1/envs \
      -d '{"id": "dev1", "template": "default-env", "namespace": "ate-env"}'
+```
+
+`POST /v1/envs/{id}/suspend` suspends an environment and checkpoints its state.
+
+```bash
+curl -X POST localhost:7777/v1/envs/dev1/suspend
 ```
 
 `POST /v1/envs/{id}/fork` creates a new environment from `{id}`'s latest

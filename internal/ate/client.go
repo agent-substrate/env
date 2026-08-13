@@ -254,11 +254,19 @@ func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
 	return nil
 }
 
+// Suspend checkpoints and stops the actor with ID.
+func (c *Client) Suspend(ctx context.Context, id string) error {
+	if _, err := c.control.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: c.ref(id)}); err != nil {
+		return fmt.Errorf("ate: suspending %q: %w", id, wrapGRPCError(err))
+	}
+	return nil
+}
+
 // Delete removes the actor with ID permanently. Substrate only deletes suspended
 // actors, so Delete suspends the actor first.
 func (c *Client) Delete(ctx context.Context, id string) error {
-	if _, err := c.control.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: c.ref(id)}); err != nil {
-		return fmt.Errorf("actor: suspending %q: %w", id, wrapGRPCError(err))
+	if err := c.Suspend(ctx, id); err != nil {
+		return err
 	}
 	_, err := c.control.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: c.ref(id)})
 	if err != nil {

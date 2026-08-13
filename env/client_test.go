@@ -96,6 +96,25 @@ func TestCreateStartsEnv(t *testing.T) {
 	}
 }
 
+func TestSuspend(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-susp")
+	ctx := t.Context()
+
+	if err := sb.Suspend(ctx); err != nil {
+		t.Fatalf("Suspend: %v", err)
+	}
+
+	// Fork succeeds once the source is suspended.
+	forked, err := f.client.Fork(ctx, "sb-susp", "sb-forked")
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	if forked.ID() != "sb-forked" {
+		t.Errorf("forked ID = %s, want sb-forked", forked.ID())
+	}
+}
+
 func TestDelete(t *testing.T) {
 	f := newFixture(t)
 	sb := f.create(t, "sb-life")

@@ -32,6 +32,11 @@ func (e *Env) pathQuery(suffix, p string) string {
 	return e.path(suffix) + "?" + url.Values{"path": {p}}.Encode()
 }
 
+// Suspend checkpoints and stops the environment.
+func (e *Env) Suspend(ctx context.Context) error {
+	return e.client.do(ctx, http.MethodPost, e.path("/suspend"), nil, nil)
+}
+
 // Delete removes the environment permanently.
 func (e *Env) Delete(ctx context.Context) error {
 	return e.client.do(ctx, http.MethodDelete, e.path(""), nil, nil)

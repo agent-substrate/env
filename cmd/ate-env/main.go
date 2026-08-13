@@ -89,6 +89,15 @@ func main() {
 	})
 
 	root.AddCommand(&cobra.Command{
+		Use:   "suspend <id>",
+		Short: "Suspend an environment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return client.Env(args[0]).Suspend(cmd.Context())
+		},
+	})
+
+	root.AddCommand(&cobra.Command{
 		Use:   "delete <id>",
 		Short: "Delete an environment",
 		Args:  cobra.ExactArgs(1),
