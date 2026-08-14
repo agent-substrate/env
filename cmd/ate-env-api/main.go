@@ -19,14 +19,16 @@ func main() {
 		atenet     = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
 		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
+		tokenFile  = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
 	)
 	flag.Parse()
 
 	client, err := ate.New(ate.Options{
-		ControlAddr: *ateapi,
-		RouterAddr:  *atenet,
-		HostSuffix:  *hostSuffix,
-		SkipVerify:  *skipVerify,
+		ControlAddr:     *ateapi,
+		RouterAddr:      *atenet,
+		HostSuffix:      *hostSuffix,
+		SkipVerify:      *skipVerify,
+		BearerTokenFile: *tokenFile,
 	})
 	if err != nil {
 		log.Fatalf("creating env client: %v", err)

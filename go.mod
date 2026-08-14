@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
-	github.com/agent-substrate/substrate v0.0.0-20260802031337-3ed6aa07e167
+	github.com/agent-substrate/substrate v0.0.0-20260810181943-07da819da1e8
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.82.1

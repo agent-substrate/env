@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/agent-substrate/env/env"
@@ -77,6 +79,13 @@ type Options struct {
 	// connection.
 	TLSConfig *tls.Config
 
+	// BearerTokenFile, if set, is a file whose contents are sent as a
+	// bearer token on every control-plane RPC. Point it at a projected
+	// ServiceAccount token with the ateapi audience when the control
+	// plane requires authentication. The file is re-read on each RPC so
+	// rotated tokens are picked up.
+	BearerTokenFile string
+
 	// HTTPClient overrides the HTTP client used for router traffic.
 	HTTPClient *http.Client
 }
@@ -106,7 +115,11 @@ func New(opts Options) (*Client, error) {
 		creds = credentials.NewTLS(&tls.Config{InsecureSkipVerify: opts.SkipVerify})
 	}
 
-	conn, err := grpc.NewClient(opts.ControlAddr, grpc.WithTransportCredentials(creds))
+	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if opts.BearerTokenFile != "" {
+		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(fileTokenCreds{path: opts.BearerTokenFile}))
+	}
+	conn, err := grpc.NewClient(opts.ControlAddr, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("ate: dialing control plane: %w", err)
 	}
@@ -128,6 +141,19 @@ func New(opts Options) (*Client, error) {
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
+
+// fileTokenCreds sends the contents of a file as a bearer token on each RPC.
+type fileTokenCreds struct{ path string }
+
+func (c fileTokenCreds) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	b, err := os.ReadFile(c.path)
+	if err != nil {
+		return nil, fmt.Errorf("ate: reading bearer token file: %w", err)
+	}
+	return map[string]string{"authorization": "Bearer " + strings.TrimSpace(string(b))}, nil
+}
+
+func (c fileTokenCreds) RequireTransportSecurity() bool { return true }
 
 // ProxyGuest reverse-proxies an HTTP request to the guest daemon inside env id.
 // subPath is the path on guest, e.g. "/v1/shell" or "/v1/file".

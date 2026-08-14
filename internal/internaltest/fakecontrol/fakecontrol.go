@@ -217,9 +217,11 @@ func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorReque
 		return nil, err
 	}
 	a.Status = ateapipb.Actor_STATUS_RUNNING
-	a.AteomPodName = "worker-0"
-	a.AteomPodNamespace = "ate-system"
-	a.AteomPodIp = "10.0.0.1"
+	a.WorkerAssignment = &ateapipb.WorkerAssignment{
+		WorkerNamespace: "ate-system",
+		WorkerPod:       "worker-0",
+		WorkerPodIp:     "10.0.0.1",
+	}
 	return &ateapipb.ResumeActorResponse{Actor: clone(a)}, nil
 }
 
@@ -252,7 +254,7 @@ func (s *Server) Suspend(name string) string {
 // actor's latest. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
 	a.Status = ateapipb.Actor_STATUS_SUSPENDED
-	a.AteomPodName, a.AteomPodNamespace, a.AteomPodIp = "", "", ""
+	a.WorkerAssignment = nil
 
 	s.snapshotN++
 	ref := &ateapipb.ObjectRef{
