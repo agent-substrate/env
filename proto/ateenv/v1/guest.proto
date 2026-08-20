@@ -1,7 +1,7 @@
 // Copyright 2026 The Agent Substrate Authors.
 //
 // Minimal Protocol Buffers definition for the Agent Substrate Guest Data Plane.
-// Exposes basic process execution (async lifecycle) and file read/write.
+// Exposes asynchronous process execution, log streaming, and streaming file I/O.
 
 syntax = "proto3";
 
@@ -9,40 +9,44 @@ package ateenv.v1;
 
 option go_package = "github.com/agent-substrate/env/proto/ateenv/v1;ateenvv1";
 
+import "google/protobuf/timestamp.proto";
+
 // ============================================================================
 // --- SERVICES ---
 // ============================================================================
 
-// ProcessService manages the asynchronous lifecycle of processes running inside
-// the container.
+// ProcessService manages the asynchronous lifecycle and output streaming of
+// processes running inside the container.
 service ProcessService {
   // StartProcess launches a long-running process asynchronously in the background
-  // and immediately returns a unique process_id for status tracking.
+  // and immediately returns a unique process_id for tracking.
   rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
 
-  // GetProcess polls the execution status, exit code, and incremental stdout/stderr
-  // logs of an asynchronous process.
-  rpc GetProcess(GetProcessRequest) returns (GetProcessResponse);
+  // GetProcess retrieves the current metadata, lifecycle state, and timestamps of a process.
+  rpc GetProcess(GetProcessRequest) returns (Process);
+
+  // StreamProcessLogs streams real-time stdout and stderr logs from a process.
+  rpc StreamProcessLogs(StreamProcessLogsRequest) returns (stream ProcessLogChunk);
 
   // KillProcess terminates a running asynchronous process and its child process tree.
   rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
 }
 
-// FileSystemService provides basic file reading and writing capabilities inside
-// the container rootfs/workspace.
+// FileSystemService provides streaming file reading and writing capabilities inside
+// the container rootfs/workspace to prevent memory exhaustion (OOM).
 service FileSystemService {
-  // ReadFile reads the full binary or text contents of a file.
-  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  // ReadFile streams the binary or text contents of a file in chunks.
+  rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
 
-  // WriteFile writes binary or text contents to a target file with optional mode permissions.
-  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  // WriteFile streams binary or text chunks directly to a target file.
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
 }
 
 // ============================================================================
 // --- PROCESS SERVICE MESSAGES ---
 // ============================================================================
 
-// Status of an asynchronous process execution.
+// Execution status of an asynchronous process.
 enum ProcessStatus {
   PROCESS_STATUS_UNSPECIFIED = 0;
   // Process is actively running in the background.
@@ -53,6 +57,27 @@ enum ProcessStatus {
   PROCESS_STATUS_FAILED = 3;
   // Process was killed before completion.
   PROCESS_STATUS_TERMINATED = 4;
+}
+
+// Output log stream source.
+enum LogSource {
+  LOG_SOURCE_UNSPECIFIED = 0;
+  LOG_SOURCE_STDOUT = 1;
+  LOG_SOURCE_STDERR = 2;
+}
+
+// The Process resource representing execution state and metadata.
+message Process {
+  // Unique process identifier.
+  string process_id = 1;
+  // Current execution lifecycle state.
+  ProcessStatus status = 2;
+  // Process exit status code (valid once status is COMPLETED, FAILED, or TERMINATED).
+  int32 exit_code = 3;
+  // Timestamp when the process started.
+  google.protobuf.Timestamp started_at = 4;
+  // Timestamp when the process terminated (if finished).
+  google.protobuf.Timestamp finished_at = 5;
 }
 
 // Request to start a background asynchronous process.
@@ -67,34 +92,34 @@ message StartProcessRequest {
 
 // Response returned immediately after launching an asynchronous process.
 message StartProcessResponse {
-  // Unique process identifier used for polling status, reading logs, and killing.
+  // Unique process identifier used for status inspection, log streaming, and killing.
   string process_id = 1;
 }
 
-// Request to check status and read output of an asynchronous process.
+// Request to get the Process resource.
 message GetProcessRequest {
   // Identifier of the process to inspect.
   string process_id = 1;
-  // Byte offset to start reading stdout from (enables incremental log polling).
-  int64 stdout_offset = 2;
-  // Byte offset to start reading stderr from (enables incremental log polling).
-  int64 stderr_offset = 3;
 }
 
-// Response containing execution status and output logs.
-message GetProcessResponse {
-  // Current execution lifecycle state of the process.
-  ProcessStatus status = 1;
-  // Process exit code (valid once status is COMPLETED, FAILED, or TERMINATED).
-  int32 exit_code = 2;
-  // Captured standard output text since the requested stdout_offset.
-  string stdout = 3;
-  // Captured standard error text since the requested stderr_offset.
-  string stderr = 4;
-  // Total byte size of all stdout generated by the process so far.
-  int64 total_stdout_bytes = 5;
-  // Total byte size of all stderr generated by the process so far.
-  int64 total_stderr_bytes = 6;
+// Request to stream logs from a process.
+message StreamProcessLogsRequest {
+  // Identifier of the process to stream logs from.
+  string process_id = 1;
+  // Byte offset to start reading stdout from (defaults to 0 / beginning).
+  int64 stdout_offset = 2;
+  // Byte offset to start reading stderr from (defaults to 0 / beginning).
+  int64 stderr_offset = 3;
+  // If true, the stream follows new log output in real-time until the process finishes.
+  bool follow = 4;
+}
+
+// Streamed chunk of process output.
+message ProcessLogChunk {
+  // Stream source (stdout or stderr).
+  LogSource source = 1;
+  // Log content bytes.
+  bytes data = 2;
 }
 
 // Request to terminate a running asynchronous process.
@@ -119,24 +144,24 @@ message ReadFileRequest {
   string path = 1;
 }
 
-// Response containing the file data.
-message ReadFileResponse {
-  // Raw binary or text contents of the file.
-  bytes content = 1;
+// Streamed chunk of file data.
+message FileChunk {
+  // Raw binary or text chunk of the file.
+  bytes data = 1;
 }
 
-// Request to write data to a file in the container.
+// Streamed request chunk for writing data to a file.
 message WriteFileRequest {
-  // Absolute or workspace-relative path of the file to write.
+  // Absolute or workspace-relative path of the file to write (sent on first message).
   string path = 1;
-  // Raw binary or text contents to write to the file.
-  bytes content = 2;
-  // Optional POSIX file mode permission (e.g. 0644 or 0755). If 0, defaults to 0644.
+  // Raw binary or text chunk to write to the file.
+  bytes chunk = 2;
+  // Optional POSIX file mode permission (e.g. 0644 or 0755; processed on first message).
   uint32 mode = 3;
 }
 
 // Response confirming the write operation.
 message WriteFileResponse {
-  // Number of bytes written to the file.
+  // Total number of bytes written across all stream chunks.
   int64 bytes_written = 1;
 }
