@@ -1,5 +1,7 @@
 // Command main runs a reference guest daemon for Agent Substrate environments,
 // assembling ProcessService and FileSystemService onto a gRPC server.
+//
+// TODO: This reference guest daemon implementation will converge into cmd/ate-env-guest.
 package main
 
 import (
@@ -11,8 +13,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/agent-substrate/env/guestd/filesystem"
-	"github.com/agent-substrate/env/guestd/process"
+	"github.com/agent-substrate/env/guest/filesystem"
+	"github.com/agent-substrate/env/guest/process"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"

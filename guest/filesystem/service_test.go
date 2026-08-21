@@ -22,8 +22,8 @@ func setupTestFileSystemServer(t *testing.T, configs ...Config) (ateenvv1.FileSy
 	t.Helper()
 
 	cfg := Config{
-		RootDirectory: "/", // unconfined for generic tests
-		ChunkSize:     4 * 1024,
+		RootDirectory:  "/", // unconfined for generic tests
+		ReadBufferSize: 4 * 1024,
 	}
 	if len(configs) > 0 {
 		cfg = configs[0]
@@ -61,7 +61,7 @@ func setupTestFileSystemServer(t *testing.T, configs ...Config) (ateenvv1.FileSy
 
 func TestWriteAndReadFileSmall(t *testing.T) {
 	tempDir := t.TempDir()
-	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ChunkSize: 4 * 1024})
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ReadBufferSize: 4 * 1024})
 	defer cleanup()
 
 	ctx := context.Background()
@@ -119,7 +119,7 @@ func TestWriteAndReadFileSmall(t *testing.T) {
 
 func TestWriteAndReadFileMultiChunk(t *testing.T) {
 	tempDir := t.TempDir()
-	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ChunkSize: 4 * 1024})
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ReadBufferSize: 4 * 1024})
 	defer cleanup()
 
 	ctx := context.Background()

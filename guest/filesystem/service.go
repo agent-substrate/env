@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	// DefaultChunkSize is the buffer size for streaming file reads (64 KB).
-	DefaultChunkSize = 64 * 1024
-	// DefaultSandboxDir is the default confined root directory for filesystem operations.
-	DefaultSandboxDir = "/workspace"
+	// DefaultReadBufferSize is the buffer size for streaming file reads (64 KB).
+	DefaultReadBufferSize = 64 * 1024
+	// DefaultWorkspace is the default confined root directory for filesystem operations.
+	DefaultWorkspace = "/workspace"
 )
 
 // Config holds configuration options for the FileSystemService.
@@ -24,27 +24,30 @@ type Config struct {
 	// RootDirectory confines all file operations to this directory.
 	// If set to "/" or empty string with DisableSandbox, boundary checking is disabled.
 	RootDirectory string
-	// ChunkSize is the buffer size used for streaming file reads.
-	ChunkSize int
+	// ReadBufferSize is the buffer size used for streaming file reads.
+	ReadBufferSize int
 }
 
 // DefaultConfig returns the default configuration for FileSystemService.
 func DefaultConfig() Config {
-	rootDir := DefaultSandboxDir
+	rootDir := DefaultWorkspace
 	if env := os.Getenv("WORKDIR"); env != "" {
 		rootDir = env
 	}
 	return Config{
-		RootDirectory: rootDir,
-		ChunkSize:     DefaultChunkSize,
+		RootDirectory:  rootDir,
+		ReadBufferSize: DefaultReadBufferSize,
 	}
 }
 
 // Service implements ateenvv1.FileSystemServiceServer.
+//
+// TODO: This gRPC service will be adopted by cmd/ate-env-guest as the primary
+// in-actor chunked file transfer and manipulation engine.
 type Service struct {
 	ateenvv1.UnimplementedFileSystemServiceServer
-	rootDir   string
-	chunkSize int
+	rootDir        string
+	readBufferSize int
 }
 
 // NewService creates a new FileSystemServiceServer instance.
@@ -53,8 +56,8 @@ func NewService(configs ...Config) *Service {
 	cfg := DefaultConfig()
 	if len(configs) > 0 {
 		cfg = configs[0]
-		if cfg.ChunkSize <= 0 {
-			cfg.ChunkSize = DefaultChunkSize
+		if cfg.ReadBufferSize <= 0 {
+			cfg.ReadBufferSize = DefaultReadBufferSize
 		}
 	}
 
@@ -64,8 +67,8 @@ func NewService(configs ...Config) *Service {
 	}
 
 	return &Service{
-		rootDir:   cleanedRoot,
-		chunkSize: cfg.ChunkSize,
+		rootDir:        cleanedRoot,
+		readBufferSize: cfg.ReadBufferSize,
 	}
 }
 
@@ -116,7 +119,7 @@ func (s *Service) ReadFile(req *ateenvv1.ReadFileRequest, stream ateenvv1.FileSy
 	}
 	defer f.Close()
 
-	buf := make([]byte, s.chunkSize)
+	buf := make([]byte, s.readBufferSize)
 	for {
 		n, readErr := f.Read(buf)
 		if n > 0 {

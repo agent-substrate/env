@@ -12,6 +12,9 @@ import (
 )
 
 // Service implements ateenvv1.ProcessServiceServer.
+//
+// TODO: This gRPC service will be adopted by cmd/ate-env-guest as the primary
+// in-actor asynchronous process execution and log streaming engine.
 type Service struct {
 	ateenvv1.UnimplementedProcessServiceServer
 	tracker *Tracker

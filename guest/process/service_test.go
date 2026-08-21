@@ -190,6 +190,97 @@ func TestStreamProcessLogs(t *testing.T) {
 	}
 }
 
+func TestStreamProcessLogsWithOffset(t *testing.T) {
+	client, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+		Command: []string{"sh", "-c", "echo 'prefix-to-skip'; echo 'streamed-line'"},
+	})
+	if err != nil {
+		t.Fatalf("StartProcess failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	skipLen := int64(len("prefix-to-skip\n"))
+	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+		ProcessId:    startRes.ProcessId,
+		StdoutOffset: skipLen,
+		Follow:       false,
+	})
+	if err != nil {
+		t.Fatalf("StreamProcessLogs failed: %v", err)
+	}
+
+	var stdoutBuilder strings.Builder
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("error reading log chunk: %v", err)
+		}
+		if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+			stdoutBuilder.Write(chunk.Data)
+		}
+	}
+
+	out := stdoutBuilder.String()
+	if strings.Contains(out, "prefix-to-skip") {
+		t.Fatalf("expected prefix-to-skip to be skipped, got %q", out)
+	}
+	if !strings.Contains(out, "streamed-line") {
+		t.Fatalf("expected streamed-line in output, got %q", out)
+	}
+}
+
+func TestStreamProcessLogsSnapshotNoFollow(t *testing.T) {
+	client, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+		Command: []string{"sh", "-c", "echo 'instant-output'; sleep 5"},
+	})
+	if err != nil {
+		t.Fatalf("StartProcess failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	start := time.Now()
+	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+		ProcessId: startRes.ProcessId,
+		Follow:    false,
+	})
+	if err != nil {
+		t.Fatalf("StreamProcessLogs failed: %v", err)
+	}
+
+	var stdoutBuilder strings.Builder
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("error reading chunk: %v", err)
+		}
+		stdoutBuilder.Write(chunk.Data)
+	}
+	duration := time.Since(start)
+
+	if duration > 2*time.Second {
+		t.Fatalf("snapshot mode (follow=false) took %v, should have returned immediately", duration)
+	}
+	if !strings.Contains(stdoutBuilder.String(), "instant-output") {
+		t.Fatalf("expected output in snapshot, got %q", stdoutBuilder.String())
+	}
+}
+
 func TestKillProcess(t *testing.T) {
 	client, cleanup := setupTestServer(t)
 	defer cleanup()
@@ -211,8 +302,8 @@ func TestKillProcess(t *testing.T) {
 		t.Fatalf("KillProcess failed: %v", err)
 	}
 
-	if killRes.ExitCode == 0 {
-		t.Fatalf("expected non-zero exit code after kill, got %d", killRes.ExitCode)
+	if killRes.ExitCode != 137 {
+		t.Fatalf("expected exit code 137 after kill, got %d", killRes.ExitCode)
 	}
 
 	proc, err := client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
@@ -224,6 +315,43 @@ func TestKillProcess(t *testing.T) {
 
 	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
 		t.Fatalf("expected status TERMINATED, got %v", proc.Status)
+	}
+	if proc.ExitCode != 137 {
+		t.Fatalf("expected exit code 137, got %d", proc.ExitCode)
+	}
+}
+
+func TestProcessSignalDeath(t *testing.T) {
+	client, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+		Command: []string{"sh", "-c", "kill -15 $$"},
+	})
+	if err != nil {
+		t.Fatalf("StartProcess failed: %v", err)
+	}
+
+	var proc *ateenvv1.Process
+	for i := 0; i < 20; i++ {
+		proc, err = client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+			ProcessId: startRes.ProcessId,
+		})
+		if err != nil {
+			t.Fatalf("GetProcess failed: %v", err)
+		}
+		if proc.Status == ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+		t.Fatalf("expected status TERMINATED, got %v", proc.Status)
+	}
+	if proc.ExitCode != 143 { // 128 + 15 (SIGTERM)
+		t.Fatalf("expected exit code 143 (128+SIGTERM), got %d", proc.ExitCode)
 	}
 }
 

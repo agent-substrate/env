@@ -72,7 +72,9 @@ message Process {
   string process_id = 1;
   // Current execution lifecycle state.
   ProcessStatus status = 2;
-  // Process exit status code (valid once status is COMPLETED, FAILED, or TERMINATED).
+  // Process exit status code (0 for success, 1-127 for program exit code,
+  // 128 + signal number if terminated by signal, e.g. 137 for SIGKILL, 143 for SIGTERM).
+  // Valid once status is COMPLETED, FAILED, or TERMINATED.
   int32 exit_code = 3;
   // Timestamp when the process started.
   google.protobuf.Timestamp started_at = 4;
@@ -130,7 +132,7 @@ message KillProcessRequest {
 
 // Response from terminating a process.
 message KillProcessResponse {
-  // Exit status code after process termination.
+  // Exit status code after process termination (typically 128 + signal, e.g. 137 for SIGKILL).
   int32 exit_code = 1;
 }
 

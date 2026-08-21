@@ -161,7 +161,7 @@ func (cw *cappedWriter) Write(p []byte) (n int, err error) {
 	if cw.written >= cw.limit {
 		if !cw.warned {
 			cw.warned = true
-			_, _ = cw.w.Write([]byte(fmt.Sprintf("\n\n[guestd: maximum log limit of %d MB exceeded; remaining output truncated]\n", cw.limit/(1024*1024))))
+			_, _ = cw.w.Write([]byte(fmt.Sprintf("\n\n[guest: maximum log limit of %d MB exceeded; remaining output truncated]\n", cw.limit/(1024*1024))))
 		}
 		return len(p), nil
 	}
@@ -176,7 +176,7 @@ func (cw *cappedWriter) Write(p []byte) (n int, err error) {
 	cw.written += int64(n)
 	if int64(len(p)) > remaining && !cw.warned {
 		cw.warned = true
-		_, _ = cw.w.Write([]byte(fmt.Sprintf("\n\n[guestd: maximum log limit of %d MB exceeded; remaining output truncated]\n", cw.limit/(1024*1024))))
+		_, _ = cw.w.Write([]byte(fmt.Sprintf("\n\n[guest: maximum log limit of %d MB exceeded; remaining output truncated]\n", cw.limit/(1024*1024))))
 	}
 	return len(p), err
 }
@@ -278,16 +278,31 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 		_ = stderrFile.Close()
 
 		if state.Status == ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
-			// Already marked as terminated
+			// Already marked as terminated; preserve or refine exit code from wait status if signaled
+			var exitErr *exec.ExitError
+			if errors.As(waitErr, &exitErr) {
+				if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+					state.ExitCode = 128 + int32(ws.Signal())
+				}
+			}
 		} else if waitErr == nil {
 			state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_COMPLETED
 			state.ExitCode = 0
 		} else {
-			state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
 			var exitErr *exec.ExitError
 			if errors.As(waitErr, &exitErr) {
-				state.ExitCode = int32(exitErr.ExitCode())
+				if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+					state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED
+					state.ExitCode = 128 + int32(ws.Signal())
+				} else if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Exited() {
+					state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
+					state.ExitCode = int32(ws.ExitStatus())
+				} else {
+					state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
+					state.ExitCode = int32(exitErr.ExitCode())
+				}
 			} else {
+				state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
 				state.ExitCode = -1
 			}
 		}
@@ -334,7 +349,7 @@ func (t *Tracker) Kill(processID string) (int32, error) {
 	}
 
 	state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED
-	state.ExitCode = 137 // SIGKILL
+	state.ExitCode = 128 + int32(syscall.SIGKILL) // 137
 	if state.timer != nil {
 		state.timer.Stop()
 	}
@@ -350,7 +365,11 @@ func (t *Tracker) Kill(processID string) (int32, error) {
 	case <-time.After(2 * time.Second):
 	}
 
-	return 137, nil
+	state.mu.RLock()
+	exitCode := state.ExitCode
+	state.mu.RUnlock()
+
+	return exitCode, nil
 }
 
 // prunerLoop periodically removes expired process states and log files.

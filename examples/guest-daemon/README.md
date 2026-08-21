@@ -2,7 +2,7 @@
 
 This directory contains a reference implementation of an in-container **Guest Daemon** for Agent Substrate environments.
 
-It demonstrates how to assemble **`ProcessService`** and **`FileSystemService`** from the `guestd` package into a standalone gRPC server, package it into a minimal container, and run it.
+It demonstrates how to assemble **`ProcessService`** and **`FileSystemService`** from the `guest` package into a standalone gRPC server, package it into a minimal container, and run it.
 
 ---
 
@@ -23,7 +23,7 @@ flowchart TD
 
         subgraph OS["Linux OS & Storage"]
             ProcTree["Linux Process Group<br/>(Child Subprocesses)"]
-            LogDir[("Log Spooling<br/>/var/log/ate-jobs/*.log")]
+            LogDir[("Log Spooling<br/>/var/log/ate-jobs/*.[stdout|stderr]")]
             Workspace[("Sandbox Root<br/>/workspace")]
         end
 
@@ -69,6 +69,12 @@ go test -v -race ./examples/guest-daemon/...
 ## 3. Testing with `grpcurl`
 
 Since reflection is enabled, you can interact directly with the running daemon using [`grpcurl`](https://github.com/fullstorydev/grpcurl):
+
+```bash
+# If grpcurl is not in your PATH, you can install it or invoke ~/go/bin/grpcurl:
+go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+export PATH=$PATH:$(go env GOPATH)/bin
+```
 
 ### Start a Background Command
 ```bash

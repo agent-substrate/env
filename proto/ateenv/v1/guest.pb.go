@@ -144,7 +144,9 @@ type Process struct {
 	ProcessId string `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
 	// Current execution lifecycle state.
 	Status ProcessStatus `protobuf:"varint,2,opt,name=status,proto3,enum=ateenv.v1.ProcessStatus" json:"status,omitempty"`
-	// Process exit status code (valid once status is COMPLETED, FAILED, or TERMINATED).
+	// Process exit status code (0 for success, 1-127 for program exit code,
+	// 128 + signal number if terminated by signal, e.g. 137 for SIGKILL, 143 for SIGTERM).
+	// Valid once status is COMPLETED, FAILED, or TERMINATED.
 	ExitCode int32 `protobuf:"varint,3,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	// Timestamp when the process started.
 	StartedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
@@ -552,7 +554,7 @@ func (x *KillProcessRequest) GetProcessId() string {
 // Response from terminating a process.
 type KillProcessResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Exit status code after process termination.
+	// Exit status code after process termination (typically 128 + signal, e.g. 137 for SIGKILL).
 	ExitCode      int32 `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
