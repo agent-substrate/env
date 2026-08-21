@@ -33,8 +33,6 @@ func DefaultConfig() Config {
 	rootDir := DefaultWorkspace
 	if env := os.Getenv("WORKSPACE"); env != "" {
 		rootDir = env
-	} else if env := os.Getenv("WORKDIR"); env != "" {
-		rootDir = env
 	}
 	return Config{
 		RootDirectory:  rootDir,

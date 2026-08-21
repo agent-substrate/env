@@ -20,7 +20,7 @@ import (
 func main() {
 	listen := flag.String("listen", "", "address to listen on (defaults to :$PORT, or :8080)")
 	logDir := flag.String("log-dir", "", "directory for process logs (defaults to $LOG_DIR or /var/log/ate-jobs)")
-	workspace := flag.String("workspace", "", "workspace directory for container operations (defaults to $WORKSPACE, $WORKDIR, or cwd)")
+	workspace := flag.String("workspace", "", "workspace directory for container operations (defaults to $WORKSPACE or cwd)")
 	enableProcess := flag.Bool("enable-process", true, "enable ProcessService gRPC service")
 	enableFileSystem := flag.Bool("enable-filesystem", true, "enable FileSystemService gRPC service")
 	flag.Parse()
@@ -48,8 +48,6 @@ func main() {
 	resolvedWorkspace := *workspace
 	if resolvedWorkspace == "" {
 		if envWork := os.Getenv("WORKSPACE"); envWork != "" {
-			resolvedWorkspace = envWork
-		} else if envWork := os.Getenv("WORKDIR"); envWork != "" {
 			resolvedWorkspace = envWork
 		} else if cwd, err := os.Getwd(); err == nil {
 			resolvedWorkspace = cwd
