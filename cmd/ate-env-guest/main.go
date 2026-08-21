@@ -1,6 +1,10 @@
 // Command ate-env-guest is the daemon that runs inside a Substrate actor
 // and exposes command execution, filesystem access, and MCP tools over HTTP
 // using github.com/modelcontextprotocol/go-sdk.
+//
+// TODO: Migrate cmd/ate-env-guest to adopt the gRPC guest services
+// (github.com/agent-substrate/env/guest/process and github.com/agent-substrate/env/guest/filesystem)
+// as the primary container daemon implementation.
 package main
 
 import (

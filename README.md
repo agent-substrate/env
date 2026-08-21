@@ -430,6 +430,7 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 For complete runnable Go programs:
 - **Environment SDK**: See [quickstart](examples/quickstart/main.go) to manage environments, write files, and execute commands.
 - **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
+- **Guest Daemon**: See [guest-daemon](examples/guest-daemon/main.go) to run a standalone in-actor gRPC service for asynchronous process execution and chunked file transfer.
 
 ## Cleanup
 
