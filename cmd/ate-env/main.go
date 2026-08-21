@@ -80,8 +80,8 @@ func main() {
 			return err
 		},
 	}
-	createCmd.Flags().StringVar(&createTemplate, "template", "default-env", "ActorTemplate name")
-	createCmd.Flags().StringVar(&createNamespace, "namespace", "ate-env", "Kubernetes namespace of the ActorTemplate")
+	createCmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
+	createCmd.Flags().StringVar(&createNamespace, "namespace", "", "Kubernetes namespace of the ActorTemplate (defaults to server default)")
 	root.AddCommand(createCmd)
 
 	root.AddCommand(&cobra.Command{

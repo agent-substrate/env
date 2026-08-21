@@ -61,7 +61,7 @@ Then create and use an environment:
 kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 
 # Create an environment.
-ate-env create dev1 --template default-env
+ate-env create dev1
 
 # Execute a shell command inside the environment.
 ate-env shell dev1 'echo hello > /note.txt'
@@ -88,7 +88,7 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 All lifecycle, execution, and file operations are top-level commands taking the environment ID as an argument:
 
 ```bash
-$ ate-env create dev1 --template default-env
+$ ate-env create dev1
 $ ate-env shell dev1 'uname -a'
 $ echo "hello world" | ate-env write dev1 /app/msg.txt
 $ ate-env read dev1 /app/msg.txt
@@ -212,7 +212,6 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 ## Examples
 
 For complete runnable Go programs:
-- **Environment SDK**: See [quickstart](examples/quickstart/main.go) to manage environments, write files, and execute commands.
 - **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 - **Guest Daemon**: See [guest-daemon](examples/guest-daemon/main.go) to run a standalone in-actor gRPC service for asynchronous process execution and chunked file transfer.
 
