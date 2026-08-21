@@ -26,40 +26,48 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Lifecycle status of an environment.
+// Lifecycle status of an environment, matching Substrate actor statuses.
 type EnvironmentStatus int32
 
 const (
 	EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED EnvironmentStatus = 0
-	// Environment is pending creation or startup.
-	EnvironmentStatus_ENVIRONMENT_STATUS_PENDING EnvironmentStatus = 1
-	// Environment is active and ready to accept command/filesystem operations.
+	// Environment is resuming / warming up from snapshot.
+	EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING EnvironmentStatus = 1
+	// Environment is active and ready to accept operations.
 	EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING EnvironmentStatus = 2
+	// Environment is in the process of suspending.
+	EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING EnvironmentStatus = 3
 	// Environment is suspended and checkpointed.
-	EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED EnvironmentStatus = 3
+	EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED EnvironmentStatus = 4
+	// Environment is in the process of pausing.
+	EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING EnvironmentStatus = 5
 	// Environment is paused.
-	EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED EnvironmentStatus = 4
-	// Environment is terminated or being deleted.
-	EnvironmentStatus_ENVIRONMENT_STATUS_TERMINATED EnvironmentStatus = 5
+	EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED EnvironmentStatus = 6
+	// Environment process crashed.
+	EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED EnvironmentStatus = 7
 )
 
 // Enum value maps for EnvironmentStatus.
 var (
 	EnvironmentStatus_name = map[int32]string{
 		0: "ENVIRONMENT_STATUS_UNSPECIFIED",
-		1: "ENVIRONMENT_STATUS_PENDING",
+		1: "ENVIRONMENT_STATUS_RESUMING",
 		2: "ENVIRONMENT_STATUS_RUNNING",
-		3: "ENVIRONMENT_STATUS_SUSPENDED",
-		4: "ENVIRONMENT_STATUS_PAUSED",
-		5: "ENVIRONMENT_STATUS_TERMINATED",
+		3: "ENVIRONMENT_STATUS_SUSPENDING",
+		4: "ENVIRONMENT_STATUS_SUSPENDED",
+		5: "ENVIRONMENT_STATUS_PAUSING",
+		6: "ENVIRONMENT_STATUS_PAUSED",
+		7: "ENVIRONMENT_STATUS_CRASHED",
 	}
 	EnvironmentStatus_value = map[string]int32{
 		"ENVIRONMENT_STATUS_UNSPECIFIED": 0,
-		"ENVIRONMENT_STATUS_PENDING":     1,
+		"ENVIRONMENT_STATUS_RESUMING":    1,
 		"ENVIRONMENT_STATUS_RUNNING":     2,
-		"ENVIRONMENT_STATUS_SUSPENDED":   3,
-		"ENVIRONMENT_STATUS_PAUSED":      4,
-		"ENVIRONMENT_STATUS_TERMINATED":  5,
+		"ENVIRONMENT_STATUS_SUSPENDING":  3,
+		"ENVIRONMENT_STATUS_SUSPENDED":   4,
+		"ENVIRONMENT_STATUS_PAUSING":     5,
+		"ENVIRONMENT_STATUS_PAUSED":      6,
+		"ENVIRONMENT_STATUS_CRASHED":     7,
 	}
 )
 
@@ -644,14 +652,16 @@ const file_proto_ateenv_v1_env_proto_rawDesc = "" +
 	"\x18DeleteEnvironmentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\batespace\x18\x02 \x01(\tR\batespace\"\x1b\n" +
-	"\x19DeleteEnvironmentResponse*\xdb\x01\n" +
+	"\x19DeleteEnvironmentResponse*\x9c\x02\n" +
 	"\x11EnvironmentStatus\x12\"\n" +
-	"\x1eENVIRONMENT_STATUS_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aENVIRONMENT_STATUS_PENDING\x10\x01\x12\x1e\n" +
-	"\x1aENVIRONMENT_STATUS_RUNNING\x10\x02\x12 \n" +
-	"\x1cENVIRONMENT_STATUS_SUSPENDED\x10\x03\x12\x1d\n" +
-	"\x19ENVIRONMENT_STATUS_PAUSED\x10\x04\x12!\n" +
-	"\x1dENVIRONMENT_STATUS_TERMINATED\x10\x052\x8e\x03\n" +
+	"\x1eENVIRONMENT_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bENVIRONMENT_STATUS_RESUMING\x10\x01\x12\x1e\n" +
+	"\x1aENVIRONMENT_STATUS_RUNNING\x10\x02\x12!\n" +
+	"\x1dENVIRONMENT_STATUS_SUSPENDING\x10\x03\x12 \n" +
+	"\x1cENVIRONMENT_STATUS_SUSPENDED\x10\x04\x12\x1e\n" +
+	"\x1aENVIRONMENT_STATUS_PAUSING\x10\x05\x12\x1d\n" +
+	"\x19ENVIRONMENT_STATUS_PAUSED\x10\x06\x12\x1e\n" +
+	"\x1aENVIRONMENT_STATUS_CRASHED\x10\a2\x8e\x03\n" +
 	"\x12EnvironmentService\x12^\n" +
 	"\x11CreateEnvironment\x12#.ateenv.v1.CreateEnvironmentRequest\x1a$.ateenv.v1.CreateEnvironmentResponse\x12U\n" +
 	"\x0eGetEnvironment\x12 .ateenv.v1.GetEnvironmentRequest\x1a!.ateenv.v1.GetEnvironmentResponse\x12a\n" +

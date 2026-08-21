@@ -65,23 +65,16 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1.CreateEnvi
 		return nil, toGRPCError(err)
 	}
 
-	actor, err := s.client.Get(ctx, atespace, req.GetId())
-	if err != nil {
-		return &ateenvv1.CreateEnvironmentResponse{
-			Environment: &ateenvv1.Environment{
-				Id:       req.GetId(),
-				Atespace: atespace,
-				Template: &ateenvv1.Template{
-					Name:      templateName,
-					Namespace: templateNamespace,
-				},
-				Status: ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING,
-			},
-		}, nil
-	}
-
 	return &ateenvv1.CreateEnvironmentResponse{
-		Environment: ActorToEnvironment(actor),
+		Environment: &ateenvv1.Environment{
+			Id:       req.GetId(),
+			Atespace: atespace,
+			Template: &ateenvv1.Template{
+				Name:      templateName,
+				Namespace: templateNamespace,
+			},
+			Status: ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED,
+		},
 	}, nil
 }
 
@@ -159,15 +152,19 @@ func ActorToEnvironment(actor *ateapipb.Actor) *ateenvv1.Environment {
 func ActorStatusToEnvStatus(st ateapipb.Actor_Status) ateenvv1.EnvironmentStatus {
 	switch st {
 	case ateapipb.Actor_STATUS_RESUMING:
-		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PENDING
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING
 	case ateapipb.Actor_STATUS_RUNNING:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING
-	case ateapipb.Actor_STATUS_SUSPENDING, ateapipb.Actor_STATUS_SUSPENDED:
+	case ateapipb.Actor_STATUS_SUSPENDING:
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING
+	case ateapipb.Actor_STATUS_SUSPENDED:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED
-	case ateapipb.Actor_STATUS_PAUSING, ateapipb.Actor_STATUS_PAUSED:
+	case ateapipb.Actor_STATUS_PAUSING:
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING
+	case ateapipb.Actor_STATUS_PAUSED:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED
-	case ateapipb.Actor_STATUS_DELETING:
-		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_TERMINATED
+	case ateapipb.Actor_STATUS_CRASHED:
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED
 	default:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED
 	}
