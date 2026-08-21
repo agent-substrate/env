@@ -21,9 +21,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -49,10 +47,6 @@ const DefaultAtespace = "default"
 
 // ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
-
-// ErrPrecondition is returned when an operation is valid but the actor is not
-// in a state that allows it, such as forking one that has never been snapshotted.
-var ErrPrecondition = errors.New("precondition failed")
 
 // Options configures a Client.
 type Options struct {
@@ -198,112 +192,91 @@ func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	return nil
 }
 
-// Create registers a new actor from req and starts it. ID and Template are
+// CreateOptions configures the creation of a new actor.
+type CreateOptions struct {
+	ID        string
+	Template  string
+	Namespace string
+	Atespace  string
+}
+
+// Create registers a new actor from opts and starts it. ID and Template are
 // required; Namespace is the Kubernetes namespace the ActorTemplate is looked
-// up in.
-func (c *Client) Create(ctx context.Context, req env.CreateRequest) error {
-	if req.ID == "" {
-		return errors.New("ate: CreateRequest.ID is required")
+// up in. Atespace is the Substrate atespace the actor lives in.
+func (c *Client) Create(ctx context.Context, opts CreateOptions) error {
+	if opts.ID == "" {
+		return errors.New("ate: CreateOptions.ID is required")
 	}
-	if req.Template == "" {
-		return errors.New("ate: CreateRequest.Template is required")
+	if opts.Template == "" {
+		return errors.New("ate: CreateOptions.Template is required")
+	}
+	atespace := opts.Atespace
+	if atespace == "" {
+		atespace = DefaultAtespace
 	}
 
-	if err := c.EnsureAtespace(ctx, DefaultAtespace); err != nil {
-		return fmt.Errorf("ate: creating %q: %w", req.ID, err)
+	if err := c.EnsureAtespace(ctx, atespace); err != nil {
+		return fmt.Errorf("ate: creating %q: %w", opts.ID, err)
 	}
 
 	actor := &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{
-			Atespace: DefaultAtespace,
-			Name:     req.ID,
+			Atespace: atespace,
+			Name:     opts.ID,
 		},
-		ActorTemplateNamespace: req.Namespace,
-		ActorTemplateName:      req.Template,
+		ActorTemplateNamespace: opts.Namespace,
+		ActorTemplateName:      opts.Template,
 	}
 	if _, err := c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: actor}); err != nil {
-		return fmt.Errorf("ate: creating %q: %w", req.ID, wrapGRPCError(err))
+		return fmt.Errorf("ate: creating %q: %w", opts.ID, wrapGRPCError(err))
 	}
 
 	return nil
 }
 
-// Fork creates the actor dstID from the latest snapshot of srcID, inheriting the
-// source's ActorTemplate. The source actor must be suspended.
-func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
-	if srcID == "" || dstID == "" {
-		return errors.New("ate: source and destination IDs are required")
+// Get retrieves the actor with ID in atespace from the control plane.
+// If atespace is empty, DefaultAtespace is used.
+func (c *Client) Get(ctx context.Context, atespace, id string) (*ateapipb.Actor, error) {
+	if id == "" {
+		return nil, errors.New("ate: id is required")
 	}
-	src, err := c.control.GetActor(ctx, &ateapipb.GetActorRequest{Actor: c.ref(srcID)})
+	actor, err := c.control.GetActor(ctx, &ateapipb.GetActorRequest{Actor: c.ref(atespace, id)})
 	if err != nil {
-		return fmt.Errorf("ate: forking %q: %w", srcID, wrapGRPCError(err))
+		return nil, fmt.Errorf("ate: getting %q: %w", id, wrapGRPCError(err))
 	}
-	if src.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
-		return fmt.Errorf("ate: %w: %q is not suspended; suspend it first", ErrPrecondition, srcID)
-	}
-	snapshot := src.GetLatestSnapshot()
-	if snapshot.GetName() == "" {
-		return fmt.Errorf("ate: %w: %q has no snapshot to fork from", ErrPrecondition, srcID)
-	}
-
-	// A snapshot is only usable as a source once it carries a tag, and the tag
-	// also pins it against garbage collection for the life of the fork.
-	tag := &ateapipb.ObjectRef{
-		Atespace: DefaultAtespace,
-		Name:     fmt.Sprintf("fork-%s-%d", dstID, time.Now().UnixNano()),
-	}
-	if _, err := c.control.TagActorSnapshot(ctx, &ateapipb.TagActorSnapshotRequest{
-		Snapshot: &ateapipb.ActorSnapshotRef{
-			Reference: &ateapipb.ActorSnapshotRef_Snapshot{Snapshot: snapshot},
-		},
-		Tag: &ateapipb.ActorSnapshotTag{
-			Metadata: &ateapipb.ResourceMetadata{Atespace: tag.GetAtespace(), Name: tag.GetName()},
-			Scope:    ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE,
-		},
-	}); err != nil {
-		return fmt.Errorf("ate: tagging snapshot of %q: %w", srcID, wrapGRPCError(err))
-	}
-
-	_, err = c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		Actor: &ateapipb.Actor{
-			Metadata:               &ateapipb.ResourceMetadata{Atespace: DefaultAtespace, Name: dstID},
-			ActorTemplateNamespace: src.GetActorTemplateNamespace(),
-			ActorTemplateName:      src.GetActorTemplateName(),
-		},
-		SourceSnapshot: &ateapipb.ActorSnapshotRef{
-			Reference: &ateapipb.ActorSnapshotRef_Tag{Tag: tag},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("ate: creating %q from %q: %w", dstID, srcID, wrapGRPCError(err))
-	}
-	return nil
+	return actor, nil
 }
 
-// Suspend checkpoints and stops the actor with ID.
-func (c *Client) Suspend(ctx context.Context, id string) error {
-	if _, err := c.control.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: c.ref(id)}); err != nil {
+// Suspend checkpoints and stops the actor with ID in atespace.
+// If atespace is empty, DefaultAtespace is used.
+func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
+	if _, err := c.control.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: c.ref(atespace, id)}); err != nil {
 		return fmt.Errorf("ate: suspending %q: %w", id, wrapGRPCError(err))
 	}
 	return nil
 }
 
-// Delete removes the actor with ID permanently. Substrate only deletes suspended
+// Delete removes the actor with ID in atespace permanently. Substrate only deletes suspended
 // actors, so Delete suspends the actor first.
-func (c *Client) Delete(ctx context.Context, id string) error {
-	if err := c.Suspend(ctx, id); err != nil {
+// If atespace is empty, DefaultAtespace is used.
+func (c *Client) Delete(ctx context.Context, atespace, id string) error {
+	if err := c.Suspend(ctx, atespace, id); err != nil {
 		return err
 	}
-	_, err := c.control.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: c.ref(id)})
+	_, err := c.control.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: c.ref(atespace, id)})
 	if err != nil {
 		return fmt.Errorf("actor: deleting %q: %w", id, wrapGRPCError(err))
 	}
 	return nil
 }
 
-// ref returns the ObjectRef identifying the actor backing actor id.
-func (c *Client) ref(id string) *ateapipb.ObjectRef {
-	return &ateapipb.ObjectRef{Atespace: DefaultAtespace, Name: id}
+// ref returns the ObjectRef identifying the actor backing actor id in atespace.
+// If atespace is empty, DefaultAtespace is used.
+func (c *Client) ref(atespace, id string) *ateapipb.ObjectRef {
+	if atespace == "" {
+		atespace = DefaultAtespace
+	}
+	return &ateapipb.ObjectRef{Atespace: atespace, Name: id}
 }
 
 func wrapGRPCError(err error) error {

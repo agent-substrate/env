@@ -22,7 +22,6 @@ import (
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/mcp"
 	"github.com/agent-substrate/env/internal/tool"
-	"github.com/agent-substrate/env/internal/tool/browser"
 	fstool "github.com/agent-substrate/env/internal/tool/fs"
 	"github.com/agent-substrate/env/internal/tool/shell"
 )
@@ -50,9 +49,6 @@ func (s *Server) Handler(sys *guestsys.Sys) (http.Handler, error) {
 	if err := reg.Register(shell.New(sys, shell.Config{})); err != nil {
 		return nil, fmt.Errorf("registering shell tool: %w", err)
 	}
-	if err := reg.Register(browser.New(browser.Config{})); err != nil {
-		return nil, fmt.Errorf("registering browser tool: %w", err)
-	}
 	s.reg = reg
 
 	mux := http.NewServeMux()
@@ -63,11 +59,6 @@ func (s *Server) Handler(sys *guestsys.Sys) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/shell", func(w http.ResponseWriter, r *http.Request) { s.handleShell(sys, w, r) })
 	mux.HandleFunc("GET /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleReadFile(sys, w, r) })
 	mux.HandleFunc("POST /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleWriteFile(sys, w, r) })
-	mux.HandleFunc("DELETE /v1/file", func(w http.ResponseWriter, r *http.Request) { s.handleDelete(sys, w, r) })
-	mux.HandleFunc("GET /v1/dir", func(w http.ResponseWriter, r *http.Request) { s.handleListDir(sys, w, r) })
-	mux.HandleFunc("POST /v1/dir", func(w http.ResponseWriter, r *http.Request) { s.handleMkdir(sys, w, r) })
-	mux.HandleFunc("DELETE /v1/dir", func(w http.ResponseWriter, r *http.Request) { s.handleDelete(sys, w, r) })
-	mux.HandleFunc("GET /v1/stat", func(w http.ResponseWriter, r *http.Request) { s.handleStat(sys, w, r) })
 
 	mcpSrv := mcp.NewServer(reg)
 	mux.HandleFunc("POST /v1/mcp", mcpSrv.ServeHTTP)
@@ -91,8 +82,8 @@ func (s *Server) resolvePath(sys *guestsys.Sys, p string) (string, error) {
 	return sys.Resolve(p)
 }
 
-// queryPath resolves the "path" query parameter, which read and delete
-// endpoints take in place of a request body.
+// queryPath resolves the "path" query parameter, which the read
+// endpoint takes in place of a request body.
 func (s *Server) queryPath(sys *guestsys.Sys, r *http.Request) (string, error) {
 	return s.resolvePath(sys, r.URL.Query().Get("path"))
 }
@@ -238,76 +229,4 @@ func (s *Server) handleWriteFile(sys *guestsys.Sys, w http.ResponseWriter, r *ht
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleDelete(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	path, err := s.queryPath(sys, r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
-		return
-	}
-	// Report a missing path as 404; Remove itself treats it as a no-op.
-	if _, err := os.Lstat(path); err != nil {
-		writeFSError(w, err)
-		return
-	}
-	if err := sys.Remove(path); err != nil {
-		writeFSError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleListDir(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	path, err := s.queryPath(sys, r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
-		return
-	}
-	entries, err := sys.ListDir(path, true, nil)
-	if err != nil {
-		writeFSError(w, err)
-		return
-	}
-	writeJSON(w, env.ListDirResponse{Entries: entries})
-}
-
-func (s *Server) handleMkdir(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	var req env.MkdirRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "decoding request body: %v", err)
-		return
-	}
-	if req.Path == "" {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "path is required")
-		return
-	}
-	mode := fs.FileMode(0o755)
-	if req.Mode != "" {
-		v, err := strconv.ParseUint(req.Mode, 8, 32)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "invalid mode %q: %v", req.Mode, err)
-			return
-		}
-		mode = fs.FileMode(v).Perm()
-	}
-	if err := sys.Mkdir(req.Path, mode); err != nil {
-		writeFSError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleStat(sys *guestsys.Sys, w http.ResponseWriter, r *http.Request) {
-	path, err := s.queryPath(sys, r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, env.CodeInvalidArgument, "%v", err)
-		return
-	}
-	entry, err := sys.Stat(path)
-	if err != nil {
-		writeFSError(w, err)
-		return
-	}
-	writeJSON(w, entry)
 }

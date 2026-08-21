@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/guest"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
@@ -23,6 +22,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	t.Chdir(t.TempDir())
 
 	control := fakecontrol.New()
 	controlAddr, stopControl, err := control.Serve()
@@ -38,9 +38,6 @@ func newFixture(t *testing.T) *fixture {
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)
 
-	guestDir := t.TempDir()
-	t.Chdir(guestDir)
-
 	client, err := ate.New(ate.Options{
 		ControlAddr: controlAddr,
 		RouterAddr:  routerAddr,
@@ -51,8 +48,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	f := &fixture{control: control, router: router, client: client, guest: guestDir}
-	return f
+	return &fixture{control: control, router: router, client: client, guest: t.TempDir()}
 }
 
 // create makes a env whose guest handler serves from a temp dir.
@@ -64,7 +60,7 @@ func (f *fixture) create(t *testing.T, id string) {
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	req := env.CreateRequest{ID: id, Template: "default-env", Namespace: "envs"}
+	req := ate.CreateOptions{ID: id, Template: "default-env", Namespace: "envs"}
 	if err := f.client.Create(t.Context(), req); err != nil {
 		t.Fatalf("creating actor %q: %v", id, err)
 	}
@@ -88,37 +84,33 @@ func TestEnsureAtespace(t *testing.T) {
 
 func TestSuspend(t *testing.T) {
 	f := newFixture(t)
-	f.create(t, "sb-susp")
 	ctx := t.Context()
+	f.create(t, "sb-susp")
 
-	if got := f.control.Status("sb-susp"); got != ateapipb.Actor_STATUS_RUNNING {
-		t.Fatalf("status before suspend = %v, want RUNNING", got)
-	}
-	if err := f.client.Suspend(ctx, "sb-susp"); err != nil {
+	if err := f.client.Suspend(ctx, "", "sb-susp"); err != nil {
 		t.Fatalf("Suspend: %v", err)
 	}
-	if got := f.control.Status("sb-susp"); got != ateapipb.Actor_STATUS_SUSPENDED {
-		t.Errorf("status after suspend = %v, want SUSPENDED", got)
-	}
-	if snapshot := f.control.SnapshotOf("sb-susp"); snapshot == "" {
-		t.Error("suspend did not create a snapshot")
+	if st := f.control.Status("sb-susp"); st != ateapipb.Actor_STATUS_SUSPENDED {
+		t.Fatalf("status = %v, want SUSPENDED", st)
 	}
 }
 
 func TestSuspendMissing(t *testing.T) {
 	f := newFixture(t)
-	if err := f.client.Suspend(t.Context(), "sb-missing"); !errors.Is(err, ate.ErrNotFound) {
-		t.Fatalf("Suspend of missing actor: err = %v, want ErrNotFound", err)
+	ctx := t.Context()
+
+	if err := f.client.Suspend(ctx, "", "nonexistent"); !errors.Is(err, ate.ErrNotFound) {
+		t.Fatalf("Suspend nonexistent: err = %v, want ErrNotFound", err)
 	}
 }
 
 func TestDelete(t *testing.T) {
 	f := newFixture(t)
-	f.create(t, "sb-del")
 	ctx := t.Context()
+	f.create(t, "sb-life")
 
-	if err := f.client.Delete(ctx, "sb-del"); err != nil {
-		t.Fatal(err)
+	if err := f.client.Delete(ctx, "", "sb-life"); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
 }
 
@@ -136,53 +128,7 @@ func TestCreateRequiresTemplate(t *testing.T) {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	if err := client.Create(context.Background(), env.CreateRequest{ID: "sb-x"}); err == nil {
+	if err := client.Create(context.Background(), ate.CreateOptions{ID: "sb-x"}); err == nil {
 		t.Fatal("Create without template succeeded, want error")
-	}
-}
-
-func TestFork(t *testing.T) {
-	f := newFixture(t)
-	ctx := t.Context()
-	f.create(t, "sb-src")
-
-	// A running actor that is not suspended cannot be forked.
-	if err := f.client.Fork(ctx, "sb-src", "sb-fork"); !errors.Is(err, ate.ErrPrecondition) {
-		t.Fatalf("fork of non-suspended source: err = %v, want ErrPrecondition", err)
-	}
-
-	snapshot := f.control.Suspend("sb-src")
-	if snapshot == "" {
-		t.Fatal("suspend produced no snapshot")
-	}
-
-	if err := f.client.Fork(ctx, "sb-src", "sb-fork"); err != nil {
-		t.Fatalf("fork: %v", err)
-	}
-	if got := f.control.SnapshotOf("sb-fork"); got != snapshot {
-		t.Errorf("fork created from snapshot %q, want %q", got, snapshot)
-	}
-	if got := f.control.Status("sb-src"); got != ateapipb.Actor_STATUS_SUSPENDED {
-		t.Errorf("source status after fork = %v, want SUSPENDED", got)
-	}
-}
-
-func TestForkRejectsResumingSource(t *testing.T) {
-	f := newFixture(t)
-	ctx := t.Context()
-	f.create(t, "sb-resuming")
-	f.control.Suspend("sb-resuming")
-	f.control.SetStatus("sb-resuming", ateapipb.Actor_STATUS_RESUMING)
-
-	// It has a snapshot, but its state is still in flight.
-	if err := f.client.Fork(ctx, "sb-resuming", "sb-fork"); !errors.Is(err, ate.ErrPrecondition) {
-		t.Fatalf("fork of a resuming source: err = %v, want ErrPrecondition", err)
-	}
-}
-
-func TestForkMissingSource(t *testing.T) {
-	f := newFixture(t)
-	if err := f.client.Fork(t.Context(), "sb-nope", "sb-fork"); !errors.Is(err, ate.ErrNotFound) {
-		t.Fatalf("fork of a missing source: err = %v, want ErrNotFound", err)
 	}
 }

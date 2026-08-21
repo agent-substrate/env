@@ -16,8 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/agent-substrate/env/env"
 )
 
 var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", ".terraform"}
@@ -210,78 +208,6 @@ func (s *Sys) EditFile(p string, oldStr, newStr string, replaceAll bool, maxByte
 	return abs, count, nil
 }
 
-// Remove deletes a file or directory tree. Removing a path that does not
-// exist is not an error.
-func (s *Sys) Remove(p string) error {
-	abs, err := s.Resolve(p)
-	if err != nil {
-		return err
-	}
-	if abs == string(filepath.Separator) {
-		return fmt.Errorf("refusing to delete %s", abs)
-	}
-	return os.RemoveAll(abs)
-}
-
-// errNotDir reports that a walk root was not a directory. It never escapes
-// ListDir.
-var errNotDir = errors.New("walk root is not a directory")
-
-// ListDir lists the immediate entries of the directory at p. It does not
-// descend into subdirectories.
-func (s *Sys) ListDir(p string, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
-	if skipDirs == nil {
-		skipDirs = defaultSkipDirs
-	}
-	abs, err := s.Resolve(p)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := readDirEntries(abs, includeHidden, skipDirs)
-	if errors.Is(err, errNotDir) {
-		// ReadDir does not follow a symlinked directory, but the rest of Sys
-		// follows symlinks, so retry on the link target before giving up.
-		if target, evalErr := filepath.EvalSymlinks(abs); evalErr == nil && target != abs {
-			entries, err = readDirEntries(target, includeHidden, skipDirs)
-		}
-	}
-	switch {
-	case errors.Is(err, errNotDir):
-		return nil, fmt.Errorf("%s is not a directory", abs)
-	case err != nil:
-		return nil, err
-	}
-	return entries, nil
-}
-
-// readDirEntries lists dir's immediate entries. Entries whose metadata cannot
-// be read are skipped.
-func readDirEntries(dir string, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
-	des, err := os.ReadDir(dir)
-	if err != nil {
-		if errors.Is(err, syscall.ENOTDIR) {
-			return nil, errNotDir
-		}
-		return nil, err
-	}
-	entries := make([]env.DirEntry, 0, len(des))
-	for _, d := range des {
-		name := d.Name()
-		if !includeHidden && strings.HasPrefix(name, ".") {
-			continue
-		}
-		if d.IsDir() && slices.Contains(skipDirs, name) {
-			continue
-		}
-		fi, infoErr := d.Info()
-		if infoErr != nil {
-			continue
-		}
-		entries = append(entries, buildDirEntry(filepath.Join(dir, name), fi))
-	}
-	return entries, nil
-}
-
 // Glob returns the paths under p matching pattern, most recently modified
 // first.
 func (s *Sys) Glob(ctx context.Context, p, pattern string, skipDirs []string) ([]string, error) {
@@ -413,48 +339,6 @@ func (s *Sys) Grep(ctx context.Context, p, pattern, include string, skipDirs []s
 	return out, nil
 }
 
-// Mkdir creates a directory including missing parents.
-func (s *Sys) Mkdir(p string, mode fs.FileMode) error {
-	abs, err := s.Resolve(p)
-	if err != nil {
-		return err
-	}
-	return os.MkdirAll(abs, mode)
-}
-
-// Stat returns metadata for the file or directory at p, following symlinks.
-func (s *Sys) Stat(p string) (env.DirEntry, error) {
-	abs, err := s.Resolve(p)
-	if err != nil {
-		return env.DirEntry{}, err
-	}
-	fi, err := os.Stat(abs)
-	if err != nil {
-		return env.DirEntry{}, err
-	}
-	return buildDirEntry(abs, fi), nil
-}
-
-// Move renames src to dst, creating dst's parent directories as needed. An
-// existing dst is replaced.
-func (s *Sys) Move(src, dst string) error {
-	srcAbs, err := s.Resolve(src)
-	if err != nil {
-		return err
-	}
-	dstAbs, err := s.Resolve(dst)
-	if err != nil {
-		return err
-	}
-	if srcAbs == string(filepath.Separator) {
-		return fmt.Errorf("refusing to move %s", srcAbs)
-	}
-	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
-		return err
-	}
-	return os.Rename(srcAbs, dstAbs)
-}
-
 // walkFiles walks the tree rooted at base and calls fn for each file it finds,
 // skipping directories named in skipDirs. Entries that cannot be read are
 // skipped instead of failing the whole walk. fn may return fs.SkipAll to stop
@@ -480,19 +364,6 @@ func walkFiles(ctx context.Context, base string, skipDirs []string, fn func(path
 // isBinary reports whether data looks like binary content rather than text.
 func isBinary(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0
-}
-
-// buildDirEntry converts a stat result at path into an env.DirEntry.
-func buildDirEntry(path string, fi fs.FileInfo) env.DirEntry {
-	return env.DirEntry{
-		Name:       fi.Name(),
-		Path:       path,
-		Size:       fi.Size(),
-		Mode:       uint32(fi.Mode()),
-		ModeString: fi.Mode().String(),
-		IsDir:      fi.IsDir(),
-		ModTime:    fi.ModTime().UTC(),
-	}
 }
 
 // matchGlob reports whether the slash-separated path name matches pattern.
@@ -539,27 +410,6 @@ func CountLines(s string) int {
 		n++
 	}
 	return n
-}
-
-var byteUnits = []string{"KiB", "MiB", "GiB", "TiB"}
-
-// HumanBytes returns a human-readable representation of n bytes.
-func HumanBytes(n int64) string {
-	if n < 0 {
-		return "unknown size"
-	}
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	v := float64(n)
-	for _, u := range byteUnits {
-		v /= unit
-		if v < unit {
-			return fmt.Sprintf("%.1f %s", v, u)
-		}
-	}
-	return fmt.Sprintf("%.1f PiB", v/unit)
 }
 
 const (

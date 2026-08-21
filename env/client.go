@@ -12,8 +12,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
+
+	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // ErrNotFound is returned when a env, file, or directory does not exist.
@@ -21,72 +26,124 @@ var ErrNotFound = errors.New("not found")
 
 // ClientOptions configures a Client.
 type ClientOptions struct {
-	// Endpoint is the base URL of the ate-env-api service, e.g.
-	// "http://localhost:7777". Required.
+	// Endpoint is the address or base URL of the ate-env-api service, e.g.
+	// "http://localhost:7777" or "localhost:7777". Required if GRPCConn is nil.
 	Endpoint string
 
-	// HTTPClient overrides the http.Client used for API requests.
-	HTTPClient *http.Client
+	// GRPCConn overrides the grpc.ClientConn used for EnvironmentService RPCs.
+	GRPCConn *grpc.ClientConn
 }
 
-// Client manages environments against a ate-env-api endpoint over HTTP.
+// Client manages environments against a ate-env-api endpoint over gRPC (for lifecycle)
+// and HTTP (for in-env guest proxying).
 type Client struct {
 	endpoint string
 	opts     ClientOptions
 	http     *http.Client
+	grpcConn *grpc.ClientConn
+	grpc     ateenvv1.EnvironmentServiceClient
 }
 
 // NewClient returns a Client targeting endpoint.
 func NewClient(opts ClientOptions) (*Client, error) {
-	if opts.Endpoint == "" {
+	if opts.Endpoint == "" && opts.GRPCConn == nil {
 		return nil, errors.New("env: ClientOptions.Endpoint is required")
 	}
 	endpoint := strings.TrimRight(opts.Endpoint, "/")
-	httpClient := opts.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") && endpoint != "" {
+		endpoint = "http://" + endpoint
 	}
+
+	var (
+		grpcConn *grpc.ClientConn
+		err      error
+	)
+	if opts.GRPCConn != nil {
+		grpcConn = opts.GRPCConn
+	} else {
+		target := strings.TrimPrefix(endpoint, "http://")
+		target = strings.TrimPrefix(target, "https://")
+		grpcConn, err = grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, fmt.Errorf("env: connecting to gRPC %s: %w", target, err)
+		}
+	}
+
 	return &Client{
 		endpoint: endpoint,
 		opts:     opts,
-		http:     httpClient,
+		http:     http.DefaultClient,
+		grpcConn: grpcConn,
+		grpc:     ateenvv1.NewEnvironmentServiceClient(grpcConn),
 	}, nil
 }
 
 // Close releases the client's resources.
-func (c *Client) Close() error { return nil }
-
-// Create registers a new env with the ID given in req (a DNS-1123 label) and
-// starts it. An empty Template or Namespace falls back to the service's
-// default.
-func (c *Client) Create(ctx context.Context, req CreateRequest) (*Env, error) {
-	if err := c.do(ctx, http.MethodPost, "/v1/envs", req, nil); err != nil {
-		return nil, err
+func (c *Client) Close() error {
+	if c.grpcConn != nil && c.opts.GRPCConn == nil {
+		return c.grpcConn.Close()
 	}
-	return &Env{id: req.ID, client: c}, nil
+	return nil
 }
 
-// Fork creates the environment destID from the latest snapshot of the
-// environment id, inheriting its template, and returns a handle to it.
-// It fails if the source environment is not suspended.
-func (c *Client) Fork(ctx context.Context, id, destID string) (*Env, error) {
-	req := ForkRequest{DestID: destID}
-	path := "/v1/envs/" + url.PathEscape(id) + "/fork"
-	if err := c.do(ctx, http.MethodPost, path, req, nil); err != nil {
-		return nil, err
+// Create registers a new env with the parameters given in req and
+// starts it using the gRPC EnvironmentService.
+func (c *Client) Create(ctx context.Context, req *ateenvv1.CreateEnvironmentRequest) (*Env, error) {
+	resp, err := c.grpc.CreateEnvironment(ctx, req)
+	if err != nil {
+		return nil, fromGRPCError(err)
 	}
-	return &Env{id: destID, client: c}, nil
+	created := resp.GetEnvironment()
+	return &Env{
+		id:       created.GetId(),
+		atespace: created.GetAtespace(),
+		client:   c,
+	}, nil
 }
 
-// Suspend checkpoints and stops the environment id.
-func (c *Client) Suspend(ctx context.Context, id string) error {
-	return c.Env(id).Suspend(ctx)
+// Suspend checkpoints and stops the environment using the gRPC EnvironmentService.
+func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
+	req := &ateenvv1.SuspendEnvironmentRequest{
+		Id:       id,
+		Atespace: atespace,
+	}
+	_, err := c.grpc.SuspendEnvironment(ctx, req)
+	if err != nil {
+		return fromGRPCError(err)
+	}
+	return nil
 }
 
-// Env returns a handle to an environment by ID without checking that it
-// exists.
-func (c *Client) Env(id string) *Env {
-	return &Env{id: id, client: c}
+// Delete removes the environment permanently using the gRPC EnvironmentService.
+func (c *Client) Delete(ctx context.Context, atespace, id string) error {
+	req := &ateenvv1.DeleteEnvironmentRequest{
+		Id:       id,
+		Atespace: atespace,
+	}
+	_, err := c.grpc.DeleteEnvironment(ctx, req)
+	if err != nil {
+		return fromGRPCError(err)
+	}
+	return nil
+}
+
+// Env returns a handle to an environment without checking that it exists.
+func (c *Client) Env(atespace, id string) *Env {
+	return &Env{
+		id:       id,
+		atespace: atespace,
+		client:   c,
+	}
+}
+
+func fromGRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if status.Code(err) == codes.NotFound {
+		return fmt.Errorf("env: %w: %s", ErrNotFound, status.Convert(err).Message())
+	}
+	return fmt.Errorf("env: %w", err)
 }
 
 // do performs an HTTP request against the API service with an optional JSON
