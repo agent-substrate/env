@@ -1,4 +1,4 @@
-// Command ate-env-api serves the env API. It bridges HTTP
+// Command ate-env-api serves the env API over HTTP and gRPC. It bridges
 // clients to the Substrate control plane (ateapi) for actor lifecycle
 // and to the atenet router for in-env exec and filesystem operations.
 package main
@@ -6,10 +6,17 @@ package main
 import (
 	"flag"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 
+	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/service"
+	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -35,6 +42,27 @@ func main() {
 	}
 	defer client.Close()
 
-	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", *listen, *ateapi, *atenet)
-	log.Fatal(http.ListenAndServe(*listen, service.Handler(client)))
+	grpcServer := grpc.NewServer()
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client))
+
+	httpHandler := service.Handler(client)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+			return
+		}
+		httpHandler.ServeHTTP(w, r)
+	})
+
+	h2cHandler := h2c.NewHandler(handler, &http2.Server{})
+
+	lis, err := net.Listen("tcp", *listen)
+	if err != nil {
+		log.Fatalf("listening on %s: %v", *listen, err)
+	}
+	defer lis.Close()
+
+	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", lis.Addr(), *ateapi, *atenet)
+	log.Fatal(http.Serve(lis, h2cHandler))
 }

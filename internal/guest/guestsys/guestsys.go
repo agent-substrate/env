@@ -16,8 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/agent-substrate/env/env"
 )
 
 var defaultSkipDirs = []string{".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", "target", ".terraform"}
@@ -223,13 +221,24 @@ func (s *Sys) Remove(p string) error {
 	return os.RemoveAll(abs)
 }
 
+// DirEntry describes a file or directory inside an environment.
+type DirEntry struct {
+	Name       string    `json:"name"`
+	Path       string    `json:"path,omitempty"`
+	Size       int64     `json:"size,omitempty"`
+	Mode       uint32    `json:"mode,omitempty"`
+	ModeString string    `json:"mode_string,omitempty"`
+	ModTime    time.Time `json:"mod_time,omitempty"`
+	IsDir      bool      `json:"is_dir,omitempty"`
+}
+
 // errNotDir reports that a walk root was not a directory. It never escapes
 // ListDir.
 var errNotDir = errors.New("walk root is not a directory")
 
 // ListDir lists the immediate entries of the directory at p. It does not
 // descend into subdirectories.
-func (s *Sys) ListDir(p string, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
+func (s *Sys) ListDir(p string, includeHidden bool, skipDirs []string) ([]DirEntry, error) {
 	if skipDirs == nil {
 		skipDirs = defaultSkipDirs
 	}
@@ -256,7 +265,7 @@ func (s *Sys) ListDir(p string, includeHidden bool, skipDirs []string) ([]env.Di
 
 // readDirEntries lists dir's immediate entries. Entries whose metadata cannot
 // be read are skipped.
-func readDirEntries(dir string, includeHidden bool, skipDirs []string) ([]env.DirEntry, error) {
+func readDirEntries(dir string, includeHidden bool, skipDirs []string) ([]DirEntry, error) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, syscall.ENOTDIR) {
@@ -264,7 +273,7 @@ func readDirEntries(dir string, includeHidden bool, skipDirs []string) ([]env.Di
 		}
 		return nil, err
 	}
-	entries := make([]env.DirEntry, 0, len(des))
+	entries := make([]DirEntry, 0, len(des))
 	for _, d := range des {
 		name := d.Name()
 		if !includeHidden && strings.HasPrefix(name, ".") {
@@ -423,14 +432,14 @@ func (s *Sys) Mkdir(p string, mode fs.FileMode) error {
 }
 
 // Stat returns metadata for the file or directory at p, following symlinks.
-func (s *Sys) Stat(p string) (env.DirEntry, error) {
+func (s *Sys) Stat(p string) (DirEntry, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
-		return env.DirEntry{}, err
+		return DirEntry{}, err
 	}
 	fi, err := os.Stat(abs)
 	if err != nil {
-		return env.DirEntry{}, err
+		return DirEntry{}, err
 	}
 	return buildDirEntry(abs, fi), nil
 }
@@ -482,9 +491,9 @@ func isBinary(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0
 }
 
-// buildDirEntry converts a stat result at path into an env.DirEntry.
-func buildDirEntry(path string, fi fs.FileInfo) env.DirEntry {
-	return env.DirEntry{
+// buildDirEntry converts a stat result at path into an DirEntry.
+func buildDirEntry(path string, fi fs.FileInfo) DirEntry {
+	return DirEntry{
 		Name:       fi.Name(),
 		Path:       path,
 		Size:       fi.Size(),

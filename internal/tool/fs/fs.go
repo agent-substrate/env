@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
@@ -37,10 +34,8 @@ func New(sys *guestsys.Sys, cfg Config) []tool.Tool {
 	cfg = cfg.withDefaults()
 	ts := []tool.Tool{
 		readFileTool(sys, cfg),
-		listDirTool(sys, cfg),
 		globTool(sys, cfg),
 		grepTool(sys, cfg),
-		statTool(sys),
 	}
 	if cfg.ReadOnly {
 		return ts
@@ -48,9 +43,6 @@ func New(sys *guestsys.Sys, cfg Config) []tool.Tool {
 	return append(ts,
 		writeFileTool(sys, cfg),
 		editFileTool(sys, cfg),
-		mkdirTool(sys),
-		mvTool(sys),
-		rmTool(sys),
 	)
 }
 
@@ -170,57 +162,6 @@ func editFileTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	})
 }
 
-// --- list_dir ----------------------------------------------------------------
-
-type listDirParams struct {
-	Path          string `json:"path"`
-	IncludeHidden *bool  `json:"include_hidden"`
-}
-
-func listDirTool(sys *guestsys.Sys, cfg Config) tool.Tool {
-	def := &mcp.Tool{
-		Name: "list_dir",
-		Description: "List the immediate contents of a directory. Directories are suffixed with a " +
-			"slash. Subdirectories are not walked; use glob to search a whole subtree. Noisy " +
-			"directories such as .git and node_modules are omitted.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path":           map[string]any{"type": "string", "description": "Directory path relative to the workspace root."},
-				"include_hidden": map[string]any{"type": "boolean", "description": "Include entries starting with a dot. Defaults to false."},
-			},
-			"required": []string{"path"},
-		},
-	}
-	return tool.New(def, func(ctx context.Context, p listDirParams) (string, error) {
-		includeHidden := false
-		if p.IncludeHidden != nil {
-			includeHidden = *p.IncludeHidden
-		}
-		entries, err := sys.ListDir(p.Path, includeHidden, cfg.SkipDirs)
-		if err != nil {
-			return "", err
-		}
-		abs, err := sys.Resolve(p.Path)
-		if err != nil {
-			return "", err
-		}
-		if len(entries) == 0 {
-			return fmt.Sprintf("%s is empty.", abs), nil
-		}
-		lines := make([]string, 0, len(entries))
-		for _, e := range entries {
-			if e.IsDir {
-				lines = append(lines, e.Path+"/")
-			} else {
-				lines = append(lines, fmt.Sprintf("%s (%s)", e.Path, guestsys.HumanBytes(e.Size)))
-			}
-		}
-		sort.Strings(lines)
-		return fmt.Sprintf("%s (%d entries)\n%s", abs, len(lines), strings.Join(lines, "\n")), nil
-	})
-}
-
 // --- glob --------------------------------------------------------------------
 
 type globParams struct {
@@ -284,160 +225,5 @@ func grepTool(sys *guestsys.Sys, cfg Config) tool.Tool {
 	}
 	return tool.New(def, func(ctx context.Context, p grepParams) (string, error) {
 		return sys.Grep(ctx, p.Path, p.Pattern, p.Include, cfg.SkipDirs)
-	})
-}
-
-// --- stat --------------------------------------------------------------------
-
-type statParams struct {
-	Path string `json:"path"`
-}
-
-func statTool(sys *guestsys.Sys) tool.Tool {
-	def := &mcp.Tool{
-		Name:        "stat",
-		Description: "Return file metadata: type, size, permissions, and modification time.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "File or directory path relative to the workspace root."},
-			},
-			"required": []string{"path"},
-		},
-	}
-	return tool.New(def, func(ctx context.Context, p statParams) (string, error) {
-		abs, err := sys.Resolve(p.Path)
-		if err != nil {
-			return "", err
-		}
-		info, err := os.Lstat(abs)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Sprintf("%s does not exist.", abs), nil
-			}
-			return "", err
-		}
-		kind := "file"
-		switch {
-		case info.IsDir():
-			kind = "directory"
-		case info.Mode()&os.ModeSymlink != 0:
-			kind = "symlink"
-		}
-		return fmt.Sprintf("%s\ntype: %s\nsize: %s (%d bytes)\nmode: %s\nmodified: %s",
-			abs, kind, guestsys.HumanBytes(info.Size()), info.Size(),
-			info.Mode().String(), info.ModTime().UTC().Format(time.RFC3339)), nil
-	})
-}
-
-// --- mkdir -------------------------------------------------------------------
-
-type mkdirParams struct {
-	Path string `json:"path"`
-}
-
-func mkdirTool(sys *guestsys.Sys) tool.Tool {
-	def := &mcp.Tool{
-		Name:        "mkdir",
-		Description: "Create a directory, including any missing parent directories. Succeeds if it already exists.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "Directory path relative to the workspace root."},
-			},
-			"required": []string{"path"},
-		},
-	}
-	return tool.New(def, func(ctx context.Context, p mkdirParams) (string, error) {
-		abs, err := sys.Resolve(p.Path)
-		if err != nil {
-			return "", err
-		}
-		if err := sys.Mkdir(p.Path, 0o755); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Created directory %s.", abs), nil
-	})
-}
-
-// --- mv ----------------------------------------------------------------------
-
-type mvParams struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-}
-
-func mvTool(sys *guestsys.Sys) tool.Tool {
-	def := &mcp.Tool{
-		Name:        "mv",
-		Description: "Move or rename a file or directory within the workspace. An existing destination is replaced.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"source":      map[string]any{"type": "string", "description": "Source file or directory path relative to the workspace root."},
-				"destination": map[string]any{"type": "string", "description": "Destination file or directory path relative to the workspace root."},
-			},
-			"required": []string{"source", "destination"},
-		},
-	}
-	return tool.New(def, func(ctx context.Context, p mvParams) (string, error) {
-		srcAbs, err := sys.Resolve(p.Source)
-		if err != nil {
-			return "", err
-		}
-		dstAbs, err := sys.Resolve(p.Destination)
-		if err != nil {
-			return "", err
-		}
-		if err := sys.Move(p.Source, p.Destination); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Moved %s to %s.", srcAbs, dstAbs), nil
-	})
-}
-
-// --- rm ----------------------------------------------------------------------
-
-type rmParams struct {
-	Path      string `json:"path"`
-	Recursive bool   `json:"recursive"`
-}
-
-func rmTool(sys *guestsys.Sys) tool.Tool {
-	def := &mcp.Tool{
-		Name:        "rm",
-		Description: "Delete a file, or an empty directory. Deleting a non-empty directory requires recursive=true.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path":      map[string]any{"type": "string", "description": "File or directory path relative to the workspace root."},
-				"recursive": map[string]any{"type": "boolean", "description": "Delete a directory and everything under it. Defaults to false."},
-			},
-			"required": []string{"path"},
-		},
-	}
-	return tool.New(def, func(ctx context.Context, p rmParams) (string, error) {
-		abs, err := sys.Resolve(p.Path)
-		if err != nil {
-			return "", err
-		}
-		if abs == string(filepath.Separator) {
-			return "", fmt.Errorf("refusing to delete the workspace root")
-		}
-		info, err := os.Lstat(abs)
-		if err != nil {
-			return "", err
-		}
-		isDir := info.IsDir()
-		if isDir && !p.Recursive {
-			return "", fmt.Errorf("%s is a directory; set recursive to delete it and its contents", abs)
-		}
-		if err := sys.Remove(p.Path); err != nil {
-			return "", err
-		}
-		if isDir && p.Recursive {
-			return fmt.Sprintf("Deleted directory %s and its contents.", abs), nil
-		}
-		return fmt.Sprintf("Deleted %s.", abs), nil
 	})
 }

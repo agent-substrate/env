@@ -1,29 +1,35 @@
 package env_test
 
 import (
-	"errors"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/agent-substrate/env/env"
+	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/guest"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/env/internal/service"
+	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+	"google.golang.org/grpc"
 )
 
 // fixture runs the full stack the SDK talks to: a fake Substrate control
 // plane and router behind a real ate-env-api handler.
 type fixture struct {
-	router *fakerouter.Router
-	client *env.Client
-	guest  string // guest workdir
-	apiURL string
+	router  *fakerouter.Router
+	control *fakecontrol.Server
+	client  *env.Client
+	guest   string // guest workdir
+	apiURL  string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -54,7 +60,20 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { directClient.Close() })
 
-	srv := httptest.NewServer(service.Handler(directClient))
+	grpcServer := grpc.NewServer()
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(directClient))
+	httpHandler := service.Handler(directClient)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+			return
+		}
+		httpHandler.ServeHTTP(w, r)
+	})
+	h2cHandler := h2c.NewHandler(handler, &http2.Server{})
+
+	srv := httptest.NewServer(h2cHandler)
 	t.Cleanup(srv.Close)
 
 	client, err := env.NewClient(env.ClientOptions{
@@ -65,7 +84,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	return &fixture{router: router, client: client, guest: t.TempDir(), apiURL: srv.URL}
+	return &fixture{router: router, control: control, client: client, guest: t.TempDir(), apiURL: srv.URL}
 }
 
 // create makes a env whose guest handler serves from a temp dir.
@@ -77,10 +96,12 @@ func (f *fixture) create(t *testing.T, id string) *env.Env {
 		t.Fatalf("creating guest handler: %v", err)
 	}
 	f.router.Register(id, h)
-	sb, err := f.client.Create(t.Context(), env.CreateRequest{
-		ID:        id,
-		Template:  "default-env",
-		Namespace: "envs",
+	sb, err := f.client.Create(t.Context(), &ateenvv1.CreateEnvironmentRequest{
+		Id: id,
+		Template: &ateenvv1.Template{
+			Name:      "default-env",
+			Namespace: "envs",
+		},
 	})
 	if err != nil {
 		t.Fatalf("creating env %q: %v", id, err)
@@ -105,13 +126,8 @@ func TestSuspend(t *testing.T) {
 		t.Fatalf("Suspend: %v", err)
 	}
 
-	// Fork succeeds once the source is suspended.
-	forked, err := f.client.Fork(ctx, "sb-susp", "sb-forked")
-	if err != nil {
-		t.Fatalf("Fork: %v", err)
-	}
-	if forked.ID() != "sb-forked" {
-		t.Errorf("forked ID = %s, want sb-forked", forked.ID())
+	if st := f.control.Status("sb-susp"); st != ateapipb.Actor_STATUS_SUSPENDED {
+		t.Errorf("status = %v, want SUSPENDED", st)
 	}
 }
 
@@ -152,34 +168,5 @@ func TestCmdAndFilesystem(t *testing.T) {
 	}
 	if res.Stdout != "hi there" || res.ExitCode != 0 {
 		t.Errorf("cmd result = %+v, want stdout %q", res, "hi there")
-	}
-
-	entries, err := sb.ListDir(ctx, "project")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name != "hello.txt" {
-		t.Errorf("listing = %+v, want [hello.txt]", entries)
-	}
-
-	entry, err := sb.Stat(ctx, "project/hello.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if entry.IsDir || entry.Size != int64(len("hi there")) {
-		t.Errorf("stat = %+v, want regular file of %d bytes", entry, len("hi there"))
-	}
-
-	if err := sb.Mkdir(ctx, "project/sub", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := sb.Remove(ctx, "project/hello.txt"); err != nil {
-		t.Fatal(err)
-	}
-	if err := sb.Remove(ctx, "project"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := sb.Stat(ctx, "project"); !errors.Is(err, env.ErrNotFound) {
-		t.Errorf("stat after remove = %v, want ErrNotFound", err)
 	}
 }
