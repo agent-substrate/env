@@ -72,8 +72,14 @@ message Process {
   string process_id = 1;
   // Current execution lifecycle state.
   ProcessStatus status = 2;
-  // Process exit status code (valid once status is COMPLETED, FAILED, or TERMINATED).
+  // Process exit status code. Meaningful only when the process exited on its
+  // own (status COMPLETED or FAILED). Not meaningful when term_signal != 0
+  // (status TERMINATED) — a signal-killed process has no exit code.
   int32 exit_code = 3;
+  // Signal number that terminated the process, if any (e.g. 9 for SIGKILL, 15
+  // for SIGTERM). 0 when the process exited normally, in which case exit_code
+  // is authoritative. Lets clients distinguish "exited 0" from "killed".
+  int32 term_signal = 6;
   // Timestamp when the process started.
   google.protobuf.Timestamp started_at = 4;
   // Timestamp when the process terminated (if finished).
@@ -150,14 +156,26 @@ message FileChunk {
   bytes data = 1;
 }
 
-// Streamed request chunk for writing data to a file.
+// Streamed request for writing a file. The first message on the stream MUST
+// carry `header` (path + mode); every subsequent message carries a `chunk` of
+// file data. Modeling this as a oneof makes the "metadata first, then data"
+// contract explicit and enforceable, rather than relying on path/mode being
+// set only on the first message and ignored thereafter.
 message WriteFileRequest {
-  // Absolute or workspace-relative path of the file to write (sent on first message).
+  oneof payload {
+    // Sent exactly once, as the first message on the stream.
+    WriteFileHeader header = 1;
+    // A chunk of file data, streamed in messages after the header.
+    bytes chunk = 2;
+  }
+}
+
+// Metadata for a streamed file write, sent as the first WriteFileRequest.
+message WriteFileHeader {
+  // Absolute or workspace-relative path of the file to write.
   string path = 1;
-  // Raw binary or text chunk to write to the file.
-  bytes chunk = 2;
-  // Optional POSIX file mode permission (e.g. 0644 or 0755; processed on first message).
-  uint32 mode = 3;
+  // Optional POSIX file mode permission (e.g. 0644 or 0755). If 0, defaults to 0644.
+  uint32 mode = 2;
 }
 
 // Response confirming the write operation.

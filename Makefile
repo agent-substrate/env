@@ -1,9 +1,21 @@
 ATE_ENV_IMAGE_REPO ?= us-docker.pkg.dev/agent-substrate-env/ate-env-images
 
-.PHONY: build install test vet clean images
+.PHONY: build install test vet clean images proto proto-lint proto-breaking
 
 build:
 	go build ./...
+
+# Regenerate Go stubs from proto/ (reads buf.gen.yaml). Commit the output.
+proto:
+	buf generate
+
+# Style/consistency checks on the proto schema.
+proto-lint:
+	buf lint proto
+
+# Fail on wire/JSON-incompatible changes to the schema vs the main branch.
+proto-breaking:
+	buf breaking proto --against '.git#branch=main,subdir=proto'
 
 # Install ate-env and ate-env-api to $GOBIN (or $GOPATH/bin).
 install:

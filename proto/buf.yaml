@@ -1,0 +1,15 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # This API intentionally returns resource / stream-chunk types
+    # (Process, FileChunk, ProcessLogChunk) instead of <Method>Response
+    # wrappers — cleaner for a Get that yields the resource and for
+    # streaming RPCs. Everything else in STANDARD still applies.
+    - RPC_RESPONSE_STANDARD_NAME
+breaking:
+  use:
+    - WIRE_JSON
