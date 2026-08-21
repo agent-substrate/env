@@ -135,12 +135,12 @@ stdout without touching the cluster; apply it with kubectl.
 
 Environment lifecycle is defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v1/env.proto):
 
-| Operation | Request | Response | Description |
-| --- | ------- | -------- | ----------- |
-| `CreateEnvironment` | `CreateEnvironmentRequest` | `CreateEnvironmentResponse` | Creates and starts a new environment actor |
-| `GetEnvironment` | `GetEnvironmentRequest` | `GetEnvironmentResponse` | Retrieves environment details and status |
-| `SuspendEnvironment` | `SuspendEnvironmentRequest` | `SuspendEnvironmentResponse` | Suspends and checkpoints the environment |
-| `DeleteEnvironment` | `DeleteEnvironmentRequest` | `DeleteEnvironmentResponse` | Deletes the environment permanently |
+| Operation | Description |
+| --- | ----------- |
+| `CreateEnvironment` | Creates and starts a new environment actor |
+| `GetEnvironment` | Retrieves environment details and status |
+| `SuspendEnvironment` | Suspends and checkpoints the environment |
+| `DeleteEnvironment` | Deletes the environment permanently |
 
 ## Built-in MCP Server
 
