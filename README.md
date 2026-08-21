@@ -45,8 +45,8 @@ API:
 
 ```bash
 ate-env deploy \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:de9c333c72fd002ef06630067841dc54523c40696cbc6d3b486ea6f4134737e9 \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:ab0285366ddb34a90d479d82a6eed260d0f1f48e0725f027cdbd6b7d2a5c4bd1 \
+  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:b2dabfa5e8fa86e48526f10f916d7853e8a7147eb97ce8ddf1ff8d925597f2ff \
+  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:9bc16f42e354e5b61db9ccc7ae7ad5d2f5ec70069fe3ccbbb52ddd271cac119d \
   --ateom-image    gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 

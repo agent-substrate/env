@@ -82,8 +82,8 @@ func (s *Server) resolvePath(sys *guestsys.Sys, p string) (string, error) {
 	return sys.Resolve(p)
 }
 
-// queryPath resolves the "path" query parameter, which read and delete
-// endpoints take in place of a request body.
+// queryPath resolves the "path" query parameter, which the read
+// endpoint takes in place of a request body.
 func (s *Server) queryPath(sys *guestsys.Sys, r *http.Request) (string, error) {
 	return s.resolvePath(sys, r.URL.Query().Get("path"))
 }

@@ -21,7 +21,6 @@ import (
 	"net/http/httputil"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
@@ -48,10 +47,6 @@ const DefaultAtespace = "default"
 
 // ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
-
-// ErrPrecondition is returned when an operation is valid but the actor is not
-// in a state that allows it, such as forking one that has never been snapshotted.
-var ErrPrecondition = errors.New("precondition failed")
 
 // Options configures a Client.
 type Options struct {
@@ -250,58 +245,6 @@ func (c *Client) Get(ctx context.Context, atespace, id string) (*ateapipb.Actor,
 		return nil, fmt.Errorf("ate: getting %q: %w", id, wrapGRPCError(err))
 	}
 	return actor, nil
-}
-
-// Fork creates the actor dstID from the latest snapshot of srcID, inheriting the
-// source's ActorTemplate. The source actor must be suspended.
-func (c *Client) Fork(ctx context.Context, srcID, dstID string) error {
-	if srcID == "" || dstID == "" {
-		return errors.New("ate: source and destination IDs are required")
-	}
-	src, err := c.control.GetActor(ctx, &ateapipb.GetActorRequest{Actor: c.ref(DefaultAtespace, srcID)})
-	if err != nil {
-		return fmt.Errorf("ate: forking %q: %w", srcID, wrapGRPCError(err))
-	}
-	if src.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
-		return fmt.Errorf("ate: %w: %q is not suspended; suspend it first", ErrPrecondition, srcID)
-	}
-	snapshot := src.GetLatestSnapshot()
-	if snapshot.GetName() == "" {
-		return fmt.Errorf("ate: %w: %q has no snapshot to fork from", ErrPrecondition, srcID)
-	}
-
-	// A snapshot is only usable as a source once it carries a tag, and the tag
-	// also pins it against garbage collection for the life of the fork.
-	tag := &ateapipb.ObjectRef{
-		Atespace: DefaultAtespace,
-		Name:     fmt.Sprintf("fork-%s-%d", dstID, time.Now().UnixNano()),
-	}
-	if _, err := c.control.TagActorSnapshot(ctx, &ateapipb.TagActorSnapshotRequest{
-		Snapshot: &ateapipb.ActorSnapshotRef{
-			Reference: &ateapipb.ActorSnapshotRef_Snapshot{Snapshot: snapshot},
-		},
-		Tag: &ateapipb.ActorSnapshotTag{
-			Metadata: &ateapipb.ResourceMetadata{Atespace: tag.GetAtespace(), Name: tag.GetName()},
-			Scope:    ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE,
-		},
-	}); err != nil {
-		return fmt.Errorf("ate: tagging snapshot of %q: %w", srcID, wrapGRPCError(err))
-	}
-
-	_, err = c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		Actor: &ateapipb.Actor{
-			Metadata:               &ateapipb.ResourceMetadata{Atespace: DefaultAtespace, Name: dstID},
-			ActorTemplateNamespace: src.GetActorTemplateNamespace(),
-			ActorTemplateName:      src.GetActorTemplateName(),
-		},
-		SourceSnapshot: &ateapipb.ActorSnapshotRef{
-			Reference: &ateapipb.ActorSnapshotRef_Tag{Tag: tag},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("ate: creating %q from %q: %w", dstID, srcID, wrapGRPCError(err))
-	}
-	return nil
 }
 
 // Suspend checkpoints and stops the actor with ID in atespace.

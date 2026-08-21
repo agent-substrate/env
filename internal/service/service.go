@@ -20,10 +20,6 @@ const DefaultTemplate = "default-env"
 // default namespace of `ate-env deploy`.
 const DefaultNamespace = "ate-env"
 
-// DefaultAtespace is the Substrate atespace used when a request does not
-// specify one.
-const DefaultAtespace = "default"
-
 // Handler serves the environment API backed by client.
 func Handler(client *ate.Client) http.Handler {
 	s := &server{client: client}

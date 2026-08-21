@@ -183,8 +183,6 @@ func toGRPCError(err error) error {
 	switch {
 	case errors.Is(err, ate.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, ate.ErrPrecondition):
-		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
 		return status.Errorf(codes.Internal, "%v", err)
 	}
