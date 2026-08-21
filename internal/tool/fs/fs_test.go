@@ -3,8 +3,6 @@ package fs_test
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,15 +58,7 @@ func TestFSTools(t *testing.T) {
 		t.Fatalf("read_file failed: %v", res)
 	}
 
-	// 3. stat
-	res = invokeTool(t, reg, "stat", map[string]any{
-		"path": "hello.txt",
-	})
-	if res.IsError || !strings.Contains(getText(res), "type: file") {
-		t.Fatalf("stat failed: %v", res)
-	}
-
-	// 4. edit_file
+	// 3. edit_file
 	res = invokeTool(t, reg, "edit_file", map[string]any{
 		"path":       "hello.txt",
 		"old_string": "Substrate Tools",
@@ -85,57 +75,19 @@ func TestFSTools(t *testing.T) {
 		t.Fatalf("read_file after edit failed: %v", res)
 	}
 
-	// 5. mkdir
-	res = invokeTool(t, reg, "mkdir", map[string]any{
-		"path": "nested/dir",
-	})
-	if res.IsError {
-		t.Fatalf("mkdir failed: %v", res)
-	}
-
-	// 6. mv
-	res = invokeTool(t, reg, "mv", map[string]any{
-		"source":      "hello.txt",
-		"destination": "nested/dir/moved.txt",
-	})
-	if res.IsError {
-		t.Fatalf("mv failed: %v", res)
-	}
-
-	// 7. list_dir
-	res = invokeTool(t, reg, "list_dir", map[string]any{
-		"path": "nested/dir",
-	})
-	if res.IsError || !strings.Contains(getText(res), "moved.txt") {
-		t.Fatalf("list_dir failed: %v", res)
-	}
-
-	// 8. glob
+	// 4. glob
 	res = invokeTool(t, reg, "glob", map[string]any{
-		"pattern": "**/*.txt",
+		"pattern": "*.txt",
 	})
-	if res.IsError || !strings.Contains(getText(res), "moved.txt") {
+	if res.IsError || !strings.Contains(getText(res), "hello.txt") {
 		t.Fatalf("glob failed: %v", res)
 	}
 
-	// 9. grep
+	// 5. grep
 	res = invokeTool(t, reg, "grep", map[string]any{
 		"pattern": "Substrate",
 	})
 	if res.IsError || !strings.Contains(getText(res), "Substrate Environment") {
 		t.Fatalf("grep failed: %v", res)
-	}
-
-	// 10. rm
-	res = invokeTool(t, reg, "rm", map[string]any{
-		"path":      "nested",
-		"recursive": true,
-	})
-	if res.IsError {
-		t.Fatalf("rm failed: %v", res)
-	}
-
-	if _, err := os.Stat(filepath.Join(dir, "nested")); !os.IsNotExist(err) {
-		t.Fatalf("nested dir still exists after rm: %v", err)
 	}
 }

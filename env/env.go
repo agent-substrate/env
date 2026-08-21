@@ -13,12 +13,16 @@ import (
 
 // Env is a handle to a single environment.
 type Env struct {
-	id     string
-	client *Client
+	id       string
+	atespace string
+	client   *Client
 }
 
 // ID returns the environment's identifier.
 func (e *Env) ID() string { return e.id }
+
+// Atespace returns the environment's atespace.
+func (e *Env) Atespace() string { return e.atespace }
 
 // path returns the API path for the environment, with suffix appended.
 func (e *Env) path(suffix string) string {
@@ -32,14 +36,14 @@ func (e *Env) pathQuery(suffix, p string) string {
 	return e.path(suffix) + "?" + url.Values{"path": {p}}.Encode()
 }
 
-// Suspend checkpoints and stops the environment.
+// Suspend checkpoints and stops the environment using gRPC.
 func (e *Env) Suspend(ctx context.Context) error {
-	return e.client.do(ctx, http.MethodPost, e.path("/suspend"), nil, nil)
+	return e.client.Suspend(ctx, e.atespace, e.id)
 }
 
-// Delete removes the environment permanently.
+// Delete removes the environment permanently using gRPC.
 func (e *Env) Delete(ctx context.Context) error {
-	return e.client.do(ctx, http.MethodDelete, e.path(""), nil, nil)
+	return e.client.Delete(ctx, e.atespace, e.id)
 }
 
 // Shell runs a shell command line inside the environment.
@@ -76,36 +80,4 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 		Content: data,
 	}
 	return e.client.do(ctx, http.MethodPost, e.path("/file"), req, nil)
-}
-
-// ListDir lists the entries of the directory at path inside the environment.
-func (e *Env) ListDir(ctx context.Context, p string) ([]DirEntry, error) {
-	var out ListDirResponse
-	if err := e.client.do(ctx, http.MethodGet, e.pathQuery("/dir", p), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Entries, nil
-}
-
-// Stat returns information about the file or directory at path.
-func (e *Env) Stat(ctx context.Context, p string) (DirEntry, error) {
-	var entry DirEntry
-	if err := e.client.do(ctx, http.MethodGet, e.pathQuery("/stat", p), nil, &entry); err != nil {
-		return DirEntry{}, err
-	}
-	return entry, nil
-}
-
-// Mkdir creates the directory at path, along with any missing parents.
-func (e *Env) Mkdir(ctx context.Context, p string, mode fs.FileMode) error {
-	req := MkdirRequest{
-		Path: p,
-		Mode: strconv.FormatUint(uint64(mode.Perm()), 8),
-	}
-	return e.client.do(ctx, http.MethodPost, e.path("/dir"), req, nil)
-}
-
-// Remove deletes the file or directory tree at path.
-func (e *Env) Remove(ctx context.Context, p string) error {
-	return e.client.do(ctx, http.MethodDelete, e.pathQuery("/file", p), nil, nil)
 }

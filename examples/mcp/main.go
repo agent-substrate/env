@@ -13,6 +13,7 @@ import (
 	"log"
 
 	"github.com/agent-substrate/env/env"
+	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -28,7 +29,7 @@ func main() {
 	}
 	defer c.Close()
 
-	e, err := c.Create(ctx, env.CreateRequest{ID: "mcp-demo"})
+	e, err := c.Create(ctx, &ateenvv1.CreateEnvironmentRequest{Id: "mcp-demo"})
 	if err != nil {
 		log.Fatalf("creating environment: %v", err)
 	}

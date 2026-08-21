@@ -18,7 +18,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
-func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router, *fakecontrol.Server) {
+func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router, *fakecontrol.Server, *ate.Client) {
 	t.Helper()
 
 	control := fakecontrol.New()
@@ -47,7 +47,7 @@ func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router, *fakecontrol.Se
 
 	srv := httptest.NewServer(service.Handler(client))
 	t.Cleanup(srv.Close)
-	return srv, router, control
+	return srv, router, control, client
 }
 
 func do(t *testing.T, method, url, body string) *http.Response {
@@ -73,8 +73,8 @@ func decode[T any](t *testing.T, resp *http.Response) T {
 	return v
 }
 
-func TestLifecycleAndExec(t *testing.T) {
-	srv, router, _ := newAPI(t)
+func TestGuestProxyAndExec(t *testing.T) {
+	srv, router, _, client := newAPI(t)
 	t.Chdir(t.TempDir())
 	sys := guestsys.New()
 	h, err := (&guest.Server{}).Handler(sys)
@@ -83,15 +83,18 @@ func TestLifecycleAndExec(t *testing.T) {
 	}
 	router.Register("web-1", h)
 
-	// Create.
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"web-1","template":"default-env","namespace":"envs"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create status = %d, want 201", resp.StatusCode)
+	// Create environment via direct client.
+	if err := client.Create(t.Context(), ate.CreateOptions{
+		ID:        "web-1",
+		Template:  "default-env",
+		Namespace: "envs",
+	}); err != nil {
+		t.Fatalf("client.Create: %v", err)
 	}
 
 	// Write and read a file through the API.
 	content := base64.StdEncoding.EncodeToString([]byte("file body"))
-	resp = do(t, "POST", srv.URL+"/v1/envs/web-1/file", `{"path":"app/main.txt","content":"`+content+`"}`)
+	resp := do(t, "POST", srv.URL+"/v1/envs/web-1/file", `{"path":"app/main.txt","content":"`+content+`"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("write file status = %d, want 204", resp.StatusCode)
 	}
@@ -119,13 +122,6 @@ func TestLifecycleAndExec(t *testing.T) {
 		t.Fatalf("cmd result = %+v, want stdout %q", res, "file body")
 	}
 
-	// List directory.
-	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/dir?path=app", "")
-	listing := decode[env.ListDirResponse](t, resp)
-	if len(listing.Entries) != 1 || listing.Entries[0].Name != "main.txt" {
-		t.Fatalf("listing = %+v, want [main.txt]", listing.Entries)
-	}
-
 	// MCP endpoint proxied through API (stateless tools/list).
 	mcpReq, _ := http.NewRequest("POST", srv.URL+"/v1/envs/web-1/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
 	mcpReq.Header.Set("Content-Type", "application/json")
@@ -138,136 +134,4 @@ func TestLifecycleAndExec(t *testing.T) {
 		t.Fatalf("MCP status = %d, want 200", mcpResp.StatusCode)
 	}
 	mcpResp.Body.Close()
-
-	// A file deletes cleanly through the file endpoint.
-	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1/file?path=app/main.txt", "")
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("delete file status = %d, want 204", resp.StatusCode)
-	}
-
-	// Delete the directory tree.
-	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1/dir?path=app", "")
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("delete dir status = %d, want 204", resp.StatusCode)
-	}
-	resp = do(t, "GET", srv.URL+"/v1/envs/web-1/dir?path=app", "")
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("list after delete status = %d, want 404", resp.StatusCode)
-	}
-
-	// Delete.
-	resp = do(t, "DELETE", srv.URL+"/v1/envs/web-1", "")
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("delete status = %d, want 204", resp.StatusCode)
-	}
-}
-
-func TestCreateStartsEnv(t *testing.T) {
-	srv, router, _ := newAPI(t)
-	t.Chdir(t.TempDir())
-	sys := guestsys.New()
-	h, err := (&guest.Server{}).Handler(sys)
-	if err != nil {
-		t.Fatal(err)
-	}
-	router.Register("started", h)
-
-	// Create starts the environment.
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"started","template":"default-env","namespace":"envs"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("create status = %d, want 201", resp.StatusCode)
-	}
-}
-
-func TestValidation(t *testing.T) {
-	srv, _, _ := newAPI(t)
-
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{}`)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("create without id status = %d, want 400", resp.StatusCode)
-	}
-	// Omitting template and namespace falls back to the defaults.
-	resp = do(t, "POST", srv.URL+"/v1/envs", `{"id":"bare"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("create with defaults status = %d, want 201", resp.StatusCode)
-	}
-}
-
-func TestFork(t *testing.T) {
-	srv, router, control := newAPI(t)
-	t.Chdir(t.TempDir())
-	sys := guestsys.New()
-	h, err := (&guest.Server{}).Handler(sys)
-	if err != nil {
-		t.Fatal(err)
-	}
-	router.Register("src", h)
-
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"src","template":"default-env","namespace":"envs"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create status = %d, want 201", resp.StatusCode)
-	}
-
-	// A source that is not suspended cannot be forked. 409 rather than 500.
-	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{"dest_id":"copy"}`)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("fork of non-suspended source status = %d, want 409", resp.StatusCode)
-	}
-	if got := decode[env.Error](t, resp); got.Code != env.CodeFailedPrecondition {
-		t.Errorf("error code = %q, want %q", got.Code, env.CodeFailedPrecondition)
-	}
-
-	// Once suspended, fork succeeds.
-	control.Suspend("src")
-	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{"dest_id":"copy"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("fork status = %d, want 201", resp.StatusCode)
-	}
-	if control.SnapshotOf("copy") != control.SnapshotOf("src") {
-		t.Error("fork was not created from the source's snapshot")
-	}
-
-	// dest_id is required.
-	resp = do(t, "POST", srv.URL+"/v1/envs/src/fork", `{}`)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("fork without dest_id status = %d, want 400", resp.StatusCode)
-	}
-}
-
-func TestSuspend(t *testing.T) {
-	srv, router, control := newAPI(t)
-	t.Chdir(t.TempDir())
-	sys := guestsys.New()
-	h, err := (&guest.Server{}).Handler(sys)
-	if err != nil {
-		t.Fatal(err)
-	}
-	router.Register("susp", h)
-
-	resp := do(t, "POST", srv.URL+"/v1/envs", `{"id":"susp","template":"default-env","namespace":"envs"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create status = %d, want 201", resp.StatusCode)
-	}
-
-	if got := control.Status("susp"); got != ateapipb.Actor_STATUS_RUNNING {
-		t.Fatalf("status before suspend = %v, want RUNNING", got)
-	}
-
-	resp = do(t, "POST", srv.URL+"/v1/envs/susp/suspend", "")
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("suspend status = %d, want 204", resp.StatusCode)
-	}
-
-	if got := control.Status("susp"); got != ateapipb.Actor_STATUS_SUSPENDED {
-		t.Errorf("status after suspend = %v, want SUSPENDED", got)
-	}
-
-	// Suspend of missing environment returns 404.
-	resp = do(t, "POST", srv.URL+"/v1/envs/missing/suspend", "")
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("suspend of missing env status = %d, want 404", resp.StatusCode)
-	}
-	if got := decode[env.Error](t, resp); got.Code != env.CodeNotFound {
-		t.Errorf("error code = %q, want %q", got.Code, env.CodeNotFound)
-	}
 }

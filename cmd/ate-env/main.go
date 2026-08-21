@@ -11,9 +11,9 @@ import (
 	"io"
 	"os"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/agent-substrate/env/env"
+	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/spf13/cobra"
 )
 
@@ -27,6 +27,7 @@ func envOr(key, fallback string) string {
 func main() {
 	var (
 		endpoint string
+		atespace string
 		client   *env.Client
 	)
 
@@ -51,7 +52,8 @@ func main() {
 			}
 		},
 	}
-	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "http://127.0.0.1:7777"), "base URL of the ate-env-api service")
+	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
+	root.PersistentFlags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
 
 	root.AddCommand(newDeployCommand())
 
@@ -64,11 +66,17 @@ func main() {
 		Short: "Create and start an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := client.Create(cmd.Context(), env.CreateRequest{
-				ID:        args[0],
-				Template:  createTemplate,
-				Namespace: createNamespace,
-			})
+			req := &ateenvv1.CreateEnvironmentRequest{
+				Id:       args[0],
+				Atespace: atespace,
+			}
+			if createTemplate != "" || createNamespace != "" {
+				req.Template = &ateenvv1.Template{
+					Name:      createTemplate,
+					Namespace: createNamespace,
+				}
+			}
+			_, err := client.Create(cmd.Context(), req)
 			return err
 		},
 	}
@@ -77,23 +85,11 @@ func main() {
 	root.AddCommand(createCmd)
 
 	root.AddCommand(&cobra.Command{
-		Use:   "fork <id> <dest_id>",
-		Short: "Create an environment from another environment's latest snapshot",
-		Long: "Fork creates the environment <dest_id> from the latest snapshot of <id>,\n" +
-			"inheriting its ActorTemplate. The source environment must be suspended.",
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := client.Fork(cmd.Context(), args[0], args[1])
-			return err
-		},
-	})
-
-	root.AddCommand(&cobra.Command{
 		Use:   "suspend <id>",
 		Short: "Suspend an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).Suspend(cmd.Context())
+			return client.Suspend(cmd.Context(), atespace, args[0])
 		},
 	})
 
@@ -102,20 +98,16 @@ func main() {
 		Short: "Delete an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).Delete(cmd.Context())
+			return client.Delete(cmd.Context(), atespace, args[0])
 		},
 	})
 
-	fsCmd := &cobra.Command{
-		Use:   "fs",
-		Short: "Operate on files and directories in an environment",
-	}
-	fsCmd.AddCommand(&cobra.Command{
+	root.AddCommand(&cobra.Command{
 		Use:   "read <id> <path>",
 		Short: "Print an environment file to stdout",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rc, err := client.Env(args[0]).ReadFile(cmd.Context(), args[1])
+			rc, err := client.Env(atespace, args[0]).ReadFile(cmd.Context(), args[1])
 			if err != nil {
 				return err
 			}
@@ -124,89 +116,23 @@ func main() {
 			return err
 		},
 	})
-	fsCmd.AddCommand(&cobra.Command{
+
+	root.AddCommand(&cobra.Command{
 		Use:   "write <id> <path>",
 		Short: "Write stdin to an environment file",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).WriteFile(cmd.Context(), args[1], os.Stdin, 0o644)
+			return client.Env(atespace, args[0]).WriteFile(cmd.Context(), args[1], os.Stdin, 0o644)
 		},
 	})
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "ls <id> <path>",
-		Short: "List an environment directory",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			entries, err := client.Env(args[0]).ListDir(cmd.Context(), args[1])
-			if err != nil {
-				return err
-			}
-			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			for _, e := range entries {
-				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n", e.ModeString, e.Size, e.ModTime.Format("2006-01-02 15:04"), e.Name)
-			}
-			return tw.Flush()
-		},
-	})
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "stat <id> <path>",
-		Short: "Stat an environment path",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			e, err := client.Env(args[0]).Stat(cmd.Context(), args[1])
-			if err != nil {
-				return err
-			}
-			fmt.Printf("path:  %s\nmode:  %s\nsize:  %d\nmtime: %s\n", e.Path, e.ModeString, e.Size, e.ModTime)
-			return nil
-		},
-	})
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "rm <id> <path>",
-		Short: "Delete a file or directory in the environment",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).Remove(cmd.Context(), args[1])
-		},
-	})
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "mkdir <id> <path>",
-		Short: "Create a directory in the environment",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(args[0]).Mkdir(cmd.Context(), args[1], 0o755)
-		},
-	})
-	root.AddCommand(fsCmd)
 
-	// Dynamically register environment instance subcommands (ate-env <id> ...)
-	cmd, remainingArgs, _ := root.Find(os.Args[1:])
-	if cmd == root && len(remainingArgs) > 0 {
-		id := remainingArgs[0]
-		if !strings.HasPrefix(id, "-") {
-			root.AddCommand(newEnvCommand(id, &client))
-		}
-	}
-
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "ate-env:", err)
-		os.Exit(1)
-	}
-}
-
-func newEnvCommand(id string, client **env.Client) *cobra.Command {
-	sbCmd := &cobra.Command{
-		Use:   id,
-		Short: fmt.Sprintf("Operate on environment %s", id),
-	}
-
-	sbCmd.AddCommand(&cobra.Command{
-		Use:     "shell <cmdline>",
+	root.AddCommand(&cobra.Command{
+		Use:     "shell <id> <cmdline>",
 		Aliases: []string{"cmd"},
 		Short:   "Run a shell command line in the environment",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := (*client).Env(id).Shell(cmd.Context(), args[0])
+			res, err := client.Env(atespace, args[0]).Shell(cmd.Context(), args[1])
 			if err != nil {
 				return err
 			}
@@ -223,84 +149,8 @@ func newEnvCommand(id string, client **env.Client) *cobra.Command {
 		},
 	})
 
-	fsCmd := &cobra.Command{
-		Use:   "fs",
-		Short: "Operate on files and directories in the environment",
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "ate-env:", err)
+		os.Exit(1)
 	}
-
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "read <path>",
-		Short: "Print an environment file to stdout",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			rc, err := (*client).Env(id).ReadFile(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			defer rc.Close()
-			_, err = io.Copy(os.Stdout, rc)
-			return err
-		},
-	})
-
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "write <path>",
-		Short: "Write stdin to an environment file",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return (*client).Env(id).WriteFile(cmd.Context(), args[0], os.Stdin, 0o644)
-		},
-	})
-
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "ls <path>",
-		Short: "List an environment directory",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			entries, err := (*client).Env(id).ListDir(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			for _, e := range entries {
-				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n", e.ModeString, e.Size, e.ModTime.Format("2006-01-02 15:04"), e.Name)
-			}
-			return tw.Flush()
-		},
-	})
-
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "stat <path>",
-		Short: "Stat an environment path",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			e, err := (*client).Env(id).Stat(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			fmt.Printf("path:  %s\nmode:  %s\nsize:  %d\nmtime: %s\n", e.Path, e.ModeString, e.Size, e.ModTime)
-			return nil
-		},
-	})
-
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "rm <path>",
-		Short: "Delete a file or directory in the environment",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return (*client).Env(id).Remove(cmd.Context(), args[0])
-		},
-	})
-
-	fsCmd.AddCommand(&cobra.Command{
-		Use:   "mkdir <path>",
-		Short: "Create a directory in the environment",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return (*client).Env(id).Mkdir(cmd.Context(), args[0], 0o755)
-		},
-	})
-
-	sbCmd.AddCommand(fsCmd)
-	return sbCmd
 }
