@@ -8,8 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/env/guest/filesystem"
-	"github.com/agent-substrate/env/guest/process"
+	"github.com/agent-substrate/env/guest"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,17 +19,20 @@ func TestGuestDaemonIntegration(t *testing.T) {
 	tempDir := t.TempDir()
 	logDir := filepath.Join(tempDir, "logs")
 
-	tracker, err := process.NewTracker(process.DefaultConfig(logDir))
-	if err != nil {
-		t.Fatalf("failed to initialize tracker: %v", err)
+	cfg := guest.Config{
+		LogDir:           logDir,
+		Workspace:        tempDir,
+		EnableProcess:    true,
+		EnableFileSystem: true,
 	}
-	defer tracker.Close()
+
+	grpcServer, cleanup, err := guest.NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to initialize guest daemon: %v", err)
+	}
+	defer cleanup()
 
 	lis := bufconn.Listen(1024 * 1024)
-	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterProcessServiceServer(grpcServer, process.NewService(tracker))
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, filesystem.NewService(filesystem.Config{RootDirectory: tempDir}))
-
 	go func() {
 		_ = grpcServer.Serve(lis)
 	}()

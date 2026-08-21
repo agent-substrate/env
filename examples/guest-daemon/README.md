@@ -1,8 +1,8 @@
 # Agent Substrate Guest Daemon Example
 
-This directory contains a reference implementation of an in-container **Guest Daemon** for Agent Substrate environments.
+This directory contains an example implementation and guide for running an in-container **Guest Daemon** for Agent Substrate environments.
 
-It demonstrates how to assemble **`ProcessService`** and **`FileSystemService`** from the `guest` package into a standalone gRPC server, package it into a minimal container, and run it.
+It demonstrates how to configure and run the gRPC guest services using the **`github.com/agent-substrate/env/guest`** package, exposing **`ProcessService`** (asynchronous process execution, output spooling, log streaming) and **`FileSystemService`** (chunked streaming file manipulation).
 
 ---
 
@@ -40,8 +40,8 @@ flowchart TD
 
 ## Directory Contents
 
-- **`main.go`**: Assembles `process.Service` and `filesystem.Service` onto a single gRPC server with reflection and signal handling.
-- **`main_test.go`**: End-to-end integration test demonstrating script uploading, process execution, and log streaming.
+- **`main.go`**: Example demonstrating how to configure and launch the guest daemon using `guest.NewServer`.
+- **`main_test.go`**: Integration test validating daemon startup, file uploading, process execution, and log streaming.
 - **`Dockerfile`**: Multi-stage container build producing a minimal image with the compiled `guest-daemon` binary.
 
 ---
@@ -51,7 +51,7 @@ flowchart TD
 To test the daemon on your local machine:
 
 ```bash
-go run ./examples/guest-daemon --listen=:8080 --log-dir=/tmp/ate-jobs --workdir=/tmp/workspace
+go run ./examples/guest-daemon --listen=:8080 --log-dir=/tmp/ate-jobs --workspace=/tmp/workspace
 ```
 
 ---
@@ -118,5 +118,5 @@ grpcurl -plaintext -d '{"path": "hello.txt"}' \
 
 Build the minimal container image:
 ```bash
-docker build -t us-docker.pkg.dev/my-project/ate-env-guest:latest -f examples/guest-daemon/Dockerfile .
+docker build -t us-docker.pkg.dev/my-project/guest-daemon:latest -f examples/guest-daemon/Dockerfile .
 ```
