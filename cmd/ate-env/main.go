@@ -1,5 +1,5 @@
 // Command ate-env is a CLI for the environment service. Environment commands go
-// through the ate-env-api service using the env SDK; deploy generates
+// through the ate-env-api service using the env SDK; manifest generates
 // Kubernetes manifests for setting up the system on a cluster.
 //
 // The API endpoint can be set with the --api flag or the
@@ -37,7 +37,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "deploy" {
+			if cmd.Name() == "manifest" {
 				return nil
 			}
 			var err error
@@ -55,7 +55,7 @@ func main() {
 	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
 	root.PersistentFlags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
 
-	root.AddCommand(newDeployCommand())
+	root.AddCommand(newManifestCommand())
 
 	var (
 		createTemplate  string

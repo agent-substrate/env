@@ -10,8 +10,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func testDeployConfig() deployConfig {
-	return deployConfig{
+func testManifestConfig() manifestConfig {
+	return manifestConfig{
 		namespace:       "ate-env",
 		template:        "default-env",
 		workerPool:      "default-env-workerpool",
@@ -29,7 +29,7 @@ func testDeployConfig() deployConfig {
 }
 
 func TestResolveImages(t *testing.T) {
-	cfg := testDeployConfig()
+	cfg := testManifestConfig()
 	if err := cfg.resolveImages(); err != nil {
 		t.Errorf("resolveImages with both images set: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestResolveImages(t *testing.T) {
 	if err := cfg.resolveImages(); err == nil {
 		t.Error("resolveImages with a missing image: want error, got nil")
 	}
-	cfg = testDeployConfig()
+	cfg = testManifestConfig()
 	cfg.apiImage = ""
 	if err := cfg.resolveImages(); err == nil {
 		t.Error("resolveImages with a missing api image: want error, got nil")
@@ -45,7 +45,7 @@ func TestResolveImages(t *testing.T) {
 }
 
 func TestBuildManifests(t *testing.T) {
-	cfg := testDeployConfig()
+	cfg := testManifestConfig()
 	objs := buildManifests(cfg)
 	if len(objs) != 5 {
 		t.Fatalf("got %d manifests, want 5", len(objs))
@@ -102,7 +102,7 @@ func TestBuildManifests(t *testing.T) {
 }
 
 func TestBuildManifestsCustomAPIPort(t *testing.T) {
-	cfg := testDeployConfig()
+	cfg := testManifestConfig()
 	cfg.apiPort = 9999
 	objs := buildManifests(cfg)
 
@@ -126,7 +126,7 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 
 func TestWriteManifests(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeManifests(&buf, buildManifests(testDeployConfig())); err != nil {
+	if err := writeManifests(&buf, buildManifests(testManifestConfig())); err != nil {
 		t.Fatalf("writeManifests: %v", err)
 	}
 	out := buf.String()

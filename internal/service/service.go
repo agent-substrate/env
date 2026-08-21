@@ -17,7 +17,7 @@ const DefaultTemplate = "default-env"
 
 // DefaultNamespace is the Kubernetes namespace the ActorTemplate is
 // looked up in when a create request does not specify one. It matches the
-// default namespace of `ate-env deploy`.
+// default namespace of `ate-env manifest`.
 const DefaultNamespace = "ate-env"
 
 // Handler serves the environment API backed by client.
