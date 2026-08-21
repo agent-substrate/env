@@ -33,9 +33,6 @@ type Server struct {
 	mu        sync.Mutex
 	actors    map[string]*ateapipb.Actor
 	atespaces map[string]*ateapipb.Atespace
-	snapshots map[string]*ateapipb.ActorSnapshot
-	tags      map[string]*ateapipb.ActorSnapshotTag
-	snapshotN int
 }
 
 // New returns an empty fake control server.
@@ -43,8 +40,6 @@ func New() *Server {
 	return &Server{
 		actors:    make(map[string]*ateapipb.Actor),
 		atespaces: make(map[string]*ateapipb.Atespace),
-		snapshots: make(map[string]*ateapipb.ActorSnapshot),
-		tags:      make(map[string]*ateapipb.ActorSnapshotTag),
 	}
 }
 
@@ -56,14 +51,6 @@ func (s *Server) SetStatus(name string, st ateapipb.Actor_Status) {
 	if a := s.find(name); a != nil {
 		a.Status = st
 	}
-}
-
-// SnapshotOf returns the name of the snapshot the actor with the given name was
-// created from, or "" when it was created empty.
-func (s *Server) SnapshotOf(name string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.find(name).GetLatestSnapshot().GetName()
 }
 
 // Serve starts the fake on a random localhost port and returns its
@@ -163,50 +150,9 @@ func (s *Server) CreateActor(ctx context.Context, req *ateapipb.CreateActorReque
 		return nil, status.Errorf(codes.AlreadyExists, "actor %q already exists", name)
 	}
 	a := clone(actor)
-	if ref := req.GetSourceSnapshot(); ref != nil {
-		// Mirror the control plane: a source snapshot must be referenced by a
-		// tag, and an atespace-scoped tag cannot cross atespaces.
-		tagRef, ok := ref.GetReference().(*ateapipb.ActorSnapshotRef_Tag)
-		if !ok {
-			return nil, status.Error(codes.FailedPrecondition, "source ActorSnapshot must be referenced by tag")
-		}
-		tag, ok := s.tags[key(tagRef.Tag.GetAtespace(), tagRef.Tag.GetName())]
-		if !ok {
-			return nil, status.Errorf(codes.NotFound, "snapshot tag %q not found", tagRef.Tag.GetName())
-		}
-		if tag.GetMetadata().GetAtespace() != actor.GetMetadata().GetAtespace() {
-			return nil, status.Error(codes.FailedPrecondition, "ActorSnapshot tag is not published outside its Atespace")
-		}
-		a.LatestSnapshot = proto.Clone(tag.GetSnapshot()).(*ateapipb.ObjectRef)
-	}
 	a.Status = ateapipb.Actor_STATUS_RUNNING
 	s.actors[k] = a
 	return clone(a), nil
-}
-
-// TagActorSnapshot names a snapshot so it can be used as a CreateActor source.
-func (s *Server) TagActorSnapshot(ctx context.Context, req *ateapipb.TagActorSnapshotRequest) (*ateapipb.ActorSnapshotTag, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ref, ok := req.GetSnapshot().GetReference().(*ateapipb.ActorSnapshotRef_Snapshot)
-	if !ok {
-		return nil, status.Error(codes.InvalidArgument, "snapshot reference is required")
-	}
-	if _, ok := s.snapshots[key(ref.Snapshot.GetAtespace(), ref.Snapshot.GetName())]; !ok {
-		return nil, status.Errorf(codes.NotFound, "snapshot %q not found", ref.Snapshot.GetName())
-	}
-	meta := req.GetTag().GetMetadata()
-	if meta.GetName() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tag metadata.name is required")
-	}
-	k := key(meta.GetAtespace(), meta.GetName())
-	if _, ok := s.tags[k]; ok {
-		return nil, status.Errorf(codes.AlreadyExists, "snapshot tag %q already exists", meta.GetName())
-	}
-	tag := proto.Clone(req.GetTag()).(*ateapipb.ActorSnapshotTag)
-	tag.Snapshot = proto.Clone(ref.Snapshot).(*ateapipb.ObjectRef)
-	s.tags[k] = tag
-	return proto.Clone(tag).(*ateapipb.ActorSnapshotTag), nil
 }
 
 func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorRequest) (*ateapipb.ResumeActorResponse, error) {
@@ -217,11 +163,9 @@ func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorReque
 		return nil, err
 	}
 	a.Status = ateapipb.Actor_STATUS_RUNNING
-	a.WorkerAssignment = &ateapipb.WorkerAssignment{
-		WorkerNamespace: "ate-system",
-		WorkerPod:       "worker-0",
-		WorkerPodIp:     "10.0.0.1",
-	}
+	a.AteomPodNamespace = "ate-system"
+	a.AteomPodName = "worker-0"
+	a.AteomPodIp = "10.0.0.1"
 	return &ateapipb.ResumeActorResponse{Actor: clone(a)}, nil
 }
 
@@ -236,38 +180,28 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 	return &ateapipb.SuspendActorResponse{Actor: clone(a)}, nil
 }
 
-// Suspend suspends the actor with the given name as the real control plane does
-// when an environment goes idle, and returns the name of the snapshot that
-// checkpoint wrote. Tests use it to stage a forkable source.
-func (s *Server) Suspend(name string) string {
+// Suspend suspends the actor with the given name.
+func (s *Server) Suspend(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	a := s.find(name)
-	if a == nil {
-		return ""
+	if a := s.find(name); a != nil {
+		s.suspend(a)
 	}
-	s.suspend(a)
-	return a.GetLatestSnapshot().GetName()
 }
 
-// suspend checkpoints a: it writes a durable snapshot and records it as the
-// actor's latest. The caller holds s.mu.
+// suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
 	a.Status = ateapipb.Actor_STATUS_SUSPENDED
-	a.WorkerAssignment = nil
-
-	s.snapshotN++
-	ref := &ateapipb.ObjectRef{
-		Atespace: a.GetMetadata().GetAtespace(),
-		Name:     fmt.Sprintf("%s-snapshot-%d", a.GetMetadata().GetName(), s.snapshotN),
+	a.AteomPodNamespace = ""
+	a.AteomPodName = ""
+	a.AteomPodIp = ""
+	a.LatestSnapshotInfo = &ateapipb.SnapshotInfo{
+		Data: &ateapipb.SnapshotInfo_External{
+			External: &ateapipb.ExternalSnapshotInfo{
+				SnapshotUriPrefix: fmt.Sprintf("gs://snapshots/%s", a.GetMetadata().GetName()),
+			},
+		},
 	}
-	s.snapshots[key(ref.GetAtespace(), ref.GetName())] = &ateapipb.ActorSnapshot{
-		Metadata:               &ateapipb.ResourceMetadata{Atespace: ref.GetAtespace(), Name: ref.GetName()},
-		SourceActor:            &ateapipb.ObjectRef{Atespace: ref.GetAtespace(), Name: a.GetMetadata().GetName()},
-		ActorTemplateNamespace: a.GetActorTemplateNamespace(),
-		ActorTemplateName:      a.GetActorTemplateName(),
-	}
-	a.LatestSnapshot = ref
 }
 
 func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest) (*ateapipb.PauseActorResponse, error) {
