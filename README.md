@@ -57,11 +57,11 @@ kubectl get pods -n ate-env
 Then create and use an environment:
 
 ```bash
-# Port-forward the ate-env-api service.
-kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
-
-# Create an environment.
+# Create an environment (automatically connects via active kubecontext).
 ate-env create dev1
+
+# Or target a specific kubecontext:
+# ate-env --context gke_dberkov-gke-dev3_us-central1-c_jbd-substrate-poc create dev1
 
 # Execute a shell command inside the environment.
 ate-env shell dev1 'echo hello > /note.txt'
@@ -75,9 +75,10 @@ ate-env suspend dev1
 ate-env delete dev1
 ```
 
-Alternatively, interact with the environment over MCP:
+Alternatively, interact with the environment over MCP (requires port-forwarding the service):
 
 ```bash
+kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 curl -X POST localhost:7777/v1/envs/dev1/mcp \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shell","arguments":{"command":"echo hi"}}}'
@@ -117,9 +118,12 @@ Available Commands:
   write       Write stdin to an environment file
 
 Flags:
-      --api string        address of the ate-env-api service (e.g. localhost:7777) (default "127.0.0.1:7777")
-      --atespace string   Substrate atespace (default "default")
-  -h, --help              help for ate-env
+      --api string              address of the ate-env-api service (e.g. localhost:7777)
+      --atespace string         Substrate atespace (default "default")
+      --context string          Kubernetes context to use
+  -h, --help                    help for ate-env
+      --kube-namespace string   Kubernetes namespace where ate-env-api is deployed (default "ate-env")
+      --kubeconfig string       path to the kubeconfig file
 
 Use "ate-env [command] --help" for more information about a command.
 
