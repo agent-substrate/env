@@ -16,3 +16,4 @@ COPY --from=builder /guest-daemon /guest-daemon
 EXPOSE 8080
 
 ENTRYPOINT ["/guest-daemon"]
+

@@ -31,7 +31,7 @@ type Config struct {
 // DefaultConfig returns the default configuration for FileSystemService.
 func DefaultConfig() Config {
 	rootDir := DefaultWorkspace
-	if env := os.Getenv("WORKDIR"); env != "" {
+	if env := os.Getenv("WORKSPACE"); env != "" {
 		rootDir = env
 	}
 	return Config{
@@ -41,9 +41,7 @@ func DefaultConfig() Config {
 }
 
 // Service implements ateenvv1.FileSystemServiceServer.
-//
-// TODO: This gRPC service will be adopted by cmd/ate-env-guest as the primary
-// in-actor chunked file transfer and manipulation engine.
+// It provides in-actor chunked file transfer and manipulation for cmd/ate-env-guest.
 type Service struct {
 	ateenvv1.UnimplementedFileSystemServiceServer
 	rootDir        string
