@@ -23,7 +23,7 @@ const defaultPauseImage = "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896c
 // apiName is the name of the API service Deployment and Service.
 const apiName = "ate-env-api"
 
-type deployConfig struct {
+type manifestConfig struct {
 	namespace       string
 	template        string
 	workerPool      string
@@ -39,13 +39,13 @@ type deployConfig struct {
 	poolLabels      map[string]string
 }
 
-func newDeployCommand() *cobra.Command {
-	cfg := deployConfig{}
+func newManifestCommand() *cobra.Command {
+	cfg := manifestConfig{}
 
 	cmd := &cobra.Command{
-		Use:   "deploy",
+		Use:   "manifest",
 		Short: "Generate Kubernetes manifests to deploy the system",
-		Long: `Deploy generates Kubernetes manifests for everything environments need on
+		Long: `Manifest generates Kubernetes manifests for everything environments need on
 a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
 environments are created from, and the ate-env-api service. It prints YAML to
@@ -86,7 +86,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 
 // resolveImages verifies that all deployment images are set, either baked
 // in at release time or passed as flags.
-func (c *deployConfig) resolveImages() error {
+func (c *manifestConfig) resolveImages() error {
 	if c.guestImage != "" && c.ateomImage != "" && c.apiImage != "" {
 		return nil
 	}
@@ -97,7 +97,7 @@ quickstart records them), or build and push your own.`)
 
 // buildManifests returns the Kubernetes objects that make up a deployment,
 // in apply order.
-func buildManifests(cfg deployConfig) []any {
+func buildManifests(cfg manifestConfig) []any {
 	return []any{
 		buildNamespace(cfg),
 		buildWorkerPool(cfg),
@@ -165,14 +165,14 @@ func prune(v any) any {
 	}
 }
 
-func buildNamespace(cfg deployConfig) *corev1.Namespace {
+func buildNamespace(cfg manifestConfig) *corev1.Namespace {
 	return &corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
 		ObjectMeta: metav1.ObjectMeta{Name: cfg.namespace},
 	}
 }
 
-func buildWorkerPool(cfg deployConfig) *atev1alpha1.WorkerPool {
+func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 	return &atev1alpha1.WorkerPool{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: atev1alpha1.GroupVersion.String(),
@@ -190,7 +190,7 @@ func buildWorkerPool(cfg deployConfig) *atev1alpha1.WorkerPool {
 	}
 }
 
-func buildActorTemplate(cfg deployConfig) *atev1alpha1.ActorTemplate {
+func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
 	port := "80"
 	return &atev1alpha1.ActorTemplate{
 		TypeMeta: metav1.TypeMeta{
@@ -230,7 +230,7 @@ func buildActorTemplate(cfg deployConfig) *atev1alpha1.ActorTemplate {
 
 // buildAPIDeployment returns the ate-env-api Deployment, pointed at the
 // in-cluster Substrate endpoints.
-func buildAPIDeployment(cfg deployConfig) *appsv1.Deployment {
+func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 	labels := map[string]string{"app": apiName}
 	replicas := cfg.apiReplicas
 	return &appsv1.Deployment{
@@ -268,7 +268,7 @@ func buildAPIDeployment(cfg deployConfig) *appsv1.Deployment {
 	}
 }
 
-func buildAPIService(cfg deployConfig) *corev1.Service {
+func buildAPIService(cfg manifestConfig) *corev1.Service {
 	labels := map[string]string{"app": apiName}
 	return &corev1.Service{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},

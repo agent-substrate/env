@@ -44,9 +44,9 @@ First, deploy the system — namespace, worker pool, environment template, and
 API:
 
 ```bash
-ate-env deploy \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:b18f4eaeb7d74607b477f4db0e244eeb16898ea8b868f094ebcdd1ea23c0cf72 \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:d45d48ecaa41483b6bbcba157fb41163e8ea14c0fef5ae49d912e4dd9b3fc9fd \
+ate-env manifest \
+  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:f908e2909c66a66e06f40c18cb813c0facc69a986cb1fcf4af2eb58ceba74cbd \
+  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:00a1e6f0a802c29669469f7c9296f0a5bf8a17ce07035d18936b27c96b380a1a \
   --ateom-image    gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 
@@ -109,8 +109,8 @@ Available Commands:
   completion  Generate the autocompletion script for the specified shell
   create      Create and start an environment
   delete      Delete an environment
-  deploy      Generate Kubernetes manifests to deploy the system
   help        Help about any command
+  manifest    Generate Kubernetes manifests to deploy the system
   read        Print an environment file to stdout
   shell       Run a shell command line in the environment
   suspend     Suspend an environment
@@ -123,8 +123,8 @@ Flags:
 
 Use "ate-env [command] --help" for more information about a command.
 
-$ ate-env deploy --help
-Deploy generates Kubernetes manifests for everything environments need on
+$ ate-env manifest --help
+Manifest generates Kubernetes manifests for everything environments need on
 a cluster that already runs the Agent Substrate system: the target
 namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
 environments are created from, and the ate-env-api service. It prints YAML to

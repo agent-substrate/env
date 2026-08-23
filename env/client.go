@@ -1,6 +1,6 @@
 // Package env is the Go SDK for the environment service. It talks to the
 // ate-env-api service, which bridges to the Substrate
-// control plane and router; `ate-env deploy` runs that service
+// control plane and router; `ate-env manifest` runs that service
 // in-cluster.
 package env
 
