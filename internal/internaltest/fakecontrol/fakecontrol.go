@@ -1,7 +1,7 @@
 // Package fakecontrol implements an in-memory fake of the Substrate ateapi
 // Control service for tests. It mimics the control plane's lifecycle
 // semantics: actors are created suspended, resume/suspend/pause flip
-// status, and only suspended actors can be deleted.
+// status, and actors can be deleted from any state.
 package fakecontrol
 
 import (
@@ -43,13 +43,13 @@ func New() *Server {
 	}
 }
 
-// SetStatus forces the status of the actor with the given name, so tests can
+// SetState forces the state of the actor with the given name, so tests can
 // stage states the fake's own lifecycle transitions do not produce.
-func (s *Server) SetStatus(name string, st ateapipb.Actor_Status) {
+func (s *Server) SetState(name string, st ateapipb.ActorState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if a := s.find(name); a != nil {
-		a.Status = st
+		a.Status = &ateapipb.ActorStatus{State: st}
 	}
 }
 
@@ -95,12 +95,12 @@ func selfSignedCert() (tls.Certificate, error) {
 
 func key(atespace, name string) string { return atespace + "/" + name }
 
-// Status returns the current status of the actor with the given name, or
-// STATUS_UNSPECIFIED if it does not exist.
-func (s *Server) Status(name string) ateapipb.Actor_Status {
+// State returns the current state of the actor with the given name, or
+// ACTOR_STATE_UNSPECIFIED if it does not exist.
+func (s *Server) State(name string) ateapipb.ActorState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.find(name).GetStatus()
+	return s.find(name).GetStatus().GetState()
 }
 
 // find returns the actor with the given name, whichever atespace holds it, or
@@ -150,7 +150,7 @@ func (s *Server) CreateActor(ctx context.Context, req *ateapipb.CreateActorReque
 		return nil, status.Errorf(codes.AlreadyExists, "actor %q already exists", name)
 	}
 	a := clone(actor)
-	a.Status = ateapipb.Actor_STATUS_RUNNING
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}
 	s.actors[k] = a
 	return clone(a), nil
 }
@@ -162,10 +162,7 @@ func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorReque
 	if err != nil {
 		return nil, err
 	}
-	a.Status = ateapipb.Actor_STATUS_RUNNING
-	a.AteomPodNamespace = "ate-system"
-	a.AteomPodName = "worker-0"
-	a.AteomPodIp = "10.0.0.1"
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}
 	return &ateapipb.ResumeActorResponse{Actor: clone(a)}, nil
 }
 
@@ -191,15 +188,11 @@ func (s *Server) Suspend(name string) {
 
 // suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
-	a.Status = ateapipb.Actor_STATUS_SUSPENDED
-	a.AteomPodNamespace = ""
-	a.AteomPodName = ""
-	a.AteomPodIp = ""
-	a.LatestSnapshotInfo = &ateapipb.SnapshotInfo{
-		Data: &ateapipb.SnapshotInfo_External{
-			External: &ateapipb.ExternalSnapshotInfo{
-				SnapshotUriPrefix: fmt.Sprintf("gs://snapshots/%s", a.GetMetadata().GetName()),
-			},
+	a.Status = &ateapipb.ActorStatus{
+		State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+		LatestSnapshot: &ateapipb.ObjectRef{
+			Atespace: a.GetMetadata().GetAtespace(),
+			Name:     fmt.Sprintf("%s-snapshot", a.GetMetadata().GetName()),
 		},
 	}
 }
@@ -211,7 +204,7 @@ func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest
 	if err != nil {
 		return nil, err
 	}
-	a.Status = ateapipb.Actor_STATUS_PAUSED
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}
 	return &ateapipb.PauseActorResponse{Actor: clone(a)}, nil
 }
 
@@ -222,10 +215,6 @@ func (s *Server) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorReque
 	a, err := s.get(ref)
 	if err != nil {
 		return nil, err
-	}
-	if a.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
-		return nil, status.Errorf(codes.FailedPrecondition, "actor %q is %s, only suspended actors can be deleted",
-			ref.GetName(), a.GetStatus())
 	}
 	delete(s.actors, key(ref.GetAtespace(), ref.GetName()))
 	return clone(a), nil

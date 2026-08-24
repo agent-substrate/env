@@ -256,13 +256,11 @@ func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
 	return nil
 }
 
-// Delete removes the actor with ID in atespace permanently. Substrate only deletes suspended
-// actors, so Delete suspends the actor first.
+// Delete removes the actor with ID in atespace permanently. The control
+// plane deletes actors from any state (substrate #788), so no suspend is
+// needed first.
 // If atespace is empty, DefaultAtespace is used.
 func (c *Client) Delete(ctx context.Context, atespace, id string) error {
-	if err := c.Suspend(ctx, atespace, id); err != nil {
-		return err
-	}
 	_, err := c.control.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: c.ref(atespace, id)})
 	if err != nil {
 		return fmt.Errorf("actor: deleting %q: %w", id, wrapGRPCError(err))

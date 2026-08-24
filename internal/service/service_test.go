@@ -30,7 +30,7 @@ func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router, *fakecontrol.Se
 
 	router := fakerouter.New()
 	router.Running = func(id string) bool {
-		return control.Status(id) == ateapipb.Actor_STATUS_RUNNING
+		return control.State(id) == ateapipb.ActorState_ACTOR_STATE_RUNNING
 	}
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)

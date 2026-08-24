@@ -205,7 +205,7 @@ func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
 				Command: cfg.guestCommand,
 				Env: []atev1alpha1.EnvVar{{
 					Name:  "PORT",
-					Value: &port,
+					Value: port,
 				}},
 				Readyz: &atev1alpha1.ContainerReadyz{
 					HTTPGet: &atev1alpha1.HTTPGetAction{
