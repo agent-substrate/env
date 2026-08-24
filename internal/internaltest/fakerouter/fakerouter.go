@@ -1,16 +1,18 @@
 // Package fakerouter implements a test double for the atenet router: it
 // resolves the target environment from the request's Host header and forwards
 // to that environment's guest handler, returning 503 when the environment is not
-// running.
+// running. Like the real router, it carries the downstream protocol through:
+// it accepts cleartext HTTP/2, so gRPC traffic reaches the guest as h2c.
 package fakerouter
 
 import (
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/grpcmux"
 )
 
 // Router is a fake atenet router.
@@ -59,6 +61,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // Serve starts the router on a random localhost port and returns its
 // address and a shutdown function.
 func (r *Router) Serve() (addr string, stop func()) {
-	srv := httptest.NewServer(r)
-	return strings.TrimPrefix(srv.URL, "http://"), srv.Close
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		panic("fakerouter: " + err.Error())
+	}
+	srv := grpcmux.Server(r)
+	go srv.Serve(lis)
+	return lis.Addr().String(), func() { srv.Close() }
 }
