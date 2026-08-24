@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -120,6 +121,45 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 	service := objs[4].(*corev1.Service)
 	if service.Spec.Ports[0].Port != 9999 || service.Spec.Ports[0].TargetPort.IntValue() != 9999 {
 		t.Errorf("api service ports = %+v, want 9999 -> 9999", service.Spec.Ports)
+	}
+}
+
+// TestAPITokenProjection pins the auth contract between the generated
+// Deployment and the ateapi control plane: the pod must present a
+// ServiceAccount token bound to the ateapi audience, and the binary must
+// be pointed at the projected file.
+func TestAPITokenProjection(t *testing.T) {
+	objs := buildManifests(testManifestConfig())
+	deployment := objs[3].(*appsv1.Deployment)
+	pod := deployment.Spec.Template.Spec
+
+	if len(pod.Volumes) != 1 || pod.Volumes[0].Projected == nil {
+		t.Fatalf("volumes = %+v, want one projected volume", pod.Volumes)
+	}
+	sources := pod.Volumes[0].Projected.Sources
+	if len(sources) != 1 || sources[0].ServiceAccountToken == nil {
+		t.Fatalf("projected sources = %+v, want one serviceAccountToken source", sources)
+	}
+	token := sources[0].ServiceAccountToken
+	if token.Audience != "api.ate-system.svc" {
+		t.Errorf("token audience = %q, want api.ate-system.svc", token.Audience)
+	}
+	if token.Path != "token" {
+		t.Errorf("token path = %q, want token", token.Path)
+	}
+
+	container := pod.Containers[0]
+	if len(container.VolumeMounts) != 1 || container.VolumeMounts[0].Name != pod.Volumes[0].Name {
+		t.Fatalf("volume mounts = %+v, want one mount of %q", container.VolumeMounts, pod.Volumes[0].Name)
+	}
+	mount := container.VolumeMounts[0]
+	if !mount.ReadOnly {
+		t.Error("token mount is writable, want read-only")
+	}
+
+	wantArg := "-ateapi-token-file=" + mount.MountPath + "/" + token.Path
+	if !slices.Contains(container.Args, wantArg) {
+		t.Errorf("args = %q, want %q", container.Args, wantArg)
 	}
 }
 
