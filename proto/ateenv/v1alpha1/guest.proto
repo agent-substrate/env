@@ -1,0 +1,315 @@
+// Copyright 2026 The Agent Substrate Authors.
+
+// The ateenv.v1alpha1 guest data plane: the gRPC contract between
+// ate-env-api and the ate-env-guest daemon inside an environment.
+//
+// The contract treats connections as disposable. Every Process call is
+// short-lived and unary; the durable handles are process ids and byte
+// offsets, never a connection. A client that loses its connection —
+// or whose environment is suspended and later resumed — polls again
+// with the same handles and continues where it left off.
+//
+// Process outcomes are in-band (ExecResponse.error, ProcessInfo.exited);
+// a non-OK gRPC status always means a transport or request fault. Reads
+// (Get, List, ReadFile, Stat, ListDir) and WriteFile are safe to repeat
+// verbatim. Start, Exec, WriteStdin, and Signal take effect at least
+// once: a call that failed in transport may still have acted, so
+// clients reconcile before resending — List shows whether a Start
+// landed.
+
+syntax = "proto3";
+
+package ateenv.v1alpha1;
+
+option go_package = "github.com/agent-substrate/env/proto/ateenv/v1alpha1;ateenvv1alpha1";
+
+import "google/protobuf/timestamp.proto";
+
+// Process runs commands inside the environment. Exec covers bounded
+// commands; Start/Get/WriteStdin/Signal/List manage background work as
+// long-running operations polled by byte offset.
+service Process {
+  // Exec runs a command to completion and returns its full output.
+  rpc Exec(ExecRequest) returns (ExecResponse);
+
+  // Start launches a background process and returns its process id.
+  rpc Start(StartRequest) returns (StartResponse);
+
+  // Get returns a process's state and its buffered output from the given
+  // byte offsets, optionally waiting a bounded time for new output or exit.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // WriteStdin appends data to a background process's standard input.
+  rpc WriteStdin(WriteStdinRequest) returns (WriteStdinResponse);
+
+  // Signal sends a signal to a background process's process group.
+  rpc Signal(SignalRequest) returns (SignalResponse);
+
+  // List returns all background processes, running and exited.
+  rpc List(ListRequest) returns (ListResponse);
+}
+
+// FileSystem reads and writes files inside the environment. File contents
+// travel as chunk streams, so there is no message-size ceiling; metadata
+// operations are plain unary calls whose failures map onto gRPC status
+// codes (NotFound, InvalidArgument, ...).
+service FileSystem {
+  // ReadFile streams the contents of a file in chunks.
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
+
+  // WriteFile streams chunks into a file. The file is written to a
+  // temporary path and atomically renamed into place on success, so a
+  // failed or abandoned write never leaves a partial file.
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+
+  // Stat returns metadata for a file or directory.
+  rpc Stat(StatRequest) returns (StatResponse);
+
+  // ListDir returns the entries of a directory.
+  rpc ListDir(ListDirRequest) returns (ListDirResponse);
+
+  // Mkdir creates a directory.
+  rpc Mkdir(MkdirRequest) returns (MkdirResponse);
+
+  // Remove deletes a file or directory.
+  rpc Remove(RemoveRequest) returns (RemoveResponse);
+}
+
+// ExecRequest describes a bounded command.
+message ExecRequest {
+  // command is the shell command line to run. Required.
+  string command = 1;
+
+  // cwd is the working directory. Defaults to the guest's working
+  // directory. Relative paths resolve against it.
+  string cwd = 2;
+
+  // env holds environment variables set on top of the guest's own.
+  map<string, string> env = 3;
+
+  // stdin is fed to the command's standard input, which is then closed.
+  bytes stdin = 4;
+
+  // timeout_ms bounds the command's runtime; on expiry the process group
+  // is killed and the response reports the timeout in error. 0 means no
+  // timeout beyond the request deadline.
+  int64 timeout_ms = 5;
+}
+
+// ExecResponse is the outcome of an ExecRequest. It is returned with OK
+// status whenever the request itself was valid; how the command fared is
+// reported in-band.
+message ExecResponse {
+  // stdout and stderr hold the captured output, possibly partial when
+  // error is set. Capture is bounded; when a stream produces more than
+  // the guest keeps, the oldest bytes are dropped and the stream's
+  // truncated flag is set.
+  bytes stdout = 1;
+  bytes stderr = 2;
+
+  // exit_code is the command's exit code. Meaningless when error is set.
+  int32 exit_code = 3;
+
+  // error is set when the command did not run to an exit code of its
+  // own: it failed to start, timed out, or was killed by a signal.
+  string error = 4;
+
+  bool stdout_truncated = 5;
+  bool stderr_truncated = 6;
+}
+
+// StartRequest describes a background process.
+message StartRequest {
+  // command is the shell command line to run. Required.
+  string command = 1;
+
+  // cwd is the working directory. Defaults to the guest's working
+  // directory.
+  string cwd = 2;
+
+  // env holds environment variables set on top of the guest's own.
+  map<string, string> env = 3;
+}
+
+message StartResponse {
+  // process_id identifies the process for Get/WriteStdin/Signal.
+  string process_id = 1;
+}
+
+// GetRequest polls a background process.
+message GetRequest {
+  // process_id of the process to poll. Required.
+  string process_id = 1;
+
+  // stdout_offset and stderr_offset are the absolute byte offsets to
+  // read output from — normally the offsets a previous Get returned.
+  int64 stdout_offset = 2;
+  int64 stderr_offset = 3;
+
+  // wait_ms long-polls: the call returns as soon as there is output at
+  // or past the requested offsets or the process exits, and after
+  // wait_ms at the latest. The server caps the wait below the atenet
+  // router's route timeout, so a held poll is never mistaken for a dead
+  // connection. 0 returns immediately.
+  int64 wait_ms = 4;
+}
+
+message GetResponse {
+  // process is the process's current state.
+  ProcessInfo process = 1;
+
+  // stdout and stderr hold output starting at stdout_offset and
+  // stderr_offset. The buffers are bounded, so the start offsets can be
+  // later than requested when old output has been discarded; the next
+  // poll continues from offset + len(bytes).
+  bytes stdout = 2;
+  int64 stdout_offset = 3;
+  bytes stderr = 4;
+  int64 stderr_offset = 5;
+}
+
+message WriteStdinRequest {
+  // process_id of the process to write to. Required.
+  string process_id = 1;
+
+  // data is appended to the process's standard input.
+  bytes data = 2;
+
+  // close_stdin closes the process's standard input after writing data.
+  bool close_stdin = 3;
+}
+
+message WriteStdinResponse {}
+
+message SignalRequest {
+  // process_id of the process to signal. Required.
+  string process_id = 1;
+
+  // signal is the POSIX signal number, e.g. 15 for SIGTERM and 9 for
+  // SIGKILL. It is delivered to the whole process group.
+  int32 signal = 2;
+}
+
+message SignalResponse {}
+
+message ListRequest {}
+
+message ListResponse {
+  repeated ProcessInfo processes = 1;
+}
+
+// ProcessInfo is the durable record of a background process.
+message ProcessInfo {
+  string process_id = 1;
+
+  // command is the shell command line the process runs.
+  string command = 2;
+
+  google.protobuf.Timestamp start_time = 3;
+
+  // exited is set once the process has exited; its presence is the
+  // in-band signal that the operation is done.
+  ExitStatus exited = 4;
+
+  // stdout_len and stderr_len are the total bytes each stream has
+  // produced so far — the offsets at the end of the output.
+  int64 stdout_len = 5;
+  int64 stderr_len = 6;
+}
+
+// ExitStatus reports how a process ended.
+message ExitStatus {
+  // exit_code is the process's exit code. Meaningless when error is set.
+  int32 exit_code = 1;
+
+  // error is set when the process did not run to an exit code of its
+  // own: it failed to start or was killed by a signal.
+  string error = 2;
+
+  google.protobuf.Timestamp exit_time = 3;
+}
+
+message ReadFileRequest {
+  // path of the file to read. Relative paths resolve against the guest's
+  // working directory. Required.
+  string path = 1;
+}
+
+message ReadFileResponse {
+  // data is the next chunk of the file.
+  bytes data = 1;
+}
+
+// WriteFileRequest is one message of a WriteFile stream. path and mode
+// are read from the first message; every message may carry data.
+message WriteFileRequest {
+  // path of the file to write. Parent directories are created as needed.
+  // Required on the first message.
+  string path = 1;
+
+  // mode is the POSIX file mode, e.g. 0644. Defaults to 0644.
+  uint32 mode = 2;
+
+  // data is the next chunk of the file.
+  bytes data = 3;
+}
+
+message WriteFileResponse {
+  // bytes_written is the total number of bytes written.
+  int64 bytes_written = 1;
+}
+
+message StatRequest {
+  // path of the file or directory. Required.
+  string path = 1;
+}
+
+message StatResponse {
+  FileInfo info = 1;
+}
+
+message ListDirRequest {
+  // path of the directory to list. Required.
+  string path = 1;
+}
+
+message ListDirResponse {
+  repeated FileInfo entries = 1;
+}
+
+message MkdirRequest {
+  // path of the directory to create. Required.
+  string path = 1;
+
+  // parents creates missing parent directories instead of failing.
+  bool parents = 2;
+}
+
+message MkdirResponse {}
+
+message RemoveRequest {
+  // path of the file or directory to delete. Required.
+  string path = 1;
+
+  // recursive deletes directories and their contents; without it,
+  // removing a non-empty directory fails.
+  bool recursive = 2;
+}
+
+message RemoveResponse {}
+
+// FileInfo is the metadata of one file or directory.
+message FileInfo {
+  // name is the base name of the entry.
+  string name = 1;
+
+  // size in bytes, for regular files.
+  int64 size = 2;
+
+  // mode is the POSIX file mode.
+  uint32 mode = 3;
+
+  bool is_dir = 4;
+
+  google.protobuf.Timestamp mod_time = 5;
+}

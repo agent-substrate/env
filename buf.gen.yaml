@@ -1,8 +1,0 @@
-version: v2
-plugins:
-  - local: /usr/local/google/home/shrutinair/go/bin/protoc-gen-go
-    out: .
-    opt: paths=source_relative
-  - local: /usr/local/google/home/shrutinair/go/bin/protoc-gen-go-grpc
-    out: .
-    opt: paths=source_relative
