@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/idle"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
@@ -28,12 +29,14 @@ const DefaultAtespace = "default"
 type Server struct {
 	ateenvv1.UnimplementedEnvironmentServiceServer
 
-	client *ate.Client
+	client  *ate.Client
+	tracker *idle.Tracker
 }
 
-// New creates a new Server.
-func New(client *ate.Client) *Server {
-	return &Server{client: client}
+// New creates a new Server. Suspended and deleted environments are
+// dropped from tracker.
+func New(client *ate.Client, tracker *idle.Tracker) *Server {
+	return &Server{client: client, tracker: tracker}
 }
 
 // CreateEnvironment registers and starts a new environment.
@@ -107,6 +110,7 @@ func (s *Server) SuspendEnvironment(ctx context.Context, req *ateenvv1.SuspendEn
 	if err := s.client.Suspend(ctx, atespace, req.GetId()); err != nil {
 		return nil, toGRPCError(err)
 	}
+	s.tracker.Forget(req.GetId())
 
 	return &ateenvv1.SuspendEnvironmentResponse{}, nil
 }
@@ -124,6 +128,7 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *ateenvv1.DeleteEnvi
 	if err := s.client.Delete(ctx, atespace, req.GetId()); err != nil {
 		return nil, toGRPCError(err)
 	}
+	s.tracker.Forget(req.GetId())
 
 	return &ateenvv1.DeleteEnvironmentResponse{}, nil
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/agent-substrate/env/internal/guest/guestrpc"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/guest/proc"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
@@ -76,7 +77,7 @@ func newFixture(t *testing.T) *fixture {
 			},
 		)),
 	)
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client))
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client, &idle.Tracker{}))
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

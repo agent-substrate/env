@@ -10,6 +10,7 @@ import (
 
 	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
@@ -22,9 +23,10 @@ const DefaultTemplate = "default-env"
 // default namespace of `ate-env manifest`.
 const DefaultNamespace = "ate-env"
 
-// Handler serves the environment API backed by client.
-func Handler(client *ate.Client) http.Handler {
-	s := &server{client: client}
+// Handler serves the environment API backed by client, recording
+// guest-bound activity on tracker.
+func Handler(client *ate.Client, tracker *idle.Tracker) http.Handler {
+	s := &server{client: client, tracker: tracker}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok")
@@ -102,11 +104,16 @@ func (s *server) proxyGuest(w http.ResponseWriter, r *http.Request) {
 		writeBadRequest(w, "environment id and operation path are required")
 		return
 	}
+	// Pin the environment for the whole request, so a slow upload or a
+	// long command cannot be reaped mid-flight.
+	s.tracker.StreamStart(id)
+	defer s.tracker.StreamEnd(id)
 	s.client.ProxyGuest(id, "/v1/"+rest, w, r)
 }
 
 type server struct {
-	client *ate.Client
+	client  *ate.Client
+	tracker *idle.Tracker
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -31,6 +32,9 @@ type Director func(ctx context.Context, envID string) (*grpc.ClientConn, error)
 // proxyDesc lets the forwarded stream carry any shape; unary calls are
 // just streams with one message each way.
 var proxyDesc = &grpc.StreamDesc{ServerStreams: true, ClientStreams: true}
+
+// validEnvID is the DNS-1123 label shape environment ids must have.
+var validEnvID = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
 // frame is one message payload, kept as the raw bytes off the wire.
 type frame struct {
@@ -71,6 +75,16 @@ func (codec) Unmarshal(data []byte, v any) error {
 	return proto.Unmarshal(data, msg)
 }
 
+// EnvID returns the environment named in ctx's incoming request
+// metadata, or "".
+func EnvID(ctx context.Context) string {
+	md, _ := metadata.FromIncomingContext(ctx)
+	if vals := md.Get(MetadataKey); len(vals) > 0 {
+		return vals[0]
+	}
+	return ""
+}
+
 // StreamHandler returns the handler forwarding calls to the connection
 // director resolves. Install it with grpc.UnknownServiceHandler, so
 // every method not registered on the server is proxied.
@@ -87,12 +101,16 @@ func proxy(director Director, serverStream grpc.ServerStream) error {
 	}
 	ctx := serverStream.Context()
 	md, _ := metadata.FromIncomingContext(ctx)
-	envID := ""
-	if vals := md.Get(MetadataKey); len(vals) > 0 {
-		envID = vals[0]
-	}
+	envID := EnvID(ctx)
 	if envID == "" {
 		return status.Errorf(codes.InvalidArgument, "grpcproxy: missing %s metadata", MetadataKey)
+	}
+	// Environment ids are DNS-1123 labels; anything else can neither
+	// route (the id becomes a hostname label) nor name a real env, and
+	// rejecting it here keeps garbage out of the per-env connection
+	// cache.
+	if !validEnvID.MatchString(envID) {
+		return status.Errorf(codes.InvalidArgument, "grpcproxy: %s %q is not a valid environment id", MetadataKey, envID)
 	}
 
 	conn, err := director(ctx, envID)

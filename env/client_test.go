@@ -3,23 +3,22 @@ package env_test
 import (
 	"errors"
 	"io"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"strings"
 	"testing"
 
 	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/grpcmux"
 	"github.com/agent-substrate/env/internal/guest"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/env/internal/service"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 )
 
@@ -62,30 +61,27 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { directClient.Close() })
 
 	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(directClient))
-	httpHandler := service.Handler(directClient)
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(directClient, &idle.Tracker{}))
+	httpHandler := service.Handler(directClient, &idle.Tracker{})
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-			return
-		}
-		httpHandler.ServeHTTP(w, r)
-	})
-	h2cHandler := h2c.NewHandler(handler, &http2.Server{})
-
-	srv := httptest.NewServer(h2cHandler)
-	t.Cleanup(srv.Close)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpcmux.Server(grpcmux.Handler(grpcServer, httpHandler))
+	go srv.Serve(lis)
+	t.Cleanup(func() { srv.Close() })
+	apiURL := "http://" + lis.Addr().String()
 
 	client, err := env.NewClient(env.ClientOptions{
-		Endpoint: srv.URL,
+		Endpoint: apiURL,
 	})
 	if err != nil {
 		t.Fatalf("creating SDK client: %v", err)
 	}
 	t.Cleanup(func() { client.Close() })
 
-	return &fixture{router: router, control: control, client: client, guest: t.TempDir(), apiURL: srv.URL}
+	return &fixture{router: router, control: control, client: client, guest: t.TempDir(), apiURL: apiURL}
 }
 
 // create makes a env whose guest handler serves from a temp dir.

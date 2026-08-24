@@ -12,6 +12,7 @@ import (
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/guest"
 	"github.com/agent-substrate/env/internal/guest/guestsys"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/env/internal/service"
@@ -45,7 +46,7 @@ func newAPI(t *testing.T) (*httptest.Server, *fakerouter.Router, *fakecontrol.Se
 	}
 	t.Cleanup(func() { client.Close() })
 
-	srv := httptest.NewServer(service.Handler(client))
+	srv := httptest.NewServer(service.Handler(client, &idle.Tracker{}))
 	t.Cleanup(srv.Close)
 	return srv, router, control, client
 }

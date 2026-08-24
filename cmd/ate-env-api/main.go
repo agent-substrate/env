@@ -15,6 +15,7 @@ import (
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/grpcmux"
 	"github.com/agent-substrate/env/internal/grpcproxy"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/service"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
@@ -29,6 +30,7 @@ func main() {
 		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile  = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
+		idleTTL    = flag.Duration("idle-ttl", 0, "suspend environments after this much inactivity (0 disables idle suspension)")
 	)
 	flag.Parse()
 
@@ -45,17 +47,38 @@ func main() {
 	}
 	defer client.Close()
 
+	tracker := &idle.Tracker{}
+
+	proxyHandler := grpcproxy.StreamHandler(
+		func(ctx context.Context, envID string) (*grpc.ClientConn, error) {
+			return client.GuestConn(envID)
+		},
+	)
 	grpcServer := grpc.NewServer(
 		grpc.ForceServerCodec(grpcproxy.Codec()),
-		grpc.UnknownServiceHandler(grpcproxy.StreamHandler(
-			func(ctx context.Context, envID string) (*grpc.ClientConn, error) {
-				return client.GuestConn(envID)
-			},
-		)),
+		grpc.UnknownServiceHandler(func(srv any, stream grpc.ServerStream) error {
+			// Pin the environment for the whole proxied call, so a held
+			// long-poll or upload cannot be reaped mid-flight.
+			if id := grpcproxy.EnvID(stream.Context()); id != "" {
+				tracker.StreamStart(id)
+				defer tracker.StreamEnd(id)
+			}
+			return proxyHandler(srv, stream)
+		}),
 	)
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client))
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client, tracker))
 
-	handler := grpcmux.Handler(grpcServer, service.Handler(client))
+	if *idleTTL > 0 {
+		reaper := &idle.Reaper{
+			Client:   client,
+			Tracker:  tracker,
+			TTL:      *idleTTL,
+			Atespace: ate.DefaultAtespace,
+		}
+		go reaper.Run(context.Background())
+	}
+
+	handler := grpcmux.Handler(grpcServer, service.Handler(client, tracker))
 
 	lis, err := net.Listen("tcp", *listen)
 	if err != nil {

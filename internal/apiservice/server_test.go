@@ -7,6 +7,7 @@ import (
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
@@ -45,7 +46,7 @@ func newTestEnv(t *testing.T) (ateenvv1.EnvironmentServiceClient, *fakecontrol.S
 	t.Cleanup(func() { client.Close() })
 
 	grpcServer := grpc.NewServer()
-	srv := apiservice.New(client)
+	srv := apiservice.New(client, &idle.Tracker{})
 	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, srv)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
