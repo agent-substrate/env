@@ -14,20 +14,25 @@ while this project adds the environment-shaped API on top.
 ## Overview
 
 ```
- ╭──────────────╮    ╭──────────────╮ lifecycle  ╭────────────╮
- │    Clients   │    │              ├───────────▶│   ateapi   │ Substrate control plane
- │  ate-env CLI ├───▶│ ate-env-api  │            ╰────────────╯
- ╰──────────────╯    │ (API server) │ guest ops  ╭────────────╮     ╭──────────────────────╮
-                     │              ├───────────▶│   atenet   ├────▶│ actor                │
-                     ╰──────────────╯ (shell/mcp)│   router   │     │  └ ate-env-guest     │
-                                                 ╰────────────╯     │    /readyz, /v1/*    │
-                                                                    ╰──────────────────────╯
+ ╭──────────────────╮    ╭──────────────╮ lifecycle   ╭────────────╮
+ │     Clients      │    │              ├────────────▶│   ateapi   │ Substrate control plane
+ │  ate-env CLI     ├───▶│ ate-env-api  │             ╰────────────╯
+ │  env Go SDK      │    │ (API server) │ guest ops   ╭────────────╮     ╭──────────────────────╮
+ │  agent harness   │    │              ├────────────▶│   atenet   ├────▶│ actor                │
+ │   └ ate-env-mcp ─┼───▶│  gRPC proxy  │ REST + gRPC │   router   │     │  └ ate-env-guest     │
+ ╰──────────────────╯    ╰──────────────╯             ╰────────────╯     │    gRPC + REST + MCP │
+                                                       resumes actors    ╰──────────────────────╯
+                                                       on demand
 ```
 
 - **`cmd/ate-env`** — CLI for managing environments, executing remote commands, and performing file I/O.
-- **`cmd/ate-env-api`** — The API service that manages environments and proxies remote guest requests.
-- **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
+- **`cmd/ate-env-api`** — The API service that manages environments and forwards guest traffic: REST calls are reverse-proxied, gRPC calls are relayed opaquely to the environment named in `ate-env-id` request metadata.
+- **`cmd/ate-env-guest`** — The daemon inside each actor serving the `ateenv.v1alpha1` gRPC data plane (processes, files) plus the REST API and built-in MCP tools, all on one port.
+- **`cmd/ate-env-mcp`** — A stdio MCP bridge that lets an unmodified agent harness drive one environment (shell, files, background processes).
 - **`env`** — The Go client library to manage environments, run commands, and perform file operations.
+
+For a full local walk-through — Substrate on kind, the gRPC data
+plane, and a harness over MCP — see [docs/demo-kind.md](docs/demo-kind.md).
 
 ## Installation
 
@@ -42,6 +47,11 @@ installed and a snapshots bucket.
 
 First, deploy the system — namespace, worker pool, environment template, and
 API:
+
+> [!NOTE]
+> The image digests below predate the gRPC data plane; build and push
+> your own images (`make images`, or `ko build` as in the
+> [kind demo](docs/demo-kind.md)) until refreshed digests are published.
 
 ```bash
 ate-env manifest \
@@ -69,6 +79,10 @@ ate-env shell dev1 'echo hello > /note.txt'
 # Read and write files.
 ate-env read dev1 /note.txt
 echo "world" | ate-env write dev1 /note.txt
+
+# Inspect environments.
+ate-env list
+ate-env get dev1
 
 # Suspend (snapshot) and delete.
 ate-env suspend dev1
@@ -109,7 +123,9 @@ Available Commands:
   completion  Generate the autocompletion script for the specified shell
   create      Create and start an environment
   delete      Delete an environment
+  get         Show an environment
   help        Help about any command
+  list        List environments
   manifest    Generate Kubernetes manifests to deploy the system
   read        Print an environment file to stdout
   shell       Run a shell command line in the environment
@@ -141,6 +157,63 @@ Environment lifecycle is defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v
 | `GetEnvironment` | Retrieves environment details and status |
 | `SuspendEnvironment` | Suspends and checkpoints the environment |
 | `DeleteEnvironment` | Deletes the environment permanently |
+
+REST endpoints `GET /v1/envs` and `GET /v1/envs/{id}` list and inspect
+environments; the status strings they return (`"running"`,
+`"suspended"`, ...) are stable client API.
+
+## gRPC guest data plane
+
+In-environment operations — processes and files — are defined in
+[`proto/ateenv/v1alpha1/guest.proto`](proto/ateenv/v1alpha1/guest.proto)
+and served by the guest daemon. ate-env-api forwards these calls
+opaquely to the environment named in `ate-env-id` request metadata, so
+the contract can evolve without touching the api service.
+
+The contract treats connections as disposable:
+
+- **`Process` is a long-running-operation model.** `Exec` runs bounded
+  commands; `Start`/`Get`/`WriteStdin`/`Signal`/`List` manage
+  background work. `Get` polls by byte offset with a bounded long-poll
+  (`wait_ms`). Every call is short-lived and unary; the durable handles
+  are process ids and offsets, never a connection — which is what makes
+  dropped connections and environment suspend/resume invisible.
+- **Process outcomes are in-band** (`ExecResponse.error`,
+  `ProcessInfo.exited`); a non-OK gRPC status always means a transport
+  or request fault. Reads and `WriteFile` are safe to repeat verbatim;
+  `Start`, `Exec`, `WriteStdin`, and `Signal` take effect at least
+  once, so clients reconcile (e.g. via `List`) before resending.
+- **`FileSystem` chunk-streams file contents** (no message-size
+  ceiling; writes land via atomic rename), with plain unary metadata
+  ops (`Stat`, `ListDir`, `Mkdir`, `Remove`).
+
+The guest registers server reflection, so `grpcurl` works end to end:
+
+```bash
+grpcurl -plaintext -H 'ate-env-id: dev1' \
+  -d '{"command": "echo hi"}' \
+  localhost:7777 ateenv.v1alpha1.Process/Exec
+```
+
+`make generate` regenerates the protobuf code with the plugin versions
+pinned in `go.mod`.
+
+## MCP bridge for agent harnesses
+
+`ate-env-mcp` speaks MCP over stdio and translates tool calls into the
+gRPC data plane, so any MCP-capable harness can drive an environment
+unmodified. It exposes `shell`, `read_file`, `write_file`, `list_dir`,
+`start_process`, `check_process`, `write_stdin`, and `stop_process`;
+the background-process polling loop (offsets, long-poll) lives in the
+bridge, below the harness.
+
+```json
+{
+  "mcpServers": {
+    "env": {"command": "ate-env-mcp", "args": ["-env", "dev1"]}
+  }
+}
+```
 
 ## Built-in MCP Server
 
@@ -212,6 +285,7 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 ## Examples
 
 For complete runnable Go programs:
+- **gRPC data plane**: See [grpc](examples/grpc/main.go) to run commands, stream files, and drive a background process by polling offsets through ate-env-api.
 - **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 - **Guest Daemon**: See [guest-daemon](examples/guest-daemon/main.go) to run a standalone in-actor gRPC service for asynchronous process execution and chunked file transfer.
 
