@@ -16,8 +16,18 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// apiName is the name of the API service Deployment and Service.
+// apiName is the name of the API service Deployment, Service, and
+// ServiceAccount.
 const apiName = "ate-env-api"
+
+// The ateapi control plane enforces JWT authentication, so the API pod
+// runs with a projected ServiceAccount token bound to the ateapi
+// audience and passes it via -ateapi-token-file.
+const (
+	ateapiAudience  = "api.ate-system.svc"
+	ateapiTokenDir  = "/var/run/secrets/ateapi"
+	ateapiTokenFile = ateapiTokenDir + "/token"
+)
 
 type manifestConfig struct {
 	namespace       string
@@ -96,6 +106,7 @@ func buildManifests(cfg manifestConfig) []any {
 		buildNamespace(cfg),
 		buildWorkerPool(cfg),
 		buildActorTemplate(cfg),
+		buildAPIServiceAccount(cfg),
 		buildAPIDeployment(cfg),
 		buildAPIService(cfg),
 	}
@@ -221,11 +232,22 @@ func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
 	}
 }
 
+func buildAPIServiceAccount(cfg manifestConfig) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      apiName,
+			Namespace: cfg.namespace,
+		},
+	}
+}
+
 // buildAPIDeployment returns the ate-env-api Deployment, pointed at the
 // in-cluster Substrate endpoints.
 func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 	labels := map[string]string{"app": apiName}
 	replicas := cfg.apiReplicas
+	tokenExpiration := int64(3600)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -239,19 +261,42 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					ServiceAccountName: apiName,
 					Containers: []corev1.Container{{
 						Name:  apiName,
 						Image: cfg.apiImage,
 						// ateapi/atenet default to the in-cluster
 						// Substrate service addresses.
-						Args:  []string{"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort)},
+						Args: []string{
+							"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort),
+							"-ateapi-token-file", ateapiTokenFile,
+						},
 						Ports: []corev1.ContainerPort{{ContainerPort: cfg.apiPort}},
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      "ateapi-token",
+							MountPath: ateapiTokenDir,
+							ReadOnly:  true,
+						}},
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
 									Path: "/healthz",
 									Port: intstr.FromInt32(cfg.apiPort),
 								},
+							},
+						},
+					}},
+					Volumes: []corev1.Volume{{
+						Name: "ateapi-token",
+						VolumeSource: corev1.VolumeSource{
+							Projected: &corev1.ProjectedVolumeSource{
+								Sources: []corev1.VolumeProjection{{
+									ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+										Audience:          ateapiAudience,
+										ExpirationSeconds: &tokenExpiration,
+										Path:              "token",
+									},
+								}},
 							},
 						},
 					}},
