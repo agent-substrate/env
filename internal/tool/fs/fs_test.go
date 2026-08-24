@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	guestsys "github.com/agent-substrate/env/internal/service/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
 	fstool "github.com/agent-substrate/env/internal/tool/fs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"

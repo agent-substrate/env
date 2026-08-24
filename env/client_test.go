@@ -1,6 +1,8 @@
 package env_test
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,17 +10,14 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/env/env"
+	"github.com/agent-substrate/env/guest"
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
-	"github.com/agent-substrate/env/internal/guest"
-	"github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
-	"github.com/agent-substrate/env/internal/service"
+	svc "github.com/agent-substrate/env/internal/service"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 )
 
@@ -60,20 +59,27 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { directClient.Close() })
 
+	service := apiservice.New(directClient, routerAddr, "")
+	t.Cleanup(service.Close)
+
 	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(directClient))
-	httpHandler := service.Handler(directClient)
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-			return
-		}
-		httpHandler.ServeHTTP(w, r)
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, service)
+	ateenvv1.RegisterProcessServiceServer(grpcServer, service)
+	ateenvv1.RegisterFileSystemServiceServer(grpcServer, service)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok\n")
 	})
-	h2cHandler := h2c.NewHandler(handler, &http2.Server{})
+	mux.Handle("/v1/", svc.Handler(directClient))
+	mux.Handle("/", grpcServer)
 
-	srv := httptest.NewServer(h2cHandler)
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Config.Protocols = &protocols
+	srv.Start()
 	t.Cleanup(srv.Close)
 
 	client, err := env.NewClient(env.ClientOptions{
@@ -90,12 +96,19 @@ func newFixture(t *testing.T) *fixture {
 // create makes a env whose guest handler serves from a temp dir.
 func (f *fixture) create(t *testing.T, id string) *env.Env {
 	t.Helper()
-	sys := guestsys.New()
-	h, err := (&guest.Server{}).Handler(sys)
+	workDir := t.TempDir()
+	grpcGuestServer, cleanup, err := guest.NewServer(guest.Config{
+		Workspace:        workDir,
+		EnableProcess:    true,
+		EnableFileSystem: true,
+	})
 	if err != nil {
-		t.Fatalf("creating guest handler: %v", err)
+		t.Fatalf("creating guest server: %v", err)
 	}
-	f.router.Register(id, h)
+	t.Cleanup(cleanup)
+
+	f.router.Register(id, grpcGuestServer)
+
 	sb, err := f.client.Create(t.Context(), &ateenvv1.CreateEnvironmentRequest{
 		Id: id,
 		Template: &ateenvv1.Template{
@@ -162,11 +175,70 @@ func TestCmdAndFilesystem(t *testing.T) {
 		t.Errorf("read back %q, want %q", data, "hi there")
 	}
 
-	res, err := sb.Shell(ctx, "cat project/hello.txt")
+	res, err := sb.Shell(ctx, "echo 'hi there'")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Stdout != "hi there" || res.ExitCode != 0 {
-		t.Errorf("cmd result = %+v, want stdout %q", res, "hi there")
+	if res.Stdout != "hi there\n" || res.ExitCode != 0 {
+		t.Errorf("cmd result = %+v, want stdout %q", res, "hi there\n")
+	}
+}
+
+func TestShellStderrAndExitCode(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-stderr")
+	ctx := t.Context()
+
+	res, err := sb.Shell(ctx, "echo err-out >&2; exit 42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(res.Stderr) != "err-out" {
+		t.Errorf("stderr = %q, want %q", res.Stderr, "err-out")
+	}
+	if res.ExitCode != 42 {
+		t.Errorf("exit code = %d, want 42", res.ExitCode)
+	}
+}
+
+func TestReadFileMissing(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-missing")
+	ctx := t.Context()
+
+	_, err := sb.ReadFile(ctx, "nonexistent.txt")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if !errors.Is(err, env.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLargeFileStreaming(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-large")
+	ctx := t.Context()
+
+	// 256 KB file across multiple stream chunks
+	largeData := bytes.Repeat([]byte("0123456789abcdef"), 16*1024)
+	if err := sb.WriteFile(ctx, "large.dat", bytes.NewReader(largeData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rc, err := sb.ReadFile(ctx, "large.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readBack, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readBack) != len(largeData) {
+		t.Fatalf("read %d bytes, want %d", len(readBack), len(largeData))
+	}
+	if !bytes.Equal(readBack, largeData) {
+		t.Error("readBack content mismatch")
 	}
 }

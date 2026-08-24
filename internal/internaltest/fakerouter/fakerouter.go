@@ -59,6 +59,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // Serve starts the router on a random localhost port and returns its
 // address and a shutdown function.
 func (r *Router) Serve() (addr string, stop func()) {
-	srv := httptest.NewServer(r)
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
+	srv := httptest.NewUnstartedServer(r)
+	srv.Config.Protocols = &protocols
+	srv.Start()
 	return strings.TrimPrefix(srv.URL, "http://"), srv.Close
 }
