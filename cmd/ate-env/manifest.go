@@ -16,10 +16,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// defaultPauseImage is the digest-pinned pause image recommended by the
-// Substrate ActorTemplate documentation for off-GCP clusters.
-const defaultPauseImage = "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
-
 // apiName is the name of the API service Deployment and Service.
 const apiName = "ate-env-api"
 
@@ -29,7 +25,6 @@ type manifestConfig struct {
 	workerPool      string
 	guestImage      string
 	ateomImage      string
-	pauseImage      string
 	snapshotsBucket string
 	replicas        int32
 	apiImage        string
@@ -72,7 +67,6 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
 	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
-	cmd.Flags().StringVar(&cfg.pauseImage, "pause-image", defaultPauseImage, "digest-pinned pause image for the root environment container")
 	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
 	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
@@ -202,7 +196,6 @@ func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
 			Namespace: cfg.namespace,
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage: cfg.pauseImage,
 			WorkerSelector: &metav1.LabelSelector{
 				MatchLabels: cfg.poolLabels,
 			},
@@ -233,6 +226,7 @@ func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
 func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 	labels := map[string]string{"app": apiName}
 	replicas := cfg.apiReplicas
+	tokenExpiration := int64(7200)
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -251,14 +245,36 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 						Image: cfg.apiImage,
 						// ateapi/atenet default to the in-cluster
 						// Substrate service addresses.
-						Args:  []string{"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort)},
+						Args: []string{
+							"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort),
+							"-ateapi-token-file=/var/run/secrets/ateapi/token",
+						},
 						Ports: []corev1.ContainerPort{{ContainerPort: cfg.apiPort}},
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      "ateapi-token",
+							MountPath: "/var/run/secrets/ateapi",
+							ReadOnly:  true,
+						}},
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{
 									Path: "/healthz",
 									Port: intstr.FromInt32(cfg.apiPort),
 								},
+							},
+						},
+					}},
+					Volumes: []corev1.Volume{{
+						Name: "ateapi-token",
+						VolumeSource: corev1.VolumeSource{
+							Projected: &corev1.ProjectedVolumeSource{
+								Sources: []corev1.VolumeProjection{{
+									ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+										Audience:          "api.ate-system.svc",
+										ExpirationSeconds: &tokenExpiration,
+										Path:              "token",
+									},
+								}},
 							},
 						},
 					}},

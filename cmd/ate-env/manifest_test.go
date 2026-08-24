@@ -18,7 +18,6 @@ func testManifestConfig() manifestConfig {
 		guestImage:      "example.com/guest@sha256:aaaa",
 		ateomImage:      "example.com/ateom@sha256:bbbb",
 		apiImage:        "example.com/api@sha256:cccc",
-		pauseImage:      defaultPauseImage,
 		snapshotsBucket: "gs://bucket/ate-env/",
 		replicas:        3,
 		apiReplicas:     1,
