@@ -48,6 +48,24 @@ type WriteFileRequest struct {
 	Content []byte `json:"content,omitempty"`
 }
 
+// EnvInfo describes an environment as reported by the API service.
+type EnvInfo struct {
+	// ID is the environment's identifier.
+	ID string `json:"id"`
+
+	// Atespace is the Substrate atespace the environment lives in.
+	Atespace string `json:"atespace"`
+
+	// Template and TemplateNamespace identify the ActorTemplate the
+	// environment was created from.
+	Template          string `json:"template,omitempty"`
+	TemplateNamespace string `json:"template_namespace,omitempty"`
+
+	// Status is the environment's lifecycle status, e.g. "running" or
+	// "suspended".
+	Status string `json:"status"`
+}
+
 // Error codes returned in Error.Code.
 const (
 	CodeNotFound        = "not_found"

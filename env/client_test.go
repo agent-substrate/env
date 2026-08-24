@@ -1,6 +1,7 @@
 package env_test
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -138,6 +139,47 @@ func TestDelete(t *testing.T) {
 
 	if err := sb.Delete(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListAndGet(t *testing.T) {
+	f := newFixture(t)
+	f.create(t, "sb-list-1")
+	f.create(t, "sb-list-2")
+	ctx := t.Context()
+
+	if err := f.client.Suspend(ctx, "", "sb-list-2"); err != nil {
+		t.Fatalf("Suspend: %v", err)
+	}
+
+	infos, err := f.client.List(ctx, "")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	byID := map[string]env.EnvInfo{}
+	for _, info := range infos {
+		byID[info.ID] = info
+	}
+	if len(byID) != 2 {
+		t.Fatalf("List = %+v, want sb-list-1 and sb-list-2", infos)
+	}
+	if got := byID["sb-list-1"]; got.Status != "running" {
+		t.Errorf("sb-list-1 = %+v, want running", got)
+	}
+	if got := byID["sb-list-2"]; got.Status != "suspended" {
+		t.Errorf("sb-list-2 = %+v, want suspended", got)
+	}
+
+	info, err := f.client.Get(ctx, "", "sb-list-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if info.ID != "sb-list-1" || info.Status != "running" {
+		t.Errorf("Get = %+v, want sb-list-1 running", info)
+	}
+
+	if _, err := f.client.Get(ctx, "", "no-such-env"); !errors.Is(err, env.ErrNotFound) {
+		t.Errorf("Get missing env: err = %v, want ErrNotFound", err)
 	}
 }
 

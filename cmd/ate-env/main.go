@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/agent-substrate/env/env"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
@@ -22,6 +23,16 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// printInfos writes environments as an aligned table with a header row.
+func printInfos(w io.Writer, infos ...env.EnvInfo) {
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tATESPACE\tTEMPLATE\tSTATUS")
+	for _, info := range infos {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", info.ID, info.Atespace, info.Template, info.Status)
+	}
+	tw.Flush()
 }
 
 func main() {
@@ -83,6 +94,34 @@ func main() {
 	createCmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
 	createCmd.Flags().StringVar(&createNamespace, "namespace", "", "Kubernetes namespace of the ActorTemplate (defaults to server default)")
 	root.AddCommand(createCmd)
+
+	root.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List environments",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			infos, err := client.List(cmd.Context(), atespace)
+			if err != nil {
+				return err
+			}
+			printInfos(cmd.OutOrStdout(), infos...)
+			return nil
+		},
+	})
+
+	root.AddCommand(&cobra.Command{
+		Use:   "get <id>",
+		Short: "Show an environment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			info, err := client.Get(cmd.Context(), atespace, args[0])
+			if err != nil {
+				return err
+			}
+			printInfos(cmd.OutOrStdout(), *info)
+			return nil
+		},
+	})
 
 	root.AddCommand(&cobra.Command{
 		Use:   "suspend <id>",

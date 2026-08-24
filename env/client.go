@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
@@ -127,6 +128,33 @@ func (c *Client) Delete(ctx context.Context, atespace, id string) error {
 	return nil
 }
 
+// List returns the environments in atespace. An empty atespace lists
+// environments across all atespaces.
+func (c *Client) List(ctx context.Context, atespace string) ([]EnvInfo, error) {
+	var infos []EnvInfo
+	path := "/v1/envs"
+	if atespace != "" {
+		path += "?" + url.Values{"atespace": {atespace}}.Encode()
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &infos); err != nil {
+		return nil, err
+	}
+	return infos, nil
+}
+
+// Get returns the environment with the given id in atespace.
+func (c *Client) Get(ctx context.Context, atespace, id string) (*EnvInfo, error) {
+	path := "/v1/envs/" + url.PathEscape(id)
+	if atespace != "" {
+		path += "?" + url.Values{"atespace": {atespace}}.Encode()
+	}
+	var info EnvInfo
+	if err := c.do(ctx, http.MethodGet, path, nil, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 // Env returns a handle to an environment without checking that it exists.
 func (c *Client) Env(atespace, id string) *Env {
 	return &Env{
@@ -150,6 +178,9 @@ func fromGRPCError(err error) error {
 // body (in), and decodes the JSON response into out when non-nil. Non-2xx
 // responses are converted to errors.
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	if c.endpoint == "" {
+		return errors.New("env: ClientOptions.Endpoint is required for this operation; a GRPCConn only covers the lifecycle RPCs")
+	}
 	var body io.Reader
 	if in != nil {
 		data, err := json.Marshal(in)

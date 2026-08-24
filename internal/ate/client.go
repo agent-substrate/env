@@ -247,6 +247,29 @@ func (c *Client) Get(ctx context.Context, atespace, id string) (*ateapipb.Actor,
 	return actor, nil
 }
 
+// List returns all actors in atespace, following pagination. An empty
+// atespace lists actors across all atespaces.
+func (c *Client) List(ctx context.Context, atespace string) ([]*ateapipb.Actor, error) {
+	var (
+		actors []*ateapipb.Actor
+		token  string
+	)
+	for {
+		resp, err := c.control.ListActors(ctx, &ateapipb.ListActorsRequest{
+			Atespace:  atespace,
+			PageToken: token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("ate: listing actors: %w", wrapGRPCError(err))
+		}
+		actors = append(actors, resp.GetActors()...)
+		token = resp.GetNextPageToken()
+		if token == "" {
+			return actors, nil
+		}
+	}
+}
+
 // Suspend checkpoints and stops the actor with ID in atespace.
 // If atespace is empty, DefaultAtespace is used.
 func (c *Client) Suspend(ctx context.Context, atespace, id string) error {

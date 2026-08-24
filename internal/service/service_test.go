@@ -122,6 +122,17 @@ func TestGuestProxyAndExec(t *testing.T) {
 		t.Fatalf("cmd result = %+v, want stdout %q", res, "file body")
 	}
 
+	// The exact-id route serves environment info rather than being
+	// forwarded into the guest.
+	resp = do(t, "GET", srv.URL+"/v1/envs/web-1", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get env status = %d, want 200", resp.StatusCode)
+	}
+	info := decode[env.EnvInfo](t, resp)
+	if info.ID != "web-1" || info.Status != "running" {
+		t.Fatalf("get env = %+v, want id web-1 running", info)
+	}
+
 	// MCP endpoint proxied through API (stateless tools/list).
 	mcpReq, _ := http.NewRequest("POST", srv.URL+"/v1/envs/web-1/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
 	mcpReq.Header.Set("Content-Type", "application/json")
@@ -134,4 +145,60 @@ func TestGuestProxyAndExec(t *testing.T) {
 		t.Fatalf("MCP status = %d, want 200", mcpResp.StatusCode)
 	}
 	mcpResp.Body.Close()
+}
+
+func TestListAndGetEnvs(t *testing.T) {
+	srv, _, control, client := newAPI(t)
+
+	if resp := do(t, "GET", srv.URL+"/v1/envs", ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want 200", resp.StatusCode)
+	} else if infos := decode[[]env.EnvInfo](t, resp); len(infos) != 0 {
+		t.Fatalf("list of empty cluster = %+v, want none", infos)
+	}
+
+	for _, id := range []string{"env-a", "env-b"} {
+		if err := client.Create(t.Context(), ate.CreateOptions{
+			ID:        id,
+			Template:  "default-env",
+			Namespace: "envs",
+		}); err != nil {
+			t.Fatalf("client.Create(%s): %v", id, err)
+		}
+	}
+	control.Suspend("env-b")
+
+	resp := do(t, "GET", srv.URL+"/v1/envs", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want 200", resp.StatusCode)
+	}
+	infos := decode[[]env.EnvInfo](t, resp)
+	byID := map[string]env.EnvInfo{}
+	for _, info := range infos {
+		byID[info.ID] = info
+	}
+	if len(byID) != 2 {
+		t.Fatalf("list = %+v, want env-a and env-b", infos)
+	}
+	if got := byID["env-a"]; got.Status != "running" || got.Atespace != "default" || got.Template != "default-env" {
+		t.Errorf("env-a = %+v, want running in default from default-env", got)
+	}
+	if got := byID["env-b"]; got.Status != "suspended" {
+		t.Errorf("env-b = %+v, want suspended", got)
+	}
+
+	resp = do(t, "GET", srv.URL+"/v1/envs/env-b", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get status = %d, want 200", resp.StatusCode)
+	}
+	if info := decode[env.EnvInfo](t, resp); info.ID != "env-b" || info.Status != "suspended" {
+		t.Errorf("get env-b = %+v, want suspended", info)
+	}
+
+	resp = do(t, "GET", srv.URL+"/v1/envs/no-such-env", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("get missing env status = %d, want 404", resp.StatusCode)
+	}
+	if apiErr := decode[env.Error](t, resp); apiErr.Code != env.CodeNotFound {
+		t.Errorf("get missing env code = %q, want %q", apiErr.Code, env.CodeNotFound)
+	}
 }

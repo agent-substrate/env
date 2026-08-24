@@ -65,16 +65,12 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1.CreateEnvi
 		return nil, toGRPCError(err)
 	}
 
+	actor, err := s.client.Get(ctx, atespace, req.GetId())
+	if err != nil {
+		return nil, toGRPCError(err)
+	}
 	return &ateenvv1.CreateEnvironmentResponse{
-		Environment: &ateenvv1.Environment{
-			Id:       req.GetId(),
-			Atespace: atespace,
-			Template: &ateenvv1.Template{
-				Name:      templateName,
-				Namespace: templateNamespace,
-			},
-			Status: ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED,
-		},
+		Environment: ActorToEnvironment(actor),
 	}, nil
 }
 

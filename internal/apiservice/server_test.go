@@ -87,8 +87,8 @@ func TestCreateAndGetEnvironment(t *testing.T) {
 	if createResp.GetEnvironment().GetAtespace() != apiservice.DefaultAtespace {
 		t.Errorf("got atespace %q, want %q", createResp.GetEnvironment().GetAtespace(), apiservice.DefaultAtespace)
 	}
-	if createResp.GetEnvironment().GetStatus() != ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED {
-		t.Errorf("got status %v, want UNSPECIFIED", createResp.GetEnvironment().GetStatus())
+	if createResp.GetEnvironment().GetStatus() != ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING {
+		t.Errorf("got status %v, want RUNNING", createResp.GetEnvironment().GetStatus())
 	}
 
 	// Get environment.
