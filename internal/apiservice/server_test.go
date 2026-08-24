@@ -29,7 +29,7 @@ func newTestEnv(t *testing.T) (ateenvv1.EnvironmentServiceClient, *fakecontrol.S
 
 	router := fakerouter.New()
 	router.Running = func(id string) bool {
-		return control.Status(id) == ateapipb.Actor_STATUS_RUNNING
+		return control.State(id) == ateapipb.ActorState_ACTOR_STATE_RUNNING
 	}
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)
@@ -208,7 +208,7 @@ func TestSuspendEnvironment(t *testing.T) {
 		t.Fatalf("CreateEnvironment failed: %v", err)
 	}
 
-	if got := control.Status("env-susp"); got != ateapipb.Actor_STATUS_RUNNING {
+	if got := control.State("env-susp"); got != ateapipb.ActorState_ACTOR_STATE_RUNNING {
 		t.Fatalf("status before suspend = %v, want RUNNING", got)
 	}
 
@@ -221,7 +221,7 @@ func TestSuspendEnvironment(t *testing.T) {
 	if suspResp == nil {
 		t.Fatal("expected non-nil SuspendEnvironmentResponse")
 	}
-	if got := control.Status("env-susp"); got != ateapipb.Actor_STATUS_SUSPENDED {
+	if got := control.State("env-susp"); got != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Errorf("control plane status after suspend = %v, want SUSPENDED", got)
 	}
 
