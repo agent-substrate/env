@@ -61,6 +61,13 @@ type Options struct {
 	// Required for Cmd and filesystem operations.
 	RouterAddr string
 
+	// RouterTLS dials the router with TLS instead of cleartext, for
+	// clusters where it only exposes HTTPS. Certificate verification is
+	// skipped: requests carry per-environment hostnames no router
+	// certificate covers. gRPC guest traffic then needs the router to
+	// offer h2 via ALPN (atenet --https-h2).
+	RouterTLS bool
+
 	// HostSuffix overrides the router host suffix. Defaults to
 	// DefaultHostSuffix.
 	HostSuffix string
@@ -88,10 +95,11 @@ type Options struct {
 
 // Client manages environments on a Substrate cluster.
 type Client struct {
-	opts    Options
-	conn    *grpc.ClientConn
-	control ateapipb.ControlClient
-	http    *http.Client
+	opts            Options
+	conn            *grpc.ClientConn
+	control         ateapipb.ControlClient
+	http            *http.Client
+	routerTransport http.RoundTripper
 
 	guestMu    sync.Mutex
 	guestConns map[string]*grpc.ClientConn
@@ -127,13 +135,21 @@ func New(opts Options) (*Client, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	routerTransport := httpClient.Transport
+	if routerTransport == nil {
+		routerTransport = http.DefaultTransport
+		if opts.RouterTLS {
+			routerTransport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+		}
+	}
 
 	return &Client{
-		opts:       opts,
-		conn:       conn,
-		control:    ateapipb.NewControlClient(conn),
-		http:       httpClient,
-		guestConns: make(map[string]*grpc.ClientConn),
+		opts:            opts,
+		conn:            conn,
+		control:         ateapipb.NewControlClient(conn),
+		http:            httpClient,
+		routerTransport: routerTransport,
+		guestConns:      make(map[string]*grpc.ClientConn),
 	}, nil
 }
 
@@ -153,6 +169,9 @@ func (c *Client) Close() error {
 // :authority. Routing is a property of the connection, not the call,
 // and the router resumes the actor on demand — so the connection is
 // cached per environment and stays valid across suspend/resume.
+//
+// Like ProxyGuest, it only addresses environments in the default
+// atespace.
 func (c *Client) GuestConn(id string) (*grpc.ClientConn, error) {
 	if c.opts.RouterAddr == "" {
 		return nil, errors.New("ate: Options.RouterAddr is required for guest connections")
@@ -162,9 +181,13 @@ func (c *Client) GuestConn(id string) (*grpc.ClientConn, error) {
 	if conn, ok := c.guestConns[id]; ok {
 		return conn, nil
 	}
+	creds := insecure.NewCredentials()
+	if c.opts.RouterTLS {
+		creds = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	}
 	conn, err := grpc.NewClient(c.opts.RouterAddr,
 		grpc.WithAuthority(id+"."+DefaultAtespace+"."+c.opts.HostSuffix),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ate: dialing router for %q: %w", id, err)
@@ -204,19 +227,19 @@ func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r 
 		http.Error(w, `{"code":"internal","error":"ate: Options.RouterAddr is required for command and filesystem operations"}`, http.StatusInternalServerError)
 		return
 	}
+	scheme := "http"
+	if c.opts.RouterTLS {
+		scheme = "https"
+	}
 	director := func(req *http.Request) {
-		req.URL.Scheme = "http"
+		req.URL.Scheme = scheme
 		req.URL.Host = c.opts.RouterAddr
 		req.URL.Path = subPath
 		req.Host = id + "." + DefaultAtespace + "." + c.opts.HostSuffix
 	}
-	transport := c.http.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
 	proxy := &httputil.ReverseProxy{
 		Director:  director,
-		Transport: transport,
+		Transport: c.routerTransport,
 	}
 	proxy.ServeHTTP(w, r)
 }

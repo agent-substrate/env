@@ -6,10 +6,18 @@
 package fakerouter
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/grpcmux"
@@ -68,4 +76,42 @@ func (r *Router) Serve() (addr string, stop func()) {
 	srv := grpcmux.Server(r)
 	go srv.Serve(lis)
 	return lis.Addr().String(), func() { srv.Close() }
+}
+
+// ServeTLS starts the router on a random localhost port serving HTTPS
+// with a self-signed certificate and h2 offered via ALPN — the shape of
+// an atenet router running with --https-h2. Clients must skip
+// certificate verification.
+func (r *Router) ServeTLS() (addr string, stop func()) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		panic("fakerouter: " + err.Error())
+	}
+	cert, err := selfSignedCert()
+	if err != nil {
+		panic("fakerouter: " + err.Error())
+	}
+	srv := grpcmux.Server(r)
+	srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+	go srv.ServeTLS(lis, "", "")
+	return lis.Addr().String(), func() { srv.Close() }
+}
+
+func selfSignedCert() (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "fakerouter"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
