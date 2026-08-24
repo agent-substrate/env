@@ -45,9 +45,9 @@ API:
 
 ```bash
 ate-env manifest \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:f908e2909c66a66e06f40c18cb813c0facc69a986cb1fcf4af2eb58ceba74cbd \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:00a1e6f0a802c29669469f7c9296f0a5bf8a17ce07035d18936b27c96b380a1a \
-  --ateom-image    gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:b0b6e2ad834de42cb2a4c55e83b60243f66cb85ca37575d1a6818e788e0564e0 \
+  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:dcf6f189c318d8e4d4eafa0f195a8e455049de482e74045598b31272b3d7815b \
+  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:e9d1304931b6854109ea6c5c9008320dd8a0cb2c67efb16d4114c18eb2f4c992 \
+  --ateom-image    gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor@sha256:9992059c51c9af88a3489104c1c792644f4c28d22073af7bdbed07c1f2c7d1f1 \
   --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
 
 # Ensure that the pods are running:
