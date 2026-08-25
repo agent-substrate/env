@@ -20,7 +20,7 @@ import (
 
 func main() {
 	listen := flag.String("listen", ":80", "address to serve the guest API on")
-	logDir := flag.String("log-dir", "/var/log/ate-jobs", "directory for process logs")
+	logDir := flag.String("log-dir", "", "directory for process logs (defaults to /var/log/ate-jobs or temporary dir)")
 	workspace := flag.String("workspace", "/", "workspace root directory")
 	flag.Parse()
 

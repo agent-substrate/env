@@ -64,7 +64,11 @@ func NewServer(cfg Config) (*grpc.Server, func(), error) {
 	reflection.Register(grpcServer)
 
 	if cfg.EnableProcess {
-		tracker, err := process.NewTracker(process.DefaultConfig(cfg.LogDir))
+		trackerCfg := process.DefaultConfig(cfg.LogDir)
+		if cfg.Workspace != "" {
+			trackerCfg.Workspace = cfg.Workspace
+		}
+		tracker, err := process.NewTracker(trackerCfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("initializing process tracker: %w", err)
 		}
