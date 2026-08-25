@@ -2,7 +2,7 @@
 
 This example demonstrates how AI agents and MCP clients connect to an environment using the official **[Model Context Protocol](https://modelcontextprotocol.io/)** Go SDK (`github.com/modelcontextprotocol/go-sdk/mcp`).
 
-`ate-env-api` serves standard MCP over Streamable HTTP at `/v1/envs/{id}/mcp`, dynamically translating MCP JSON-RPC tool calls into `FileSystemService` and `ProcessService` gRPC operations executed inside the guest actor.
+`ate-env-api` serves standard MCP over Streamable HTTP at `/v1alpha/envs/{id}/mcp`, dynamically translating MCP JSON-RPC tool calls into `FileSystemService` and `ProcessService` gRPC operations executed inside the guest actor.
 
 ---
 
@@ -17,11 +17,11 @@ sequenceDiagram
     participant Guest as ate-env-guest (Guest Actor)
 
     Note over Client,API: 1. Tool Discovery
-    Client->>+API: POST /v1/envs/{id}/mcp (tools/list)
+    Client->>+API: POST /v1alpha/envs/{id}/mcp (tools/list)
     API-->>-Client: JSON-RPC Response (Available Tool Schemas)
 
     Note over Client,Guest: 2. File Operations (read_file / write_file)
-    Client->>+API: POST /v1/envs/{id}/mcp (tools/call: write_file / read_file)
+    Client->>+API: POST /v1alpha/envs/{id}/mcp (tools/call: write_file / read_file)
     API->>+Router: FileSystemService.WriteFile / ReadFile (gRPC Stream)
     Router->>+Guest: Forward gRPC stream to Actor
     Guest-->>-Router: Stream File Chunks / Status
@@ -29,7 +29,7 @@ sequenceDiagram
     API-->>-Client: JSON-RPC Response (mcp.CallToolResult)
 
     Note over Client,Guest: 3. Process Execution (shell / start_process)
-    Client->>+API: POST /v1/envs/{id}/mcp (tools/call: shell)
+    Client->>+API: POST /v1alpha/envs/{id}/mcp (tools/call: shell)
     API->>+Router: ProcessService.StartProcess & StreamProcessLogs (gRPC)
     Router->>+Guest: Execute command & stream stdout/stderr
     Guest-->>-Router: Stream Log Chunks & Exit Code
@@ -69,7 +69,7 @@ go run ./examples/mcp/main.go
 The example will:
 1. Create a sandbox environment (`mcp-demo`).
 2. Initialize an MCP client via `github.com/modelcontextprotocol/go-sdk/mcp`.
-3. Connect to `http://localhost:7777/v1/envs/mcp-demo/mcp`.
+3. Connect to `http://localhost:7777/v1alpha/envs/mcp-demo/mcp`.
 4. Discover tools via `tools/list`.
 5. Execute `shell` (`uname -a`) and print the result.
 6. Clean up and delete the environment.
@@ -82,7 +82,7 @@ You can send standard JSON-RPC HTTP POST requests directly to any environment's 
 
 ### 1. List Available Tools
 ```bash
-curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
+curl -X POST http://localhost:7777/v1alpha/envs/my-env/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{
@@ -94,7 +94,7 @@ curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
 
 ### 2. Write a File
 ```bash
-curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
+curl -X POST http://localhost:7777/v1alpha/envs/my-env/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{
@@ -113,7 +113,7 @@ curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
 
 ### 3. Run a Shell Command
 ```bash
-curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
+curl -X POST http://localhost:7777/v1alpha/envs/my-env/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{
@@ -131,7 +131,7 @@ curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
 
 ### 4. Read a File
 ```bash
-curl -X POST http://localhost:7777/v1/envs/my-env/mcp \
+curl -X POST http://localhost:7777/v1alpha/envs/my-env/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{

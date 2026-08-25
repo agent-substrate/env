@@ -20,7 +20,7 @@ while this project adds the environment-shaped API on top.
  ╰──────────────╯    │ (API server) │ guest ops  ╭────────────╮     ╭──────────────────────╮
                      │              ├───────────▶│   atenet   ├────▶│ actor                │
                      ╰──────────────╯ (shell/mcp)│   router   │     │  └ ate-env-guest     │
-                                                 ╰────────────╯     │    /readyz, /v1/*    │
+                                                 ╰────────────╯     │  /readyz, /v1alpha/* │
                                                                     ╰──────────────────────╯
 ```
 
@@ -78,7 +78,7 @@ ate-env delete dev1
 Alternatively, interact with the environment over MCP:
 
 ```bash
-curl -X POST localhost:7777/v1/envs/dev1/mcp \
+curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shell","arguments":{"command":"echo hi"}}}'
 ```
@@ -144,7 +144,7 @@ Environment lifecycle is defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v
 
 ## Built-in MCP Server
 
-The API exposes a streamable MCP endpoint at `POST /v1/envs/{id}/mcp` serving built-in tools.
+The API exposes a streamable MCP endpoint at `POST /v1alpha/envs/{id}/mcp` serving built-in tools.
 
 ### Available Tools
 
@@ -159,12 +159,12 @@ The API exposes a streamable MCP endpoint at `POST /v1/envs/{id}/mcp` serving bu
 
 ### JSON-RPC Over HTTP
 
-Clients communicate with the MCP server at `/v1/envs/{id}/mcp` using JSON-RPC 2.0:
+Clients communicate with the MCP server at `/v1alpha/envs/{id}/mcp` using JSON-RPC 2.0:
 
 #### Initialize
 
 ```bash
-curl -X POST localhost:7777/v1/envs/dev1/mcp \
+curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
      -H "Content-Type: application/json" \
      -H "Accept: application/json, text/event-stream" \
      -d '{
@@ -182,7 +182,7 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 #### List Tools (`tools/list`)
 
 ```bash
-curl -X POST localhost:7777/v1/envs/dev1/mcp \
+curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
      -H "Content-Type: application/json" \
      -H "Accept: application/json, text/event-stream" \
      -d '{
@@ -195,7 +195,7 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 #### Call Tool (`tools/call`)
 
 ```bash
-curl -X POST localhost:7777/v1/envs/dev1/mcp \
+curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
      -H "Content-Type: application/json" \
      -H "Accept: application/json, text/event-stream" \
      -d '{

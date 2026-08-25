@@ -53,10 +53,10 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
 	})
-	mux.Handle("/v1/envs/{id}/mcp", mcp.NewHandler(client))
+	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(client))
 	mux.Handle("/", grpcServer)
 
-	// Enable both HTTP/1.1 (for /healthz and /v1/ HTTP endpoints) and
+	// Enable both HTTP/1.1 (for /healthz and /v1alpha/ HTTP endpoints) and
 	// unencrypted HTTP/2 (h2c, for gRPC services) on the same plaintext TCP listener.
 	var protocols http.Protocols
 	protocols.SetHTTP1(true)
