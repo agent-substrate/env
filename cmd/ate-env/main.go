@@ -24,22 +24,17 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func main() {
+func newGuestCommand(id string) *cobra.Command {
 	var (
 		endpoint string
 		atespace string
 		client   *env.Client
 	)
 
-	root := &cobra.Command{
-		Use:           "ate-env",
-		Short:         "Manage environments on Agent Substrate",
-		SilenceUsage:  true,
-		SilenceErrors: true,
+	guestCmd := &cobra.Command{
+		Use:   id,
+		Short: fmt.Sprintf("Manage environment %s", id),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "manifest" {
-				return nil
-			}
 			var err error
 			client, err = env.NewClient(env.ClientOptions{
 				Endpoint: endpoint,
@@ -52,62 +47,15 @@ func main() {
 			}
 		},
 	}
-	root.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
-	root.PersistentFlags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	guestCmd.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
+	guestCmd.PersistentFlags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
 
-	root.AddCommand(newManifestCommand())
-
-	var (
-		createTemplate  string
-		createNamespace string
-	)
-	createCmd := &cobra.Command{
-		Use:   "create <id>",
-		Short: "Create and start an environment",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			req := &ateenvv1.CreateEnvironmentRequest{
-				Id:       args[0],
-				Atespace: atespace,
-			}
-			if createTemplate != "" || createNamespace != "" {
-				req.Template = &ateenvv1.Template{
-					Name:      createTemplate,
-					Namespace: createNamespace,
-				}
-			}
-			_, err := client.Create(cmd.Context(), req)
-			return err
-		},
-	}
-	createCmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
-	createCmd.Flags().StringVar(&createNamespace, "namespace", "", "Kubernetes namespace of the ActorTemplate (defaults to server default)")
-	root.AddCommand(createCmd)
-
-	root.AddCommand(&cobra.Command{
-		Use:   "suspend <id>",
-		Short: "Suspend an environment",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Suspend(cmd.Context(), atespace, args[0])
-		},
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "delete <id>",
-		Short: "Delete an environment",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Delete(cmd.Context(), atespace, args[0])
-		},
-	})
-
-	root.AddCommand(&cobra.Command{
-		Use:   "read <id> <path>",
+	guestCmd.AddCommand(&cobra.Command{
+		Use:   "read <path>",
 		Short: "Print an environment file to stdout",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rc, err := client.Env(atespace, args[0]).ReadFile(cmd.Context(), args[1])
+			rc, err := client.Env(atespace, id).ReadFile(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -117,22 +65,22 @@ func main() {
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
-		Use:   "write <id> <path>",
+	guestCmd.AddCommand(&cobra.Command{
+		Use:   "write <path>",
 		Short: "Write stdin to an environment file",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return client.Env(atespace, args[0]).WriteFile(cmd.Context(), args[1], os.Stdin, 0o644)
+			return client.Env(atespace, id).WriteFile(cmd.Context(), args[0], os.Stdin, 0o644)
 		},
 	})
 
-	root.AddCommand(&cobra.Command{
-		Use:     "shell <id> <cmdline>",
+	guestCmd.AddCommand(&cobra.Command{
+		Use:     "shell <cmdline>",
 		Aliases: []string{"cmd"},
 		Short:   "Run a shell command line in the environment",
-		Args:    cobra.ExactArgs(2),
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := client.Env(atespace, args[0]).Shell(cmd.Context(), args[1])
+			res, err := client.Env(atespace, id).Shell(cmd.Context(), strings.Join(args, " "))
 			if err != nil {
 				return err
 			}
@@ -149,6 +97,133 @@ func main() {
 		},
 	})
 
+	return guestCmd
+}
+
+func newCreateCommand() *cobra.Command {
+	var (
+		endpoint        string
+		atespace        string
+		createTemplate  string
+		createNamespace string
+	)
+	cmd := &cobra.Command{
+		Use:   "create <id>",
+		Short: "Create and start an environment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := env.NewClient(env.ClientOptions{
+				Endpoint: endpoint,
+			})
+			if err != nil {
+				return err
+			}
+			defer client.Close()
+
+			req := &ateenvv1.CreateEnvironmentRequest{
+				Id:       args[0],
+				Atespace: atespace,
+			}
+			if createTemplate != "" || createNamespace != "" {
+				req.Template = &ateenvv1.Template{
+					Name:      createTemplate,
+					Namespace: createNamespace,
+				}
+			}
+			_, err = client.Create(cmd.Context(), req)
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
+	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	cmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
+	cmd.Flags().StringVar(&createNamespace, "namespace", "", "Kubernetes namespace of the ActorTemplate (defaults to server default)")
+	return cmd
+}
+
+func newSuspendCommand() *cobra.Command {
+	var (
+		endpoint string
+		atespace string
+	)
+	cmd := &cobra.Command{
+		Use:   "suspend <id>",
+		Short: "Suspend an environment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := env.NewClient(env.ClientOptions{
+				Endpoint: endpoint,
+			})
+			if err != nil {
+				return err
+			}
+			defer client.Close()
+
+			return client.Suspend(cmd.Context(), atespace, args[0])
+		},
+	}
+	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
+	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	return cmd
+}
+
+func newDeleteCommand() *cobra.Command {
+	var (
+		endpoint string
+		atespace string
+	)
+	cmd := &cobra.Command{
+		Use:   "delete <id>",
+		Short: "Delete an environment",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := env.NewClient(env.ClientOptions{
+				Endpoint: endpoint,
+			})
+			if err != nil {
+				return err
+			}
+			defer client.Close()
+
+			return client.Delete(cmd.Context(), atespace, args[0])
+		},
+	}
+	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
+	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	return cmd
+}
+
+func newRootCommand(args []string) *cobra.Command {
+	root := &cobra.Command{
+		Use:   "ate-env",
+		Short: "Manage environments on Agent Substrate",
+		Long: `Manage environments on Agent Substrate.
+
+Common environment commands:
+  ate-env <id> read <path>       Print an environment file to stdout
+  ate-env <id> write <path>      Write stdin to an environment file
+  ate-env <id> shell <cmdline>   Run a shell command line in the environment`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+
+	root.AddCommand(newManifestCommand())
+	root.AddCommand(newCreateCommand())
+	root.AddCommand(newSuspendCommand())
+	root.AddCommand(newDeleteCommand())
+
+	if len(args) > 0 {
+		cmdName := args[0]
+		if _, _, err := root.Find([]string{cmdName}); err != nil {
+			root.AddCommand(newGuestCommand(cmdName))
+		}
+	}
+
+	return root
+}
+
+func main() {
+	root := newRootCommand(os.Args[1:])
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "ate-env:", err)
 		os.Exit(1)
