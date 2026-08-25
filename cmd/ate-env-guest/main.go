@@ -1,39 +1,84 @@
 // Command ate-env-guest is the daemon that runs inside a Substrate actor
-// and exposes command execution, filesystem access, and MCP tools over HTTP
-// using github.com/modelcontextprotocol/go-sdk.
-//
-// TODO: Migrate cmd/ate-env-guest to adopt the gRPC guest services
-// (github.com/agent-substrate/env/guest/process and github.com/agent-substrate/env/guest/filesystem)
-// as the primary container daemon implementation.
+// and exposes command execution and filesystem access over gRPC
+// (ProcessService and FileSystemService) with HTTP readiness probe support.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/agent-substrate/env/internal/guest"
+	"github.com/agent-substrate/env/guest"
 )
 
 func main() {
-	listen := flag.String("listen", "", "address to serve the guest API on (defaults to :$PORT, or :80)")
+	listen := flag.String("listen", ":80", "address to serve the guest API on")
+	logDir := flag.String("log-dir", "/var/log/ate-jobs", "directory for process logs")
+	workspace := flag.String("workspace", "/", "workspace root directory")
 	flag.Parse()
 
-	if *listen == "" {
-		port := os.Getenv("PORT")
-		if port == "" {
-			port = "80"
-		}
-		*listen = ":" + port
+	addr := *listen
+	if addr == "" {
+		addr = ":80"
 	}
 
-	srv := &guest.Server{}
-	h, err := srv.Handler(nil)
+	cfg := guest.Config{
+		ListenAddr:       addr,
+		LogDir:           *logDir,
+		Workspace:        *workspace,
+		EnableProcess:    true,
+		EnableFileSystem: true,
+	}
+
+	grpcServer, cleanup, err := guest.NewServer(cfg)
 	if err != nil {
-		log.Fatalf("initializing guest server: %v", err)
+		log.Fatalf("failed to initialize guest server: %v", err)
+	}
+	defer cleanup()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok\n")
+	})
+	mux.Handle("/", grpcServer)
+
+	// Enable both HTTP/1.1 (for the /readyz probe) and unencrypted HTTP/2
+	// (h2c, for gRPC services) on the same plaintext TCP listener.
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
+	srv := &http.Server{
+		Handler:   mux,
+		Protocols: &protocols,
 	}
 
-	log.Printf("ate-env-guest listening on %s (serving REST API and /v1/mcp)", *listen)
-	log.Fatal(http.ListenAndServe(*listen, h))
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("failed to listen on %s: %v", addr, err)
+	}
+	defer lis.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		log.Printf("\nShutting down ate-env-guest...")
+		grpcServer.GracefulStop()
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	log.Printf("ate-env-guest listening on %s (gRPC services=%s, workspace=%s, logdir=%s)",
+		lis.Addr(), guest.FormatEnabledServices(cfg), cfg.Workspace, cfg.LogDir)
+	if err := srv.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("ate-env-guest server error: %v", err)
+	}
 }

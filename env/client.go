@@ -5,15 +5,12 @@
 package env
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
+	"github.com/agent-substrate/env/internal/ate"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -21,7 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ErrNotFound is returned when a env, file, or directory does not exist.
+// ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
 
 // ClientOptions configures a Client.
@@ -30,18 +27,18 @@ type ClientOptions struct {
 	// "http://localhost:7777" or "localhost:7777". Required if GRPCConn is nil.
 	Endpoint string
 
-	// GRPCConn overrides the grpc.ClientConn used for EnvironmentService RPCs.
+	// GRPCConn overrides the grpc.ClientConn used for ate-env-api RPCs.
 	GRPCConn *grpc.ClientConn
 }
 
-// Client manages environments against a ate-env-api endpoint over gRPC (for lifecycle)
-// and HTTP (for in-env guest proxying).
+// Client manages environments against an ate-env-api endpoint over gRPC.
 type Client struct {
-	endpoint string
-	opts     ClientOptions
-	http     *http.Client
-	grpcConn *grpc.ClientConn
-	grpc     ateenvv1.EnvironmentServiceClient
+	endpoint   string
+	opts       ClientOptions
+	grpcConn   *grpc.ClientConn
+	grpc       ateenvv1.EnvironmentServiceClient
+	process    ateenvv1.ProcessServiceClient
+	filesystem ateenvv1.FileSystemServiceClient
 }
 
 // NewClient returns a Client targeting endpoint.
@@ -70,11 +67,12 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	}
 
 	return &Client{
-		endpoint: endpoint,
-		opts:     opts,
-		http:     http.DefaultClient,
-		grpcConn: grpcConn,
-		grpc:     ateenvv1.NewEnvironmentServiceClient(grpcConn),
+		endpoint:   endpoint,
+		opts:       opts,
+		grpcConn:   grpcConn,
+		grpc:       ateenvv1.NewEnvironmentServiceClient(grpcConn),
+		process:    ateenvv1.NewProcessServiceClient(grpcConn),
+		filesystem: ateenvv1.NewFileSystemServiceClient(grpcConn),
 	}, nil
 }
 
@@ -94,11 +92,7 @@ func (c *Client) Create(ctx context.Context, req *ateenvv1.CreateEnvironmentRequ
 		return nil, fromGRPCError(err)
 	}
 	created := resp.GetEnvironment()
-	return &Env{
-		id:       created.GetId(),
-		atespace: created.GetAtespace(),
-		client:   c,
-	}, nil
+	return c.Env(created.GetAtespace(), created.GetId()), nil
 }
 
 // Suspend checkpoints and stops the environment using the gRPC EnvironmentService.
@@ -129,6 +123,9 @@ func (c *Client) Delete(ctx context.Context, atespace, id string) error {
 
 // Env returns a handle to an environment without checking that it exists.
 func (c *Client) Env(atespace, id string) *Env {
+	if atespace == "" {
+		atespace = ate.DefaultAtespace
+	}
 	return &Env{
 		id:       id,
 		atespace: atespace,
@@ -144,49 +141,4 @@ func fromGRPCError(err error) error {
 		return fmt.Errorf("env: %w: %s", ErrNotFound, status.Convert(err).Message())
 	}
 	return fmt.Errorf("env: %w", err)
-}
-
-// do performs an HTTP request against the API service with an optional JSON
-// body (in), and decodes the JSON response into out when non-nil. Non-2xx
-// responses are converted to errors.
-func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
-	var body io.Reader
-	if in != nil {
-		data, err := json.Marshal(in)
-		if err != nil {
-			return fmt.Errorf("env: encoding request: %w", err)
-		}
-		body = bytes.NewReader(data)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+path, body)
-	if err != nil {
-		return fmt.Errorf("env: building request: %w", err)
-	}
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("env: reaching the API at %q: %w", c.endpoint, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		var apiErr Error
-		if jsonErr := json.Unmarshal(payload, &apiErr); jsonErr == nil && apiErr.Message != "" {
-			if apiErr.Code == CodeNotFound {
-				return fmt.Errorf("env: %w: %s", ErrNotFound, apiErr.Message)
-			}
-			return fmt.Errorf("env: %s", apiErr.Message)
-		}
-		return fmt.Errorf("env: API returned HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(payload))
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("env: decoding response: %w", err)
-	}
-	return nil
 }

@@ -1,21 +1,20 @@
-// Command ate-env-api serves the env API over HTTP and gRPC. It bridges
-// clients to the Substrate control plane (ateapi) for actor lifecycle
-// and to the atenet router for in-env exec and filesystem operations.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"io"
 	"log"
-	"net"
 	"net/http"
-	"strings"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/service"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 )
 
@@ -42,27 +41,44 @@ func main() {
 	}
 	defer client.Close()
 
+	apisvc := apiservice.New(client, *atenet, *hostSuffix)
+	defer apisvc.Close()
+
 	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client))
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apisvc)
+	ateenvv1.RegisterProcessServiceServer(grpcServer, apisvc)
+	ateenvv1.RegisterFileSystemServiceServer(grpcServer, apisvc)
 
-	httpHandler := service.Handler(client)
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-			return
-		}
-		httpHandler.ServeHTTP(w, r)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok\n")
 	})
+	mux.Handle("/v1/", service.Handler(client))
+	mux.Handle("/", grpcServer)
 
-	h2cHandler := h2c.NewHandler(handler, &http2.Server{})
+	// Enable both HTTP/1.1 (for /healthz and /v1/ HTTP endpoints) and
+	// unencrypted HTTP/2 (h2c, for gRPC services) on the same plaintext TCP listener.
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 
-	lis, err := net.Listen("tcp", *listen)
-	if err != nil {
-		log.Fatalf("listening on %s: %v", *listen, err)
+	srv := &http.Server{
+		Addr:      *listen,
+		Handler:   mux,
+		Protocols: &protocols,
 	}
-	defer lis.Close()
 
-	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", lis.Addr(), *ateapi, *atenet)
-	log.Fatal(http.Serve(lis, h2cHandler))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		grpcServer.GracefulStop()
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", *listen, *ateapi, *atenet)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("server error: %v", err)
+	}
 }

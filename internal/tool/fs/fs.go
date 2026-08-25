@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	guestsys "github.com/agent-substrate/env/internal/guest/guestsys"
+	guestsys "github.com/agent-substrate/env/internal/service/guestsys"
 	"github.com/agent-substrate/env/internal/tool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

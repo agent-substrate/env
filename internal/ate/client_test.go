@@ -3,11 +3,10 @@ package ate_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/agent-substrate/env/internal/ate"
-	"github.com/agent-substrate/env/internal/guest"
-	"github.com/agent-substrate/env/internal/guest/guestsys"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -51,15 +50,10 @@ func newFixture(t *testing.T) *fixture {
 	return &fixture{control: control, router: router, client: client, guest: t.TempDir()}
 }
 
-// create makes a env whose guest handler serves from a temp dir.
+// create makes a env with a registered router route.
 func (f *fixture) create(t *testing.T, id string) {
 	t.Helper()
-	sys := guestsys.New()
-	h, err := (&guest.Server{}).Handler(sys)
-	if err != nil {
-		t.Fatalf("creating guest handler: %v", err)
-	}
-	f.router.Register(id, h)
+	f.router.Register(id, http.NotFoundHandler())
 	req := ate.CreateOptions{ID: id, Template: "default-env", Namespace: "envs"}
 	if err := f.client.Create(t.Context(), req); err != nil {
 		t.Fatalf("creating actor %q: %v", id, err)

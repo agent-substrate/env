@@ -2,9 +2,11 @@ package apiservice_test
 
 import (
 	"context"
+	"io"
 	"net"
 	"testing"
 
+	"github.com/agent-substrate/env/guest"
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
@@ -14,10 +16,26 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
+type testEnv struct {
+	envClient  ateenvv1.EnvironmentServiceClient
+	procClient ateenvv1.ProcessServiceClient
+	fsClient   ateenvv1.FileSystemServiceClient
+	conn       *grpc.ClientConn
+	router     *fakerouter.Router
+	control    *fakecontrol.Server
+}
+
 func newTestEnv(t *testing.T) (ateenvv1.EnvironmentServiceClient, *fakecontrol.Server) {
+	t.Helper()
+	te := newFullTestEnv(t)
+	return te.envClient, te.control
+}
+
+func newFullTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 
 	control := fakecontrol.New()
@@ -44,9 +62,13 @@ func newTestEnv(t *testing.T) (ateenvv1.EnvironmentServiceClient, *fakecontrol.S
 	}
 	t.Cleanup(func() { client.Close() })
 
+	srv := apiservice.New(client, routerAddr, "")
+	t.Cleanup(srv.Close)
+
 	grpcServer := grpc.NewServer()
-	srv := apiservice.New(client)
 	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, srv)
+	ateenvv1.RegisterProcessServiceServer(grpcServer, srv)
+	ateenvv1.RegisterFileSystemServiceServer(grpcServer, srv)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -61,7 +83,14 @@ func newTestEnv(t *testing.T) (ateenvv1.EnvironmentServiceClient, *fakecontrol.S
 	}
 	t.Cleanup(func() { conn.Close() })
 
-	return ateenvv1.NewEnvironmentServiceClient(conn), control
+	return &testEnv{
+		envClient:  ateenvv1.NewEnvironmentServiceClient(conn),
+		procClient: ateenvv1.NewProcessServiceClient(conn),
+		fsClient:   ateenvv1.NewFileSystemServiceClient(conn),
+		conn:       conn,
+		router:     router,
+		control:    control,
+	}
 }
 
 func TestCreateAndGetEnvironment(t *testing.T) {
@@ -263,5 +292,128 @@ func TestDeleteEnvironment(t *testing.T) {
 	})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("after delete, got code %v, want %v", status.Code(err), codes.NotFound)
+	}
+}
+
+func TestProxyGuestServices(t *testing.T) {
+	te := newFullTestEnv(t)
+	ctx := context.Background()
+
+	// 1. Create environment
+	_, err := te.envClient.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+		Id: "guest-test",
+	})
+	if err != nil {
+		t.Fatalf("CreateEnvironment: %v", err)
+	}
+
+	// 2. Register guest server on router
+	workDir := t.TempDir()
+	grpcGuestServer, cleanup, err := guest.NewServer(guest.Config{
+		Workspace:        workDir,
+		EnableProcess:    true,
+		EnableFileSystem: true,
+	})
+	if err != nil {
+		t.Fatalf("guest.NewServer: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	te.router.Register("guest-test", grpcGuestServer)
+
+	envCtx := metadata.AppendToOutgoingContext(ctx, "x-env-id", "guest-test", "x-env-atespace", "default")
+
+	// 3. Test FileSystemService proxying
+	writeStream, err := te.fsClient.WriteFile(envCtx)
+	if err != nil {
+		t.Fatalf("WriteFile stream: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1.WriteFileRequest{
+		Path:  "proxy-file.txt",
+		Mode:  0644,
+		Chunk: []byte("proxied content"),
+	}); err != nil {
+		t.Fatalf("WriteFile send: %v", err)
+	}
+	writeResp, err := writeStream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("WriteFile CloseAndRecv: %v", err)
+	}
+	if writeResp.GetBytesWritten() != int64(len("proxied content")) {
+		t.Errorf("bytes written = %d, want %d", writeResp.GetBytesWritten(), len("proxied content"))
+	}
+
+	readStream, err := te.fsClient.ReadFile(envCtx, &ateenvv1.ReadFileRequest{
+		Path: "proxy-file.txt",
+	})
+	if err != nil {
+		t.Fatalf("ReadFile stream: %v", err)
+	}
+	var readBuf []byte
+	for {
+		chunk, err := readStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ReadFile recv: %v", err)
+		}
+		readBuf = append(readBuf, chunk.GetData()...)
+	}
+	if string(readBuf) != "proxied content" {
+		t.Errorf("read %q, want %q", string(readBuf), "proxied content")
+	}
+
+	// 4. Test ProcessService proxying
+	startResp, err := te.procClient.StartProcess(envCtx, &ateenvv1.StartProcessRequest{
+		Command: []string{"echo", "hello-from-proxy"},
+	})
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	if startResp.GetProcessId() == "" {
+		t.Fatal("empty process ID")
+	}
+
+	logStream, err := te.procClient.StreamProcessLogs(envCtx, &ateenvv1.StreamProcessLogsRequest{
+		ProcessId: startResp.GetProcessId(),
+		Follow:    true,
+	})
+	if err != nil {
+		t.Fatalf("StreamProcessLogs: %v", err)
+	}
+	var stdout string
+	for {
+		chunk, err := logStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("StreamProcessLogs recv: %v", err)
+		}
+		if chunk.GetSource() == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+			stdout += string(chunk.GetData())
+		}
+	}
+	if stdout != "hello-from-proxy\n" {
+		t.Errorf("stdout = %q, want hello-from-proxy\\n", stdout)
+	}
+
+	getProc, err := te.procClient.GetProcess(envCtx, &ateenvv1.GetProcessRequest{
+		ProcessId: startResp.GetProcessId(),
+	})
+	if err != nil {
+		t.Fatalf("GetProcess: %v", err)
+	}
+	if getProc.GetExitCode() != 0 {
+		t.Errorf("exit code = %d, want 0", getProc.GetExitCode())
+	}
+
+	// 5. Test missing metadata error
+	_, err = te.procClient.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+		Command: []string{"echo", "no-meta"},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("got error code %v, want InvalidArgument", status.Code(err))
 	}
 }
