@@ -64,11 +64,11 @@ kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 ate-env create dev1
 
 # Execute a shell command inside the environment.
-ate-env shell dev1 'echo hello > /note.txt'
+ate-env dev1 shell 'echo hello > /note.txt'
 
 # Read and write files.
-ate-env read dev1 /note.txt
-echo "world" | ate-env write dev1 /note.txt
+ate-env dev1 read /note.txt
+echo "world" | ate-env dev1 write /note.txt
 
 # Suspend (snapshot) and delete.
 ate-env suspend dev1
@@ -85,13 +85,13 @@ curl -X POST localhost:7777/v1/envs/dev1/mcp \
 
 ## CLI
 
-All lifecycle, execution, and file operations are top-level commands taking the environment ID as an argument:
+File operations and remote command execution take the environment ID first, followed by the operation:
 
 ```bash
 $ ate-env create dev1
-$ ate-env shell dev1 'uname -a'
-$ echo "hello world" | ate-env write dev1 /app/msg.txt
-$ ate-env read dev1 /app/msg.txt
+$ ate-env dev1 shell 'uname -a'
+$ echo "hello world" | ate-env dev1 write /app/msg.txt
+$ ate-env dev1 read /app/msg.txt
 $ ate-env suspend dev1
 $ ate-env delete dev1
 ```
@@ -100,7 +100,12 @@ $ ate-env delete dev1
 
 ```bash
 $ ate-env --help
-Manage environments on Agent Substrate
+Manage environments on Agent Substrate.
+
+Common environment commands:
+  ate-env <id> read <path>       Print an environment file to stdout
+  ate-env <id> write <path>      Write stdin to an environment file
+  ate-env <id> shell <cmdline>   Run a shell command line in the environment
 
 Usage:
   ate-env [command]
@@ -111,15 +116,10 @@ Available Commands:
   delete      Delete an environment
   help        Help about any command
   manifest    Generate Kubernetes manifests to deploy the system
-  read        Print an environment file to stdout
-  shell       Run a shell command line in the environment
   suspend     Suspend an environment
-  write       Write stdin to an environment file
 
 Flags:
-      --api string        address of the ate-env-api service (e.g. localhost:7777) (default "127.0.0.1:7777")
-      --atespace string   Substrate atespace (default "default")
-  -h, --help              help for ate-env
+  -h, --help   help for ate-env
 
 Use "ate-env [command] --help" for more information about a command.
 
