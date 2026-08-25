@@ -90,28 +90,28 @@ sys.stderr.write("Job stderr log\n")
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	// 3. Stream real-time logs
-	logStream, err := procClient.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	// 3. Stream real-time output
+	outStream, err := procClient.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: startRes.ProcessId,
 		Follow:    true,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessLogs failed: %v", err)
+		t.Fatalf("StreamProcessOutputs failed: %v", err)
 	}
 
 	var stdout strings.Builder
 	var stderr strings.Builder
 	for {
-		chunk, err := logStream.Recv()
+		chunk, err := outStream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			t.Fatalf("error reading log chunk: %v", err)
+			t.Fatalf("error reading output chunk: %v", err)
 		}
-		if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdout.Write(chunk.Data)
-		} else if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDERR {
+		} else if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR {
 			stderr.Write(chunk.Data)
 		}
 	}

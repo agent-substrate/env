@@ -197,8 +197,8 @@ func (s *Server) GetProcess(ctx context.Context, req *ateenvv1.GetProcessRequest
 	return ateenvv1.NewProcessServiceClient(conn).GetProcess(outCtx, req)
 }
 
-// StreamProcessLogs streams real-time stdout and stderr logs from a process.
-func (s *Server) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stream grpc.ServerStreamingServer[ateenvv1.ProcessLogChunk]) error {
+// StreamProcessOutputs streams real-time stdout and stderr from a process.
+func (s *Server) StreamProcessOutputs(req *ateenvv1.StreamProcessOutputsRequest, stream grpc.ServerStreamingServer[ateenvv1.OutputChunk]) error {
 	ctx := stream.Context()
 	envID, atespace, err := envFromContext(ctx)
 	if err != nil {
@@ -211,7 +211,7 @@ func (s *Server) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, strea
 	defer conn.Close()
 
 	outCtx := forwardOutgoingContext(ctx)
-	clientStream, err := ateenvv1.NewProcessServiceClient(conn).StreamProcessLogs(outCtx, req)
+	clientStream, err := ateenvv1.NewProcessServiceClient(conn).StreamProcessOutputs(outCtx, req)
 	if err != nil {
 		return err
 	}

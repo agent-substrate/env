@@ -141,7 +141,7 @@ func TestProcessFailureExitCode(t *testing.T) {
 	}
 }
 
-func TestStreamProcessLogs(t *testing.T) {
+func TestStreamProcessOutputs(t *testing.T) {
 	client, cleanup := setupTestServer(t)
 	defer cleanup()
 
@@ -153,12 +153,12 @@ func TestStreamProcessLogs(t *testing.T) {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: startRes.ProcessId,
 		Follow:    true,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessLogs failed: %v", err)
+		t.Fatalf("StreamProcessOutputs failed: %v", err)
 	}
 
 	var stdoutBuilder strings.Builder
@@ -170,11 +170,11 @@ func TestStreamProcessLogs(t *testing.T) {
 			break
 		}
 		if err != nil {
-			t.Fatalf("error reading log chunk: %v", err)
+			t.Fatalf("error reading output chunk: %v", err)
 		}
-		if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdoutBuilder.Write(chunk.Data)
-		} else if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDERR {
+		} else if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR {
 			stderrBuilder.Write(chunk.Data)
 		}
 	}
@@ -190,7 +190,7 @@ func TestStreamProcessLogs(t *testing.T) {
 	}
 }
 
-func TestStreamProcessLogsWithOffset(t *testing.T) {
+func TestStreamProcessOutputsWithOffset(t *testing.T) {
 	client, cleanup := setupTestServer(t)
 	defer cleanup()
 
@@ -205,13 +205,13 @@ func TestStreamProcessLogsWithOffset(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	skipLen := int64(len("prefix-to-skip\n"))
-	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId:    startRes.ProcessId,
 		StdoutOffset: skipLen,
 		Follow:       false,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessLogs failed: %v", err)
+		t.Fatalf("StreamProcessOutputs failed: %v", err)
 	}
 
 	var stdoutBuilder strings.Builder
@@ -221,9 +221,9 @@ func TestStreamProcessLogsWithOffset(t *testing.T) {
 			break
 		}
 		if err != nil {
-			t.Fatalf("error reading log chunk: %v", err)
+			t.Fatalf("error reading output chunk: %v", err)
 		}
-		if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdoutBuilder.Write(chunk.Data)
 		}
 	}
@@ -237,7 +237,7 @@ func TestStreamProcessLogsWithOffset(t *testing.T) {
 	}
 }
 
-func TestStreamProcessLogsSnapshotNoFollow(t *testing.T) {
+func TestStreamProcessOutputsSnapshotNoFollow(t *testing.T) {
 	client, cleanup := setupTestServer(t)
 	defer cleanup()
 
@@ -252,12 +252,12 @@ func TestStreamProcessLogsSnapshotNoFollow(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	start := time.Now()
-	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: startRes.ProcessId,
 		Follow:    false,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessLogs failed: %v", err)
+		t.Fatalf("StreamProcessOutputs failed: %v", err)
 	}
 
 	var stdoutBuilder strings.Builder
@@ -430,12 +430,12 @@ func TestLogCapping(t *testing.T) {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: res.ProcessId,
 		Follow:    true,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessLogs failed: %v", err)
+		t.Fatalf("StreamProcessOutputs failed: %v", err)
 	}
 
 	var stdout strings.Builder
@@ -447,7 +447,7 @@ func TestLogCapping(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stream recv error: %v", err)
 		}
-		if chunk.Source == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdout.Write(chunk.Data)
 		}
 	}

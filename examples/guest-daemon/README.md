@@ -88,10 +88,10 @@ grpcurl -plaintext -d '{"process_id": "<process-id-from-start>"}' \
   localhost:8080 ateenv.v1.ProcessService/GetProcess
 ```
 
-### Stream Real-Time Logs
+### Stream Real-Time Output
 ```bash
 grpcurl -plaintext -d '{"process_id": "<process-id>", "follow": true}' \
-  localhost:8080 ateenv.v1.ProcessService/StreamProcessLogs
+  localhost:8080 ateenv.v1.ProcessService/StreamProcessOutputs
 ```
 
 ### Terminate a Process
