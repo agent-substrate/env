@@ -13,6 +13,7 @@ import (
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/grpcproxy"
 	"github.com/agent-substrate/env/internal/service"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
@@ -41,13 +42,25 @@ func main() {
 	}
 	defer client.Close()
 
-	apisvc := apiservice.New(client, *atenet, *hostSuffix)
-	defer apisvc.Close()
-
-	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apisvc)
-	ateenvv1.RegisterProcessServiceServer(grpcServer, apisvc)
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, apisvc)
+	// Guest-bound gRPC (ProcessService, FileSystemService, reflection —
+	// any service NOT registered here) is forwarded opaquely to the
+	// environment named in x-env-id metadata: the pass-through codec plus
+	// UnknownServiceHandler relay raw frames over one cached connection
+	// per environment, so the guest contract can evolve without touching
+	// this binary.
+	//
+	// SEE(lior): this replaces #35's typed per-method forwarding in
+	// apiservice, which needed an api-side method (and a new deploy) for
+	// every guest RPC and dialed a fresh connection per call.
+	grpcServer := grpc.NewServer(
+		grpc.ForceServerCodec(grpcproxy.Codec()),
+		grpc.UnknownServiceHandler(grpcproxy.StreamHandler(
+			func(ctx context.Context, atespace, envID string) (*grpc.ClientConn, error) {
+				return client.GuestConn(atespace, envID)
+			},
+		)),
+	)
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

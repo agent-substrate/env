@@ -9,6 +9,7 @@ import (
 	"github.com/agent-substrate/env/guest"
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/grpcproxy"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
@@ -62,13 +63,17 @@ func newFullTestEnv(t *testing.T) *testEnv {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	srv := apiservice.New(client, routerAddr, "")
-	t.Cleanup(srv.Close)
-
-	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, srv)
-	ateenvv1.RegisterProcessServiceServer(grpcServer, srv)
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, srv)
+	// Wired like cmd/ate-env-api: the typed EnvironmentService plus the
+	// opaque proxy for everything guest-bound.
+	grpcServer := grpc.NewServer(
+		grpc.ForceServerCodec(grpcproxy.Codec()),
+		grpc.UnknownServiceHandler(grpcproxy.StreamHandler(
+			func(ctx context.Context, atespace, envID string) (*grpc.ClientConn, error) {
+				return client.GuestConn(atespace, envID)
+			},
+		)),
+	)
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(client))
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

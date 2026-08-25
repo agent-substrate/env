@@ -1,22 +1,19 @@
-// Package apiservice implements the EnvironmentService, ProcessService, and
-// FileSystemService gRPC APIs for the ate-env API server, proxying in-actor
-// execution and filesystem operations directly to the guest daemon via atenet.
+// Package apiservice implements the EnvironmentService gRPC control plane
+// API. In-actor execution and filesystem calls (ProcessService,
+// FileSystemService, and anything the guest serves in the future) do not
+// pass through here: the api server forwards them opaquely with
+// internal/grpcproxy, so the guest contract can evolve without touching
+// this service.
 package apiservice
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
-	"strings"
 
 	"github.com/agent-substrate/env/internal/ate"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -32,34 +29,26 @@ const DefaultNamespace = "ate-env"
 // specify one.
 const DefaultAtespace = "default"
 
-// Server implements ateenvv1.EnvironmentServiceServer, ateenvv1.ProcessServiceServer,
-// and ateenvv1.FileSystemServiceServer.
+// Server implements ateenvv1.EnvironmentServiceServer backed by an ate.Client.
+//
+// SEE(lior): this used to also implement ProcessService and
+// FileSystemService by re-issuing each call to the guest (#35). That made
+// the api a second copy of the guest contract: every new guest RPC needed a
+// matching forwarding method here, and streams were re-pumped message by
+// message. Those services are deliberately NOT registered on the api server
+// anymore — grpc.UnknownServiceHandler + internal/grpcproxy forward any
+// unregistered method to the guest as opaque bytes over one cached
+// connection per environment (see cmd/ate-env-api).
 type Server struct {
 	ateenvv1.UnimplementedEnvironmentServiceServer
-	ateenvv1.UnimplementedProcessServiceServer
-	ateenvv1.UnimplementedFileSystemServiceServer
 
-	client     *ate.Client
-	routerAddr string
-	hostSuffix string
+	client *ate.Client
 }
 
 // New creates a new Server.
-func New(client *ate.Client, routerAddr, hostSuffix string) *Server {
-	if hostSuffix == "" {
-		hostSuffix = ate.DefaultHostSuffix
-	}
-	routerAddr = strings.TrimPrefix(routerAddr, "http://")
-	routerAddr = strings.TrimPrefix(routerAddr, "https://")
-	return &Server{
-		client:     client,
-		routerAddr: routerAddr,
-		hostSuffix: hostSuffix,
-	}
+func New(client *ate.Client) *Server {
+	return &Server{client: client}
 }
-
-// Close is a no-op retained for lifecycle compatibility.
-func (s *Server) Close() {}
 
 // ============================================================================
 // --- ENVIRONMENT SERVICE ---
@@ -159,215 +148,6 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *ateenvv1.DeleteEnvi
 	}
 
 	return &ateenvv1.DeleteEnvironmentResponse{}, nil
-}
-
-// ============================================================================
-// --- PROCESS SERVICE ---
-// ============================================================================
-
-// StartProcess launches a process inside the target environment container.
-func (s *Server) StartProcess(ctx context.Context, req *ateenvv1.StartProcessRequest) (*ateenvv1.StartProcessResponse, error) {
-	envID, atespace, err := envFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx)
-	return ateenvv1.NewProcessServiceClient(conn).StartProcess(outCtx, req)
-}
-
-// GetProcess retrieves the status of a process running inside the environment.
-func (s *Server) GetProcess(ctx context.Context, req *ateenvv1.GetProcessRequest) (*ateenvv1.Process, error) {
-	envID, atespace, err := envFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx)
-	return ateenvv1.NewProcessServiceClient(conn).GetProcess(outCtx, req)
-}
-
-// StreamProcessLogs streams real-time stdout and stderr logs from a process.
-func (s *Server) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stream grpc.ServerStreamingServer[ateenvv1.ProcessLogChunk]) error {
-	ctx := stream.Context()
-	envID, atespace, err := envFromContext(ctx)
-	if err != nil {
-		return err
-	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx)
-	clientStream, err := ateenvv1.NewProcessServiceClient(conn).StreamProcessLogs(outCtx, req)
-	if err != nil {
-		return err
-	}
-
-	for {
-		chunk, err := clientStream.Recv()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err := stream.Send(chunk); err != nil {
-			return err
-		}
-	}
-}
-
-// KillProcess terminates a running process inside the environment.
-func (s *Server) KillProcess(ctx context.Context, req *ateenvv1.KillProcessRequest) (*ateenvv1.KillProcessResponse, error) {
-	envID, atespace, err := envFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx)
-	return ateenvv1.NewProcessServiceClient(conn).KillProcess(outCtx, req)
-}
-
-// ============================================================================
-// --- FILESYSTEM SERVICE ---
-// ============================================================================
-
-// ReadFile streams file contents from the target environment.
-func (s *Server) ReadFile(req *ateenvv1.ReadFileRequest, stream grpc.ServerStreamingServer[ateenvv1.FileChunk]) error {
-	ctx := stream.Context()
-	envID, atespace, err := envFromContext(ctx)
-	if err != nil {
-		return err
-	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx)
-	clientStream, err := ateenvv1.NewFileSystemServiceClient(conn).ReadFile(outCtx, req)
-	if err != nil {
-		return err
-	}
-
-	for {
-		chunk, err := clientStream.Recv()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err := stream.Send(chunk); err != nil {
-			return err
-		}
-	}
-}
-
-// WriteFile streams file contents to the target environment.
-func (s *Server) WriteFile(stream grpc.ClientStreamingServer[ateenvv1.WriteFileRequest, ateenvv1.WriteFileResponse]) error {
-	ctx := stream.Context()
-	envID, atespace, err := envFromContext(ctx)
-	if err != nil {
-		return err
-	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx)
-	clientStream, err := ateenvv1.NewFileSystemServiceClient(conn).WriteFile(outCtx)
-	if err != nil {
-		return err
-	}
-
-	for {
-		req, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if err := clientStream.Send(req); err != nil {
-			return err
-		}
-	}
-
-	resp, err := clientStream.CloseAndRecv()
-	if err != nil {
-		return err
-	}
-	return stream.SendAndClose(resp)
-}
-
-// ============================================================================
-// --- HELPERS ---
-// ============================================================================
-
-func envFromContext(ctx context.Context) (string, string, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return "", "", status.Error(codes.InvalidArgument, "missing environment metadata in request context")
-	}
-	ids := md.Get("x-env-id")
-	if len(ids) == 0 || ids[0] == "" {
-		return "", "", status.Error(codes.InvalidArgument, "x-env-id header is required")
-	}
-	atespaces := md.Get("x-env-atespace")
-	atespace := DefaultAtespace
-	if len(atespaces) > 0 && atespaces[0] != "" {
-		atespace = atespaces[0]
-	}
-	return ids[0], atespace, nil
-}
-
-func forwardOutgoingContext(ctx context.Context) context.Context {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ctx
-	}
-	return metadata.NewOutgoingContext(ctx, md.Copy())
-}
-
-func (s *Server) guestConn(atespace, id string) (*grpc.ClientConn, error) {
-	if s.routerAddr == "" {
-		return nil, status.Error(codes.FailedPrecondition, "router address not configured for guest operations")
-	}
-	if atespace == "" {
-		atespace = DefaultAtespace
-	}
-	authority := fmt.Sprintf("%s.%s.%s", id, atespace, s.hostSuffix)
-	conn, err := grpc.NewClient(
-		s.routerAddr,
-		grpc.WithAuthority(authority),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "dialing guest router for %s/%s: %v", atespace, id, err)
-	}
-	return conn, nil
 }
 
 // ActorToEnvironment converts an ateapipb Actor to an ateenvv1 Environment.

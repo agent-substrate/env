@@ -1,6 +1,7 @@
 package env_test
 
 import (
+	"context"
 	"bytes"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/agent-substrate/env/guest"
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/grpcproxy"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	svc "github.com/agent-substrate/env/internal/service"
@@ -59,13 +61,17 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { directClient.Close() })
 
-	service := apiservice.New(directClient, routerAddr, "")
-	t.Cleanup(service.Close)
-
-	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, service)
-	ateenvv1.RegisterProcessServiceServer(grpcServer, service)
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, service)
+	// Wired like cmd/ate-env-api: the typed EnvironmentService plus the
+	// opaque proxy for everything guest-bound.
+	grpcServer := grpc.NewServer(
+		grpc.ForceServerCodec(grpcproxy.Codec()),
+		grpc.UnknownServiceHandler(grpcproxy.StreamHandler(
+			func(ctx context.Context, atespace, envID string) (*grpc.ClientConn, error) {
+				return directClient.GuestConn(atespace, envID)
+			},
+		)),
+	)
+	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apiservice.New(directClient))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")

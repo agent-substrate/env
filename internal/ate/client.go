@@ -21,11 +21,13 @@ import (
 	"net/http/httputil"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -90,6 +92,9 @@ type Client struct {
 	conn    *grpc.ClientConn
 	control ateapipb.ControlClient
 	http    *http.Client
+
+	guestMu    sync.Mutex
+	guestConns map[string]*grpc.ClientConn
 }
 
 // New creates a Client. The control-plane connection is established
@@ -124,16 +129,65 @@ func New(opts Options) (*Client, error) {
 	}
 
 	return &Client{
-		opts:    opts,
-		conn:    conn,
-		control: ateapipb.NewControlClient(conn),
-		http:    httpClient,
+		opts:       opts,
+		conn:       conn,
+		control:    ateapipb.NewControlClient(conn),
+		http:       httpClient,
+		guestConns: make(map[string]*grpc.ClientConn),
 	}, nil
 }
 
-// Close releases the control-plane connection.
+// Close releases the control-plane and guest connections.
 func (c *Client) Close() error {
+	c.guestMu.Lock()
+	for key, conn := range c.guestConns {
+		conn.Close()
+		delete(c.guestConns, key)
+	}
+	c.guestMu.Unlock()
 	return c.conn.Close()
+}
+
+// GuestConn returns a gRPC connection to the guest daemon inside env id,
+// dialing the atenet router with the environment's hostname as the
+// :authority. Routing is a property of the connection, not the call, and
+// the router resumes the actor on demand — so the connection is cached
+// per environment and stays valid across suspend/resume.
+func (c *Client) GuestConn(atespace, id string) (*grpc.ClientConn, error) {
+	if c.opts.RouterAddr == "" {
+		return nil, errors.New("ate: Options.RouterAddr is required for guest connections")
+	}
+	if atespace == "" {
+		atespace = DefaultAtespace
+	}
+	key := atespace + "/" + id
+	c.guestMu.Lock()
+	defer c.guestMu.Unlock()
+	if conn, ok := c.guestConns[key]; ok {
+		return conn, nil
+	}
+	conn, err := grpc.NewClient(c.opts.RouterAddr,
+		grpc.WithAuthority(id+"."+atespace+"."+c.opts.HostSuffix),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ate: dialing router for %q: %w", id, err)
+	}
+	c.guestConns[key] = conn
+	return conn, nil
+}
+
+// dropGuestConn closes and forgets the cached guest connections of env id.
+func (c *Client) dropGuestConn(atespace, id string) {
+	if atespace == "" {
+		atespace = DefaultAtespace
+	}
+	c.guestMu.Lock()
+	defer c.guestMu.Unlock()
+	if conn, ok := c.guestConns[atespace+"/"+id]; ok {
+		conn.Close()
+		delete(c.guestConns, atespace+"/"+id)
+	}
 }
 
 // fileTokenCreds sends the contents of a file as a bearer token on each RPC.
@@ -265,6 +319,7 @@ func (c *Client) Delete(ctx context.Context, atespace, id string) error {
 	if err != nil {
 		return fmt.Errorf("actor: deleting %q: %w", id, wrapGRPCError(err))
 	}
+	c.dropGuestConn(atespace, id)
 	return nil
 }
 
