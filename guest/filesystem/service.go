@@ -1,15 +1,18 @@
 package filesystem
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -139,15 +142,20 @@ func (s *Service) ReadFile(req *ateenvv1.ReadFileRequest, stream ateenvv1.FileSy
 }
 
 // WriteFile streams file chunks directly to disk with constant O(1) memory.
+// Chunks land in a temporary file next to the target, which is renamed into
+// place only when the upload completes — a failed or abandoned stream never
+// leaves a partial file at the requested path.
 func (s *Service) WriteFile(stream ateenvv1.FileSystemService_WriteFileServer) error {
 	var f *os.File
 	var totalBytes int64
 	var filePath string
 	var reqPath string
+	var mode os.FileMode
 
 	defer func() {
 		if f != nil {
 			_ = f.Close()
+			_ = os.Remove(f.Name())
 		}
 	}()
 
@@ -158,9 +166,14 @@ func (s *Service) WriteFile(stream ateenvv1.FileSystemService_WriteFileServer) e
 			if f == nil {
 				return status.Error(codes.InvalidArgument, "no file data received")
 			}
+			if err := f.Chmod(mode); err != nil {
+				return status.Errorf(codes.Internal, "failed to set mode on %q: %v", reqPath, err)
+			}
 			if err := f.Close(); err != nil {
-				f = nil
 				return status.Errorf(codes.Internal, "failed to close file %q: %v", reqPath, err)
+			}
+			if err := os.Rename(f.Name(), filePath); err != nil {
+				return status.Errorf(codes.Internal, "failed to finalize file %q: %v", reqPath, err)
 			}
 			f = nil
 			return stream.SendAndClose(&ateenvv1.WriteFileResponse{
@@ -188,12 +201,12 @@ func (s *Service) WriteFile(stream ateenvv1.FileSystemService_WriteFileServer) e
 				}
 			}
 
-			mode := os.FileMode(0644)
+			mode = os.FileMode(0644)
 			if req.GetMode() != 0 {
 				mode = os.FileMode(req.GetMode())
 			}
 
-			f, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			f, err = os.CreateTemp(dir, "."+filepath.Base(filePath)+".*")
 			if err != nil {
 				if errors.Is(err, os.ErrPermission) {
 					return status.Errorf(codes.PermissionDenied, "permission denied opening %q: %v", reqPath, err)
@@ -212,4 +225,105 @@ func (s *Service) WriteFile(stream ateenvv1.FileSystemService_WriteFileServer) e
 			totalBytes += int64(n)
 		}
 	}
+}
+
+// StatFile returns metadata for a file or directory.
+func (s *Service) StatFile(ctx context.Context, req *ateenvv1.StatFileRequest) (*ateenvv1.FileInfo, error) {
+	path, err := s.resolveAndValidatePath(req.GetPath())
+	if err != nil {
+		return nil, err
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, fsError(req.GetPath(), err)
+	}
+	return fileInfoProto(fi), nil
+}
+
+// ListDir returns the immediate entries of a directory.
+func (s *Service) ListDir(ctx context.Context, req *ateenvv1.ListDirRequest) (*ateenvv1.ListDirResponse, error) {
+	path, err := s.resolveAndValidatePath(req.GetPath())
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fsError(req.GetPath(), err)
+	}
+	resp := &ateenvv1.ListDirResponse{Entries: make([]*ateenvv1.FileInfo, 0, len(entries))}
+	for _, entry := range entries {
+		fi, err := entry.Info()
+		if err != nil {
+			// The entry disappeared between the listing and the stat.
+			continue
+		}
+		resp.Entries = append(resp.Entries, fileInfoProto(fi))
+	}
+	return resp, nil
+}
+
+// MakeDir creates a directory.
+func (s *Service) MakeDir(ctx context.Context, req *ateenvv1.MakeDirRequest) (*ateenvv1.MakeDirResponse, error) {
+	path, err := s.resolveAndValidatePath(req.GetPath())
+	if err != nil {
+		return nil, err
+	}
+	if req.GetParents() {
+		err = os.MkdirAll(path, 0o755)
+	} else {
+		err = os.Mkdir(path, 0o755)
+	}
+	if err != nil {
+		return nil, fsError(req.GetPath(), err)
+	}
+	return &ateenvv1.MakeDirResponse{}, nil
+}
+
+// RemovePath deletes a file or directory.
+func (s *Service) RemovePath(ctx context.Context, req *ateenvv1.RemovePathRequest) (*ateenvv1.RemovePathResponse, error) {
+	path, err := s.resolveAndValidatePath(req.GetPath())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(path); err != nil {
+		return nil, fsError(req.GetPath(), err)
+	}
+	if req.GetRecursive() {
+		err = os.RemoveAll(path)
+	} else {
+		err = os.Remove(path)
+	}
+	if err != nil {
+		return nil, fsError(req.GetPath(), err)
+	}
+	return &ateenvv1.RemovePathResponse{}, nil
+}
+
+func fileInfoProto(fi os.FileInfo) *ateenvv1.FileInfo {
+	return &ateenvv1.FileInfo{
+		Name:    fi.Name(),
+		Size:    fi.Size(),
+		Mode:    uint32(fi.Mode().Perm()),
+		IsDir:   fi.IsDir(),
+		ModTime: timestamppb.New(fi.ModTime()),
+	}
+}
+
+// fsError maps filesystem failures onto gRPC status codes. The errno cases
+// run before the fs.Err* ones: Errno.Is folds ENOTEMPTY into fs.ErrExist,
+// and "directory not empty" is a precondition failure, not an existence
+// conflict.
+func fsError(path string, err error) error {
+	code := codes.Internal
+	switch {
+	case errors.Is(err, syscall.EISDIR), errors.Is(err, syscall.ENOTDIR), errors.Is(err, syscall.ENOTEMPTY):
+		code = codes.FailedPrecondition
+	case errors.Is(err, os.ErrNotExist):
+		code = codes.NotFound
+	case errors.Is(err, os.ErrExist):
+		code = codes.AlreadyExists
+	case errors.Is(err, os.ErrPermission):
+		code = codes.PermissionDenied
+	}
+	return status.Errorf(code, "%s: %v", path, err)
 }

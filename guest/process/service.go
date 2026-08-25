@@ -4,12 +4,23 @@ import (
 	"context"
 	"errors"
 	"os"
+	"syscall"
 	"time"
 
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// MaxPollWait caps StreamProcessLogs's wait_ms long-poll. It stays below
+// the atenet router's route timeout (10s by default) so a held poll always
+// completes as a response rather than tripping the router's deadline.
+const MaxPollWait = 5 * time.Second
+
+// logChunkBytes caps one ProcessLogChunk message, keeping every message
+// comfortably under gRPC's default 4 MiB receive ceiling even when the
+// spooled logs are larger; bigger deltas stream as several chunks.
+const logChunkBytes int64 = 1 << 20
 
 // Service implements ateenvv1.ProcessServiceServer.
 // It provides in-actor asynchronous process execution and log streaming for cmd/ate-env-guest.
@@ -31,7 +42,7 @@ func (s *Service) StartProcess(ctx context.Context, req *ateenvv1.StartProcessRe
 		return nil, status.Error(codes.InvalidArgument, "command cannot be empty")
 	}
 
-	state, err := s.tracker.Start(req.GetCommand(), req.GetCwd(), req.GetEnv())
+	state, err := s.tracker.Start(req.GetCommand(), req.GetCwd(), req.GetEnv(), req.GetStdin())
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +66,17 @@ func (s *Service) GetProcess(ctx context.Context, req *ateenvv1.GetProcessReques
 	return state.ToProto(), nil
 }
 
+// WriteStdin forwards data to a process's standard input.
+func (s *Service) WriteStdin(ctx context.Context, req *ateenvv1.WriteStdinRequest) (*ateenvv1.WriteStdinResponse, error) {
+	if req.GetProcessId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "process_id cannot be empty")
+	}
+	if err := s.tracker.WriteStdin(ctx, req.GetProcessId(), req.GetData(), req.GetClose()); err != nil {
+		return nil, err
+	}
+	return &ateenvv1.WriteStdinResponse{}, nil
+}
+
 // StreamProcessLogs streams stdout and stderr logs in real-time or as a snapshot.
 func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stream ateenvv1.ProcessService_StreamProcessLogsServer) error {
 	if req.GetProcessId() == "" {
@@ -71,13 +93,32 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 	follow := req.GetFollow()
 	ctx := stream.Context()
 
+	// Without follow, wait_ms turns the snapshot into a bounded long-poll:
+	// hold until there is something to send or the process exits, at most
+	// wait_ms (server-capped below the router's route timeout).
+	wait := min(time.Duration(req.GetWaitMs())*time.Millisecond, MaxPollWait)
+	deadline := time.Now().Add(wait)
+
 	for {
-		// Read stdout delta
-		stdoutBytes, newStdoutOffset, err := ReadLogs(state.StdoutPath, stdoutOffset)
-		if err != nil {
-			return status.Errorf(codes.Internal, "reading stdout logs: %v", err)
-		}
-		if len(stdoutBytes) > 0 {
+		// Read the status before draining: when the drain runs at or
+		// after termination, it is guaranteed to include everything the
+		// exiting process flushed (the reaper syncs the log files before
+		// flipping the status).
+		state.mu.RLock()
+		isTerminated := state.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING
+		state.mu.RUnlock()
+
+		sent := false
+
+		// Drain the stdout delta in bounded chunks.
+		for {
+			stdoutBytes, newStdoutOffset, err := ReadLogs(state.StdoutPath, stdoutOffset, logChunkBytes)
+			if err != nil {
+				return status.Errorf(codes.Internal, "reading stdout logs: %v", err)
+			}
+			if len(stdoutBytes) == 0 {
+				break
+			}
 			if err := stream.Send(&ateenvv1.ProcessLogChunk{
 				Source: ateenvv1.LogSource_LOG_SOURCE_STDOUT,
 				Data:   stdoutBytes,
@@ -85,14 +126,18 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 				return err
 			}
 			stdoutOffset = newStdoutOffset
+			sent = true
 		}
 
-		// Read stderr delta
-		stderrBytes, newStderrOffset, err := ReadLogs(state.StderrPath, stderrOffset)
-		if err != nil {
-			return status.Errorf(codes.Internal, "reading stderr logs: %v", err)
-		}
-		if len(stderrBytes) > 0 {
+		// Drain the stderr delta in bounded chunks.
+		for {
+			stderrBytes, newStderrOffset, err := ReadLogs(state.StderrPath, stderrOffset, logChunkBytes)
+			if err != nil {
+				return status.Errorf(codes.Internal, "reading stderr logs: %v", err)
+			}
+			if len(stderrBytes) == 0 {
+				break
+			}
 			if err := stream.Send(&ateenvv1.ProcessLogChunk{
 				Source: ateenvv1.LogSource_LOG_SOURCE_STDERR,
 				Data:   stderrBytes,
@@ -100,34 +145,18 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 				return err
 			}
 			stderrOffset = newStderrOffset
+			sent = true
 		}
 
 		if !follow {
-			// Snapshot mode: finish after reading available logs up to this point
-			return nil
-		}
-
-		// Check if process has finished and we consumed all logs
-		state.mu.RLock()
-		isTerminated := state.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING
-		state.mu.RUnlock()
-
-		if isTerminated {
-			// Final check to see if there were any remaining bytes flushed on exit
-			finalStdout, _, _ := ReadLogs(state.StdoutPath, stdoutOffset)
-			if len(finalStdout) > 0 {
-				_ = stream.Send(&ateenvv1.ProcessLogChunk{
-					Source: ateenvv1.LogSource_LOG_SOURCE_STDOUT,
-					Data:   finalStdout,
-				})
+			// Snapshot mode: return once something was sent, the process
+			// is done, or the long-poll window closed.
+			if sent || isTerminated || !time.Now().Before(deadline) {
+				return nil
 			}
-			finalStderr, _, _ := ReadLogs(state.StderrPath, stderrOffset)
-			if len(finalStderr) > 0 {
-				_ = stream.Send(&ateenvv1.ProcessLogChunk{
-					Source: ateenvv1.LogSource_LOG_SOURCE_STDERR,
-					Data:   finalStderr,
-				})
-			}
+		} else if isTerminated {
+			// The drain above ran after the status flipped, so everything
+			// flushed on exit has been sent.
 			return nil
 		}
 
@@ -140,18 +169,24 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 	}
 }
 
-// KillProcess terminates a running process and returns its exit code.
+// KillProcess signals a running process (SIGKILL unless the request names
+// another signal) and returns its exit code when it has one.
 func (s *Service) KillProcess(ctx context.Context, req *ateenvv1.KillProcessRequest) (*ateenvv1.KillProcessResponse, error) {
 	if req.GetProcessId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "process_id cannot be empty")
 	}
 
-	exitCode, err := s.tracker.Kill(req.GetProcessId())
+	sig := syscall.SIGKILL
+	if req.GetSignal() != 0 {
+		sig = syscall.Signal(req.GetSignal())
+	}
+
+	exitCode, err := s.tracker.Signal(req.GetProcessId(), sig)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, status.Errorf(codes.NotFound, "process %q not found", req.GetProcessId())
 		}
-		return nil, status.Errorf(codes.Internal, "killing process: %v", err)
+		return nil, err
 	}
 
 	return &ateenvv1.KillProcessResponse{

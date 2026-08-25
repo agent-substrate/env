@@ -1,6 +1,7 @@
 package process
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -92,6 +93,12 @@ type ProcessState struct {
 
 	doneChan chan struct{}
 	timer    *time.Timer
+
+	// hasStdin records whether the process was started with a stdin
+	// pipe; stdinMu serializes writers, and stdin is nil once closed.
+	hasStdin bool
+	stdinMu  sync.Mutex
+	stdin    io.WriteCloser
 }
 
 // Tracker manages process lifecycles, resource limits, and log cleanup.
@@ -181,8 +188,10 @@ func (cw *cappedWriter) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
-// Start launches a new background process, enforcing concurrency and resource limits.
-func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*ProcessState, error) {
+// Start launches a new background process, enforcing concurrency and resource
+// limits. With stdin, the process gets a standard-input pipe writable through
+// WriteStdin; without it, standard input reads EOF immediately.
+func (t *Tracker) Start(command []string, cwd string, env map[string]string, stdin bool) (*ProcessState, error) {
 	if len(command) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "command list cannot be empty")
 	}
@@ -231,6 +240,22 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 
 	// Assign independent Linux Process Group ID (PGID) to kill all child subprocesses cleanly
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Bound the wait for the output pipes once the process exits, so a
+	// backgrounded grandchild holding them open cannot keep the record
+	// in a running state forever.
+	cmd.WaitDelay = 2 * time.Second
+
+	var stdinPipe io.WriteCloser
+	if stdin {
+		pipe, err := cmd.StdinPipe()
+		if err != nil {
+			stdoutFile.Close()
+			stderrFile.Close()
+			t.decrementActive()
+			return nil, status.Errorf(codes.Internal, "opening stdin pipe: %v", err)
+		}
+		stdinPipe = pipe
+	}
 
 	startedAt := time.Now()
 	if err := cmd.Start(); err != nil {
@@ -249,6 +274,8 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 		StdoutPath: stdoutPath,
 		StderrPath: stderrPath,
 		doneChan:   make(chan struct{}),
+		hasStdin:   stdin,
+		stdin:      stdinPipe,
 	}
 
 	// Watchdog timeout to prevent runaway processes
@@ -265,7 +292,16 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 	// Background reaper goroutine
 	go func() {
 		waitErr := cmd.Wait()
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			// The process exited cleanly; only its output pipes were
+			// held open past the grace period and force-closed.
+			waitErr = nil
+		}
 		finishedAt := time.Now()
+
+		// Close the stdin pipe so blocked writers fail instead of
+		// waiting on a process that is gone.
+		state.closeStdin()
 
 		state.mu.Lock()
 		if state.timer != nil {
@@ -333,6 +369,15 @@ func (t *Tracker) Get(processID string) (*ProcessState, bool) {
 
 // Kill terminates a running process and its process tree.
 func (t *Tracker) Kill(processID string) (int32, error) {
+	return t.Signal(processID, syscall.SIGKILL)
+}
+
+// Signal delivers sig to the process's whole process group. SIGKILL keeps
+// Kill's behavior — the record is marked terminated and the call waits
+// briefly for the exit — while other signals are delivered and return
+// immediately with the current exit code, leaving the outcome to the
+// process (poll GetProcess for it).
+func (t *Tracker) Signal(processID string, sig syscall.Signal) (int32, error) {
 	t.mu.RLock()
 	state, ok := t.processes[processID]
 	t.mu.RUnlock()
@@ -347,17 +392,25 @@ func (t *Tracker) Kill(processID string) (int32, error) {
 		state.mu.Unlock()
 		return exitCode, nil
 	}
-
-	state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED
-	state.ExitCode = 128 + int32(syscall.SIGKILL) // 137
-	if state.timer != nil {
-		state.timer.Stop()
-	}
 	pid := state.Cmd.Process.Pid
+	if sig == syscall.SIGKILL {
+		state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED
+		state.ExitCode = 128 + int32(syscall.SIGKILL) // 137
+		if state.timer != nil {
+			state.timer.Stop()
+		}
+	}
 	state.mu.Unlock()
 
-	// Send SIGKILL to the entire process group (-PID)
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	// Signal the entire process group (-PID).
+	_ = syscall.Kill(-pid, sig)
+
+	if sig != syscall.SIGKILL {
+		state.mu.RLock()
+		exitCode := state.ExitCode
+		state.mu.RUnlock()
+		return exitCode, nil
+	}
 
 	// Wait for reaper goroutine
 	select {
@@ -370,6 +423,63 @@ func (t *Tracker) Kill(processID string) (int32, error) {
 	state.mu.RUnlock()
 
 	return exitCode, nil
+}
+
+// WriteStdin forwards data to the process's standard input, closing it
+// afterwards when closeStdin is set. A write to a full pipe blocks until the
+// process reads or exits; when ctx ends first, WriteStdin returns ctx's
+// error while the write completes in the background — delivery is at least
+// once, so callers must not blindly resend after a deadline.
+func (t *Tracker) WriteStdin(ctx context.Context, processID string, data []byte, closeStdin bool) error {
+	t.mu.RLock()
+	state, ok := t.processes[processID]
+	t.mu.RUnlock()
+
+	if !ok {
+		return status.Errorf(codes.NotFound, "process %q not found", processID)
+	}
+	if !state.hasStdin {
+		return status.Errorf(codes.FailedPrecondition, "process %q has no stdin pipe; start it with stdin", processID)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		state.stdinMu.Lock()
+		defer state.stdinMu.Unlock()
+		if state.stdin == nil {
+			done <- status.Error(codes.FailedPrecondition, "stdin is closed")
+			return
+		}
+		if _, err := state.stdin.Write(data); err != nil {
+			done <- status.Errorf(codes.FailedPrecondition, "writing stdin: %v", err)
+			return
+		}
+		if closeStdin {
+			err := state.stdin.Close()
+			state.stdin = nil
+			if err != nil {
+				done <- status.Errorf(codes.Internal, "closing stdin: %v", err)
+				return
+			}
+		}
+		done <- nil
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return status.FromContextError(ctx.Err()).Err()
+	}
+}
+
+// closeStdin closes the process's stdin pipe if it is still open.
+func (s *ProcessState) closeStdin() {
+	s.stdinMu.Lock()
+	defer s.stdinMu.Unlock()
+	if s.stdin != nil {
+		_ = s.stdin.Close()
+		s.stdin = nil
+	}
 }
 
 // prunerLoop periodically removes expired process states and log files.
@@ -427,7 +537,7 @@ func (p *ProcessState) ToProto() *ateenvv1.Process {
 }
 
 // ReadLogs reads log bytes from a log file at a specific byte offset.
-func ReadLogs(filePath string, offset int64) ([]byte, int64, error) {
+func ReadLogs(filePath string, offset, maxBytes int64) ([]byte, int64, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -447,10 +557,13 @@ func ReadLogs(filePath string, offset int64) ([]byte, int64, error) {
 	}
 
 	length := size - offset
+	if maxBytes > 0 && length > maxBytes {
+		length = maxBytes
+	}
 	buf := make([]byte, length)
 	n, err := f.ReadAt(buf, offset)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, 0, err
 	}
-	return buf[:n], size, nil
+	return buf[:n], offset + int64(n), nil
 }
