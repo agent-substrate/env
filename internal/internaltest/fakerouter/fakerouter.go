@@ -68,3 +68,14 @@ func (r *Router) Serve() (addr string, stop func()) {
 	srv.Start()
 	return strings.TrimPrefix(srv.URL, "http://"), srv.Close
 }
+
+// ServeTLS starts the router on a random localhost port serving HTTPS
+// with a self-signed certificate and h2 offered via ALPN — the shape of
+// an atenet router running with --https-h2. Clients must skip
+// certificate verification.
+func (r *Router) ServeTLS() (addr string, stop func()) {
+	srv := httptest.NewUnstartedServer(r)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	return strings.TrimPrefix(srv.URL, "https://"), srv.Close
+}

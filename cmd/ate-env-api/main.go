@@ -24,6 +24,7 @@ func main() {
 		listen     = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
 		ateapi     = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
 		atenet     = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
+		atenetTLS  = flag.Bool("atenet-tls", false, "dial the atenet router with TLS; pairs with atenet --https-h2 for gRPC guest traffic")
 		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile  = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
@@ -33,6 +34,7 @@ func main() {
 	client, err := ate.New(ate.Options{
 		ControlAddr:     *ateapi,
 		RouterAddr:      *atenet,
+		RouterTLS:       *atenetTLS,
 		HostSuffix:      *hostSuffix,
 		SkipVerify:      *skipVerify,
 		BearerTokenFile: *tokenFile,
