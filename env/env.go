@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"time"
 
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc/metadata"
@@ -49,35 +48,14 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 	if err != nil {
 		return nil, fromGRPCError(err)
 	}
-
 	pid := startResp.GetProcessId()
-	logStream, err := e.client.process.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
-		ProcessId: pid,
-		Follow:    true,
-	})
-	if err != nil {
-		return nil, fromGRPCError(err)
-	}
 
+	// Poll by byte offset with bounded long-polls instead of following one
+	// stream: a followed stream through the atenet router is cut by the
+	// router's route timeout, while short-lived snapshots let a command run
+	// for minutes — and survive an environment suspend/resume in between.
 	var stdoutBuf, stderrBuf bytes.Buffer
-	for {
-		chunk, err := logStream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fromGRPCError(err)
-		}
-		switch chunk.GetSource() {
-		case ateenvv1.LogSource_LOG_SOURCE_STDOUT:
-			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.LogSource_LOG_SOURCE_STDERR:
-			stderrBuf.Write(chunk.GetData())
-		}
-	}
-
-	// Retrieve final process state / exit code
-	var exitCode int
+	var stdoutOff, stderrOff int64
 	for {
 		proc, err := e.client.process.GetProcess(ctx, &ateenvv1.GetProcessRequest{
 			ProcessId: pid,
@@ -85,22 +63,45 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 		if err != nil {
 			return nil, fromGRPCError(err)
 		}
-		if proc.GetStatus() != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING {
-			exitCode = int(proc.GetExitCode())
-			break
+		// Status before drain: a drain at or after termination includes
+		// everything the exiting command flushed.
+		running := proc.GetStatus() == ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING
+
+		logStream, err := e.client.process.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+			ProcessId:    pid,
+			StdoutOffset: stdoutOff,
+			StderrOffset: stderrOff,
+			WaitMs:       3000,
+		})
+		if err != nil {
+			return nil, fromGRPCError(err)
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(20 * time.Millisecond):
+		for {
+			chunk, err := logStream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return nil, fromGRPCError(err)
+			}
+			switch chunk.GetSource() {
+			case ateenvv1.LogSource_LOG_SOURCE_STDOUT:
+				stdoutBuf.Write(chunk.GetData())
+				stdoutOff += int64(len(chunk.GetData()))
+			case ateenvv1.LogSource_LOG_SOURCE_STDERR:
+				stderrBuf.Write(chunk.GetData())
+				stderrOff += int64(len(chunk.GetData()))
+			}
+		}
+
+		if !running {
+			return &ShellResponse{
+				Stdout:   stdoutBuf.String(),
+				Stderr:   stderrBuf.String(),
+				ExitCode: int(proc.GetExitCode()),
+			}, nil
 		}
 	}
-
-	return &ShellResponse{
-		Stdout:   stdoutBuf.String(),
-		Stderr:   stderrBuf.String(),
-		ExitCode: exitCode,
-	}, nil
 }
 
 // ReadFile streams the contents of the file at path inside the environment using FileSystemService.
