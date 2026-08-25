@@ -1,4 +1,4 @@
-// Package service exposes the environment abstraction as a API.
+// Package service exposes the environment abstraction as an API.
 package service
 
 import (
@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-substrate/env/env"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/mcp"
 )
 
 // DefaultTemplate is the ActorTemplate name used when a create request
@@ -22,13 +23,29 @@ const DefaultNamespace = "ate-env"
 
 // Handler serves the environment API backed by client.
 func Handler(client *ate.Client) http.Handler {
-	s := &server{client: client}
+	s := &server{
+		client:     client,
+		mcpHandler: mcp.NewHandler(client),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok")
 	})
+	mux.HandleFunc("/v1/envs/{id}/mcp", s.handleMCP)
+	mux.HandleFunc("/v1/envs/{id}/mcp/{rest...}", s.handleMCP)
+	mux.HandleFunc("/v1/envs/{id}/v1/mcp", s.handleMCP)
+	mux.HandleFunc("/v1/envs/{id}/v1/mcp/{rest...}", s.handleMCP)
 	mux.HandleFunc("/v1/envs/{id}/{rest...}", s.proxyGuest)
 	return mux
+}
+
+func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeBadRequest(w, "environment id is required")
+		return
+	}
+	s.mcpHandler.ServeHTTP(w, r)
 }
 
 func (s *server) proxyGuest(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +59,8 @@ func (s *server) proxyGuest(w http.ResponseWriter, r *http.Request) {
 }
 
 type server struct {
-	client *ate.Client
+	client     *ate.Client
+	mcpHandler http.Handler
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

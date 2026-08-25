@@ -21,11 +21,13 @@ import (
 	"net/http/httputil"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -90,6 +92,9 @@ type Client struct {
 	conn    *grpc.ClientConn
 	control ateapipb.ControlClient
 	http    *http.Client
+
+	mu        sync.Mutex
+	guestPool map[string]*grpc.ClientConn
 }
 
 // New creates a Client. The control-plane connection is established
@@ -131,9 +136,50 @@ func New(opts Options) (*Client, error) {
 	}, nil
 }
 
-// Close releases the control-plane connection.
+// Close releases the control-plane connection and any cached guest connections.
 func (c *Client) Close() error {
+	c.mu.Lock()
+	for _, conn := range c.guestPool {
+		_ = conn.Close()
+	}
+	c.guestPool = nil
+	c.mu.Unlock()
 	return c.conn.Close()
+}
+
+// DialGuest dials the guest daemon inside actor id in atespace via the atenet router.
+func (c *Client) DialGuest(atespace, id string) (*grpc.ClientConn, error) {
+	if c.opts.RouterAddr == "" {
+		return nil, errors.New("ate: Options.RouterAddr is required for guest operations")
+	}
+	if id == "" {
+		return nil, errors.New("ate: id is required")
+	}
+	if atespace == "" {
+		atespace = DefaultAtespace
+	}
+	key := atespace + "/" + id
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.guestPool == nil {
+		c.guestPool = make(map[string]*grpc.ClientConn)
+	}
+	if conn, ok := c.guestPool[key]; ok {
+		return conn, nil
+	}
+
+	authority := id + "." + atespace + "." + c.opts.HostSuffix
+	conn, err := grpc.NewClient(
+		c.opts.RouterAddr,
+		grpc.WithAuthority(authority),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ate: dialing guest %s: %w", key, err)
+	}
+	c.guestPool[key] = conn
+	return conn, nil
 }
 
 // fileTokenCreds sends the contents of a file as a bearer token on each RPC.

@@ -38,6 +38,8 @@ const (
 type TrackerConfig struct {
 	// LogDir is the directory where process stdout/stderr logs are stored.
 	LogDir string
+	// Workspace is the working and confinement directory for process operations.
+	Workspace string
 	// MaxConcurrentProcesses limits simultaneous active running commands. 0 means unlimited.
 	MaxConcurrentProcesses int
 	// MaxLogBytes caps stdout and stderr logs per command. 0 means unlimited.
@@ -217,6 +219,8 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 	cmd := exec.Command(command[0], command[1:]...)
 	if cwd != "" {
 		cmd.Dir = cwd
+	} else if t.config.Workspace != "" {
+		cmd.Dir = t.config.Workspace
 	}
 	if len(env) > 0 {
 		cmd.Env = os.Environ()
