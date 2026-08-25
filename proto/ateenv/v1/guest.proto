@@ -17,6 +17,13 @@ import "google/protobuf/timestamp.proto";
 
 // ProcessService manages the asynchronous lifecycle and output streaming of
 // processes running inside the container.
+//
+// The service is built for disposable connections: every call is short-lived
+// (StreamProcessLogs is bounded unless follow is set), and the durable
+// handles are process ids and byte offsets, never a connection. A client
+// that loses its connection — or whose environment is suspended and later
+// resumed — polls again with the same handles and continues where it left
+// off.
 service ProcessService {
   // StartProcess launches a long-running process asynchronously in the background
   // and immediately returns a unique process_id for tracking.
@@ -25,21 +32,46 @@ service ProcessService {
   // GetProcess retrieves the current metadata, lifecycle state, and timestamps of a process.
   rpc GetProcess(GetProcessRequest) returns (Process);
 
-  // StreamProcessLogs streams real-time stdout and stderr logs from a process.
+  // StreamProcessLogs streams stdout and stderr logs from a process: with
+  // follow, in real time until the process exits; without it, a bounded
+  // snapshot of what the requested offsets have not seen yet, optionally
+  // long-polling up to wait_ms. Poll again from the previous offsets plus
+  // the bytes received to consume output incrementally.
   rpc StreamProcessLogs(StreamProcessLogsRequest) returns (stream ProcessLogChunk);
 
-  // KillProcess terminates a running asynchronous process and its child process tree.
+  // WriteStdin forwards data to the standard input of a process started
+  // with stdin, and optionally closes it, delivering EOF.
+  rpc WriteStdin(WriteStdinRequest) returns (WriteStdinResponse);
+
+  // KillProcess signals a running asynchronous process and its child process
+  // tree (SIGKILL unless the request names another signal).
   rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
 }
 
 // FileSystemService provides streaming file reading and writing capabilities inside
-// the container rootfs/workspace to prevent memory exhaustion (OOM).
+// the container rootfs/workspace to prevent memory exhaustion (OOM), plus
+// plain metadata operations whose failures map onto gRPC status codes
+// (NOT_FOUND, INVALID_ARGUMENT, ...).
 service FileSystemService {
   // ReadFile streams the binary or text contents of a file in chunks.
   rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
 
-  // WriteFile streams binary or text chunks directly to a target file.
+  // WriteFile streams binary or text chunks directly to a target file. The
+  // file is written to a temporary path and atomically renamed into place on
+  // success, so a failed or abandoned upload never leaves a partial file.
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+
+  // StatFile returns metadata for a file or directory.
+  rpc StatFile(StatFileRequest) returns (FileInfo);
+
+  // ListDir returns the immediate entries of a directory.
+  rpc ListDir(ListDirRequest) returns (ListDirResponse);
+
+  // MakeDir creates a directory.
+  rpc MakeDir(MakeDirRequest) returns (MakeDirResponse);
+
+  // RemovePath deletes a file or directory.
+  rpc RemovePath(RemovePathRequest) returns (RemovePathResponse);
 }
 
 // ============================================================================
@@ -90,6 +122,11 @@ message StartProcessRequest {
   string cwd = 2;
   // Environment variables to set for the background process.
   map<string, string> env = 3;
+  // Open a pipe on the process's standard input, writable through
+  // WriteStdin. When false, standard input reads EOF immediately — so a
+  // command that consumes stdin finishes instead of waiting for input that
+  // never comes.
+  bool stdin = 4;
 }
 
 // Response returned immediately after launching an asynchronous process.
@@ -113,7 +150,15 @@ message StreamProcessLogsRequest {
   // Byte offset to start reading stderr from (defaults to 0 / beginning).
   int64 stderr_offset = 3;
   // If true, the stream follows new log output in real-time until the process finishes.
+  // A followed stream through the atenet router dies at the router's route
+  // timeout; clients polling through the router should long-poll with
+  // wait_ms instead.
   bool follow = 4;
+  // Without follow, when the offsets have nothing new, hold the request up
+  // to this many milliseconds (server-capped below the atenet router's
+  // route timeout) for output or exit before returning. 0 returns
+  // immediately.
+  int64 wait_ms = 5;
 }
 
 // Streamed chunk of process output.
@@ -128,13 +173,34 @@ message ProcessLogChunk {
 message KillProcessRequest {
   // Identifier of the background process to terminate.
   string process_id = 1;
+  // POSIX signal number delivered to the process group. 0 defaults to
+  // SIGKILL (9), preserving KillProcess's original behavior; use 15 for a
+  // graceful SIGTERM.
+  int32 signal = 2;
 }
 
 // Response from terminating a process.
 message KillProcessResponse {
   // Exit status code after process termination (typically 128 + signal, e.g. 137 for SIGKILL).
+  // Only meaningful when the process has exited: SIGKILL waits briefly for
+  // the exit, while other signals return immediately — poll GetProcess for
+  // the outcome.
   int32 exit_code = 1;
 }
+
+// Request to write to a process's standard input.
+message WriteStdinRequest {
+  // Identifier of the process to write to. The process must have been
+  // started with stdin.
+  string process_id = 1;
+  // Data forwarded to the process's standard input.
+  bytes data = 2;
+  // Close standard input after writing, delivering EOF.
+  bool close = 3;
+}
+
+// Response from writing to a process's standard input.
+message WriteStdinResponse {}
 
 // ============================================================================
 // --- FILESYSTEM SERVICE MESSAGES ---
@@ -167,3 +233,57 @@ message WriteFileResponse {
   // Total number of bytes written across all stream chunks.
   int64 bytes_written = 1;
 }
+
+// Request for file or directory metadata.
+message StatFileRequest {
+  // Absolute or workspace-relative path to inspect.
+  string path = 1;
+}
+
+// Metadata of one file or directory.
+message FileInfo {
+  // Base name of the entry.
+  string name = 1;
+  // Size in bytes, for regular files.
+  int64 size = 2;
+  // POSIX file mode permission bits.
+  uint32 mode = 3;
+  // Whether the entry is a directory.
+  bool is_dir = 4;
+  // Last modification time.
+  google.protobuf.Timestamp mod_time = 5;
+}
+
+// Request to list a directory.
+message ListDirRequest {
+  // Absolute or workspace-relative path of the directory.
+  string path = 1;
+}
+
+// Response listing a directory's immediate entries.
+message ListDirResponse {
+  repeated FileInfo entries = 1;
+}
+
+// Request to create a directory.
+message MakeDirRequest {
+  // Absolute or workspace-relative path of the directory to create.
+  string path = 1;
+  // Create missing parent directories instead of failing.
+  bool parents = 2;
+}
+
+// Response from creating a directory.
+message MakeDirResponse {}
+
+// Request to delete a file or directory.
+message RemovePathRequest {
+  // Absolute or workspace-relative path to delete.
+  string path = 1;
+  // Delete directories and their contents; without it, removing a
+  // non-empty directory fails.
+  bool recursive = 2;
+}
+
+// Response from deleting a path.
+message RemovePathResponse {}
