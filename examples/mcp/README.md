@@ -67,10 +67,12 @@ go run ./examples/mcp/main.go
 ```
 
 The example will:
-1. Initialize an MCP client via `github.com/modelcontextprotocol/go-sdk/mcp`.
-2. Connect to `http://localhost:7777/v1/envs/{env}/mcp`.
-3. Discover tools via `tools/list`.
-4. Execute `shell` (`uname -a`) and print the result.
+1. Create a sandbox environment (`mcp-demo`).
+2. Initialize an MCP client via `github.com/modelcontextprotocol/go-sdk/mcp`.
+3. Connect to `http://localhost:7777/v1/envs/mcp-demo/mcp`.
+4. Discover tools via `tools/list`.
+5. Execute `shell` (`uname -a`) and print the result.
+6. Clean up and delete the environment.
 
 ---
 
