@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/agent-substrate/env/internal/service"
+	"github.com/agent-substrate/env/internal/apiservice"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
@@ -51,7 +51,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 				return err
 			}
 			if cfg.template == "" {
-				cfg.template = service.DefaultTemplate
+				cfg.template = apiservice.DefaultTemplate
 			}
 			if cfg.workerPool == "" {
 				cfg.workerPool = cfg.template + "-workerpool"
@@ -62,8 +62,8 @@ stdout without touching the cluster; apply it with kubectl.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&cfg.namespace, "namespace", service.DefaultNamespace, "Kubernetes namespace to deploy into")
-	cmd.Flags().StringVar(&cfg.template, "template", service.DefaultTemplate, "ActorTemplate name")
+	cmd.Flags().StringVar(&cfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
+	cmd.Flags().StringVar(&cfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
 	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")

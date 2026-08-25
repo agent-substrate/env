@@ -13,7 +13,7 @@ import (
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
-	"github.com/agent-substrate/env/internal/service"
+	"github.com/agent-substrate/env/internal/mcp"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
 )
@@ -53,7 +53,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
 	})
-	mux.Handle("/v1/", service.Handler(client))
+	mux.Handle("/v1/envs/{id}/mcp", mcp.NewHandler(client))
 	mux.Handle("/", grpcServer)
 
 	// Enable both HTTP/1.1 (for /healthz and /v1/ HTTP endpoints) and
