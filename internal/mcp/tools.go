@@ -210,12 +210,12 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceC
 	}
 	procID := startResp.GetProcessId()
 
-	stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: procID,
 		Follow:    true,
 	})
 	if err != nil {
-		return "", fmt.Errorf("stream logs failed: %w", err)
+		return "", fmt.Errorf("stream outputs failed: %w", err)
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -225,12 +225,12 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceC
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("reading process log chunk: %w", err)
+			return "", fmt.Errorf("reading process output chunk: %w", err)
 		}
 		switch chunk.GetSource() {
-		case ateenvv1.LogSource_LOG_SOURCE_STDOUT:
+		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
 			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.LogSource_LOG_SOURCE_STDERR:
+		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
 			stderrBuf.Write(chunk.GetData())
 		}
 	}
@@ -376,7 +376,7 @@ func streamProcessLogsTool(client ateenvv1.ProcessServiceClient) tool.Tool {
 		if strings.TrimSpace(p.ProcessID) == "" {
 			return "", errors.New("process_id must not be empty")
 		}
-		stream, err := client.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+		stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 			ProcessId:    p.ProcessID,
 			StdoutOffset: p.StdoutOffset,
 			StderrOffset: p.StderrOffset,
@@ -393,12 +393,12 @@ func streamProcessLogsTool(client ateenvv1.ProcessServiceClient) tool.Tool {
 				break
 			}
 			if err != nil {
-				return "", fmt.Errorf("reading process log chunk: %w", err)
+				return "", fmt.Errorf("reading process output chunk: %w", err)
 			}
 			switch chunk.GetSource() {
-			case ateenvv1.LogSource_LOG_SOURCE_STDOUT:
+			case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
 				stdoutBuf.Write(chunk.GetData())
-			case ateenvv1.LogSource_LOG_SOURCE_STDERR:
+			case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
 				stderrBuf.Write(chunk.GetData())
 			}
 		}

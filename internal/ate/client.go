@@ -17,8 +17,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httputil"
 	"os"
 	"strings"
 	"sync"
@@ -81,9 +79,6 @@ type Options struct {
 	// plane requires authentication. The file is re-read on each RPC so
 	// rotated tokens are picked up.
 	BearerTokenFile string
-
-	// HTTPClient overrides the HTTP client used for router traffic.
-	HTTPClient *http.Client
 }
 
 // Client manages environments on a Substrate cluster.
@@ -91,7 +86,6 @@ type Client struct {
 	opts    Options
 	conn    *grpc.ClientConn
 	control ateapipb.ControlClient
-	http    *http.Client
 
 	mu        sync.Mutex
 	guestPool map[string]*grpc.ClientConn
@@ -123,16 +117,10 @@ func New(opts Options) (*Client, error) {
 		return nil, fmt.Errorf("ate: dialing control plane: %w", err)
 	}
 
-	httpClient := opts.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-
 	return &Client{
 		opts:    opts,
 		conn:    conn,
 		control: ateapipb.NewControlClient(conn),
-		http:    httpClient,
 	}, nil
 }
 
@@ -194,30 +182,6 @@ func (c fileTokenCreds) GetRequestMetadata(ctx context.Context, uri ...string) (
 }
 
 func (c fileTokenCreds) RequireTransportSecurity() bool { return true }
-
-// ProxyGuest reverse-proxies an HTTP request to the guest daemon inside env id.
-// subPath is the path on guest, e.g. "/v1/shell" or "/v1/file".
-func (c *Client) ProxyGuest(id string, subPath string, w http.ResponseWriter, r *http.Request) {
-	if c.opts.RouterAddr == "" {
-		http.Error(w, `{"code":"internal","error":"ate: Options.RouterAddr is required for command and filesystem operations"}`, http.StatusInternalServerError)
-		return
-	}
-	director := func(req *http.Request) {
-		req.URL.Scheme = "http"
-		req.URL.Host = c.opts.RouterAddr
-		req.URL.Path = subPath
-		req.Host = id + "." + DefaultAtespace + "." + c.opts.HostSuffix
-	}
-	transport := c.http.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	proxy := &httputil.ReverseProxy{
-		Director:  director,
-		Transport: transport,
-	}
-	proxy.ServeHTTP(w, r)
-}
 
 // EnsureAtespace creates the atespace with name if it does not already exist.
 // If name is empty, it defaults to DefaultAtespace.
