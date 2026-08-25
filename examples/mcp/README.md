@@ -30,7 +30,7 @@ sequenceDiagram
 
     Note over Client,Guest: 3. Process Execution (shell / start_process)
     Client->>+API: POST /v1/envs/{id}/mcp (tools/call: shell)
-    API->>+Router: ProcessService.StartProcess & StreamProcessLogs (gRPC)
+    API->>+Router: ProcessService.StartProcess & StreamProcessOutputs (gRPC)
     Router->>+Guest: Execute command & stream stdout/stderr
     Guest-->>-Router: Stream Log Chunks & Exit Code
     Router-->>-API: Forward Log Chunks & Exit Code

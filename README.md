@@ -14,20 +14,21 @@ while this project adds the environment-shaped API on top.
 ## Overview
 
 ```
- ╭──────────────╮    ╭──────────────╮ lifecycle  ╭────────────╮
- │    Clients   │    │              ├───────────▶│   ateapi   │ Substrate control plane
- │  ate-env CLI ├───▶│ ate-env-api  │            ╰────────────╯
- ╰──────────────╯    │ (API server) │ guest ops  ╭────────────╮     ╭──────────────────────╮
-                     │              ├───────────▶│   atenet   ├────▶│ actor                │
-                     ╰──────────────╯ (shell/mcp)│   router   │     │  └ ate-env-guest     │
-                                                 ╰────────────╯     │    /readyz, /v1/*    │
-                                                                    ╰──────────────────────╯
+ ╭──────────────╮    ╭─────────────────────╮ lifecycle  ╭────────────╮
+ │   Clients    │    │     ate-env-api     ├───────────▶│   ateapi   │ Substrate control plane
+ │  ate-env CLI │    │ ╭─────────────────╮ │   (gRPC)   ╰────────────╯
+ │  Go SDK (env)├───▶│ │  gRPC Services  │ │
+ │              │    │ ├─────────────────┤ │ guest gRPC ╭────────────╮     ╭──────────────────────╮
+ │  MCP Clients ├───▶│ │   MCP Server    ├─┼───────────▶│   atenet   ├────▶│ actor                │
+ ╰──────────────╯    │ ╰─────────────────╯ │   proxy    │   router   │     │  └ ate-env-guest     │
+                     ╰─────────────────────╯            ╰────────────╯     │    gRPC, /readyz     │
+                                                                           ╰──────────────────────╯
 ```
 
 - **`cmd/ate-env`** — CLI for managing environments, executing remote commands, and performing file I/O.
-- **`cmd/ate-env-api`** — The API service that manages environments and proxies remote guest requests.
-- **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
-- **`env`** — The Go client library to manage environments, run commands, and perform file operations.
+- **`cmd/ate-env-api`** — The API service that manages environment lifecycles, proxies guest gRPC requests (`ProcessService`, `FileSystemService`), and serves the built-in MCP server.
+- **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command execution (`ProcessService`) and filesystem access (`FileSystemService`) over gRPC with HTTP readiness probes.
+- **`env`** — The Go client library to manage environments, run commands, and perform file operations over gRPC.
 
 ## Installation
 
@@ -133,7 +134,11 @@ stdout without touching the cluster; apply it with kubectl.
 
 ## API
 
-Environment lifecycle is defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v1/env.proto):
+The environment API exposes gRPC services for environment lifecycle management and in-guest data plane operations (command execution and filesystem I/O).
+
+### Environment Lifecycle (`EnvironmentService`)
+
+Defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v1/env.proto):
 
 | Operation | Description |
 | --- | ----------- |
@@ -142,20 +147,41 @@ Environment lifecycle is defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v
 | `SuspendEnvironment` | Suspends and checkpoints the environment |
 | `DeleteEnvironment` | Deletes the environment permanently |
 
+### Guest Execution (`ProcessService`)
+
+Defined in [`proto/ateenv/v1/guest.proto`](proto/ateenv/v1/guest.proto):
+
+| Operation | Description |
+| --- | ----------- |
+| `StartProcess` | Launches an asynchronous background process inside the container |
+| `GetProcess` | Retrieves process metadata, lifecycle state, and exit code |
+| `StreamProcessOutputs` | Streams real-time stdout and stderr output chunks from a process |
+| `KillProcess` | Terminates a running asynchronous process |
+
+### Guest Filesystem (`FileSystemService`)
+
+Defined in [`proto/ateenv/v1/guest.proto`](proto/ateenv/v1/guest.proto):
+
+| Operation | Description |
+| --- | ----------- |
+| `ReadFile` | Streams file contents from the environment in chunks |
+| `WriteFile` | Streams binary or text chunks directly to a target file |
+
 ## Built-in MCP Server
 
-The API exposes a streamable MCP endpoint at `POST /v1/envs/{id}/mcp` serving built-in tools.
+The API exposes a streamable MCP endpoint at `POST /v1/envs/{id}/mcp` serving built-in tools backed by the guest `FileSystemService` and `ProcessService` gRPC APIs.
 
 ### Available Tools
 
 | Tool | Category | Description |
 | ---- | -------- | ----------- |
-| `read_file` | Filesystem | Read a text file with optional line numbers or line ranges |
-| `write_file` | Filesystem | Create or overwrite a file |
-| `edit_file` | Filesystem | Replace exact text matching target content in a file |
-| `glob` | Filesystem | Search for files matching glob patterns |
-| `grep` | Filesystem | Search for text or regular expressions across files |
-| `shell` | Shell | Run a shell command line inside the environment |
+| `read_file` | Filesystem | Read a file from the environment filesystem via `FileSystemService` |
+| `write_file` | Filesystem | Write or stream content to a file in the environment via `FileSystemService` |
+| `shell` | Process | Run a shell command line inside the environment and return output and exit code |
+| `start_process` | Process | Start an asynchronous background process via `ProcessService` |
+| `get_process` | Process | Retrieve process metadata, status, exit code, and timestamps via `ProcessService` |
+| `stream_process_logs` | Process | Stream or retrieve stdout and stderr logs of a process via `ProcessService` |
+| `kill_process` | Process | Terminate a running background process via `ProcessService` |
 
 ### JSON-RPC Over HTTP
 
