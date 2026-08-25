@@ -1,7 +1,7 @@
 // Copyright 2026 The Agent Substrate Authors.
 //
 // Minimal Protocol Buffers definition for the Agent Substrate Guest Data Plane.
-// Exposes asynchronous process execution, log streaming, and streaming file I/O.
+// Exposes asynchronous process execution, process output streaming, and streaming file I/O.
 
 syntax = "proto3";
 
@@ -25,8 +25,8 @@ service ProcessService {
   // GetProcess retrieves the current metadata, lifecycle state, and timestamps of a process.
   rpc GetProcess(GetProcessRequest) returns (Process);
 
-  // StreamProcessLogs streams real-time stdout and stderr logs from a process.
-  rpc StreamProcessLogs(StreamProcessLogsRequest) returns (stream ProcessLogChunk);
+  // StreamProcessOutputs streams real-time stdout and stderr from a process.
+  rpc StreamProcessOutputs(StreamProcessOutputsRequest) returns (stream OutputChunk);
 
   // KillProcess terminates a running asynchronous process and its child process tree.
   rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
@@ -59,11 +59,11 @@ enum ProcessStatus {
   PROCESS_STATUS_TERMINATED = 4;
 }
 
-// Output log stream source.
-enum LogSource {
-  LOG_SOURCE_UNSPECIFIED = 0;
-  LOG_SOURCE_STDOUT = 1;
-  LOG_SOURCE_STDERR = 2;
+// Output stream source.
+enum OutputSource {
+  OUTPUT_SOURCE_UNSPECIFIED = 0;
+  OUTPUT_SOURCE_STDOUT = 1;
+  OUTPUT_SOURCE_STDERR = 2;
 }
 
 // The Process resource representing execution state and metadata.
@@ -104,23 +104,23 @@ message GetProcessRequest {
   string process_id = 1;
 }
 
-// Request to stream logs from a process.
-message StreamProcessLogsRequest {
-  // Identifier of the process to stream logs from.
+// Request to stream output from a process.
+message StreamProcessOutputsRequest {
+  // Identifier of the process to stream output from.
   string process_id = 1;
   // Byte offset to start reading stdout from (defaults to 0 / beginning).
   int64 stdout_offset = 2;
   // Byte offset to start reading stderr from (defaults to 0 / beginning).
   int64 stderr_offset = 3;
-  // If true, the stream follows new log output in real-time until the process finishes.
+  // If true, the stream follows new output in real-time until the process finishes.
   bool follow = 4;
 }
 
 // Streamed chunk of process output.
-message ProcessLogChunk {
+message OutputChunk {
   // Stream source (stdout or stderr).
-  LogSource source = 1;
-  // Log content bytes.
+  OutputSource source = 1;
+  // Output content bytes.
   bytes data = 2;
 }
 

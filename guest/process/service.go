@@ -55,8 +55,8 @@ func (s *Service) GetProcess(ctx context.Context, req *ateenvv1.GetProcessReques
 	return state.ToProto(), nil
 }
 
-// StreamProcessLogs streams stdout and stderr logs in real-time or as a snapshot.
-func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stream ateenvv1.ProcessService_StreamProcessLogsServer) error {
+// StreamProcessOutputs streams stdout and stderr in real-time or as a snapshot.
+func (s *Service) StreamProcessOutputs(req *ateenvv1.StreamProcessOutputsRequest, stream ateenvv1.ProcessService_StreamProcessOutputsServer) error {
 	if req.GetProcessId() == "" {
 		return status.Error(codes.InvalidArgument, "process_id cannot be empty")
 	}
@@ -75,11 +75,11 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 		// Read stdout delta
 		stdoutBytes, newStdoutOffset, err := ReadLogs(state.StdoutPath, stdoutOffset)
 		if err != nil {
-			return status.Errorf(codes.Internal, "reading stdout logs: %v", err)
+			return status.Errorf(codes.Internal, "reading stdout: %v", err)
 		}
 		if len(stdoutBytes) > 0 {
-			if err := stream.Send(&ateenvv1.ProcessLogChunk{
-				Source: ateenvv1.LogSource_LOG_SOURCE_STDOUT,
+			if err := stream.Send(&ateenvv1.OutputChunk{
+				Source: ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT,
 				Data:   stdoutBytes,
 			}); err != nil {
 				return err
@@ -90,11 +90,11 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 		// Read stderr delta
 		stderrBytes, newStderrOffset, err := ReadLogs(state.StderrPath, stderrOffset)
 		if err != nil {
-			return status.Errorf(codes.Internal, "reading stderr logs: %v", err)
+			return status.Errorf(codes.Internal, "reading stderr: %v", err)
 		}
 		if len(stderrBytes) > 0 {
-			if err := stream.Send(&ateenvv1.ProcessLogChunk{
-				Source: ateenvv1.LogSource_LOG_SOURCE_STDERR,
+			if err := stream.Send(&ateenvv1.OutputChunk{
+				Source: ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR,
 				Data:   stderrBytes,
 			}); err != nil {
 				return err
@@ -103,11 +103,11 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 		}
 
 		if !follow {
-			// Snapshot mode: finish after reading available logs up to this point
+			// Snapshot mode: finish after reading available output up to this point
 			return nil
 		}
 
-		// Check if process has finished and we consumed all logs
+		// Check if process has finished and we consumed all output
 		state.mu.RLock()
 		isTerminated := state.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING
 		state.mu.RUnlock()
@@ -116,15 +116,15 @@ func (s *Service) StreamProcessLogs(req *ateenvv1.StreamProcessLogsRequest, stre
 			// Final check to see if there were any remaining bytes flushed on exit
 			finalStdout, _, _ := ReadLogs(state.StdoutPath, stdoutOffset)
 			if len(finalStdout) > 0 {
-				_ = stream.Send(&ateenvv1.ProcessLogChunk{
-					Source: ateenvv1.LogSource_LOG_SOURCE_STDOUT,
+				_ = stream.Send(&ateenvv1.OutputChunk{
+					Source: ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT,
 					Data:   finalStdout,
 				})
 			}
 			finalStderr, _, _ := ReadLogs(state.StderrPath, stderrOffset)
 			if len(finalStderr) > 0 {
-				_ = stream.Send(&ateenvv1.ProcessLogChunk{
-					Source: ateenvv1.LogSource_LOG_SOURCE_STDERR,
+				_ = stream.Send(&ateenvv1.OutputChunk{
+					Source: ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR,
 					Data:   finalStderr,
 				})
 			}

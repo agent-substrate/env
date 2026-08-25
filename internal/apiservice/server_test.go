@@ -375,12 +375,12 @@ func TestProxyGuestServices(t *testing.T) {
 		t.Fatal("empty process ID")
 	}
 
-	logStream, err := te.procClient.StreamProcessLogs(envCtx, &ateenvv1.StreamProcessLogsRequest{
+	logStream, err := te.procClient.StreamProcessOutputs(envCtx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: startResp.GetProcessId(),
 		Follow:    true,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessLogs: %v", err)
+		t.Fatalf("StreamProcessOutputs: %v", err)
 	}
 	var stdout string
 	for {
@@ -389,9 +389,9 @@ func TestProxyGuestServices(t *testing.T) {
 			break
 		}
 		if err != nil {
-			t.Fatalf("StreamProcessLogs recv: %v", err)
+			t.Fatalf("StreamProcessOutputs recv: %v", err)
 		}
-		if chunk.GetSource() == ateenvv1.LogSource_LOG_SOURCE_STDOUT {
+		if chunk.GetSource() == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdout += string(chunk.GetData())
 		}
 	}

@@ -51,7 +51,7 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 	}
 
 	pid := startResp.GetProcessId()
-	logStream, err := e.client.process.StreamProcessLogs(ctx, &ateenvv1.StreamProcessLogsRequest{
+	outStream, err := e.client.process.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
 		ProcessId: pid,
 		Follow:    true,
 	})
@@ -61,7 +61,7 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	for {
-		chunk, err := logStream.Recv()
+		chunk, err := outStream.Recv()
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -69,9 +69,9 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 			return nil, fromGRPCError(err)
 		}
 		switch chunk.GetSource() {
-		case ateenvv1.LogSource_LOG_SOURCE_STDOUT:
+		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
 			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.LogSource_LOG_SOURCE_STDERR:
+		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
 			stderrBuf.Write(chunk.GetData())
 		}
 	}
