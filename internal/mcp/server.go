@@ -17,7 +17,6 @@ import (
 // Server wraps an mcp.Server backed by a tool.Registry.
 type Server struct {
 	mcpServer *mcp.Server
-	handler   http.Handler
 }
 
 // NewServer creates an MCP server using github.com/modelcontextprotocol/go-sdk.
@@ -33,17 +32,8 @@ func NewServer(reg *tool.Registry) *Server {
 		})
 	}
 
-	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		return mcpSrv
-	}, &mcp.StreamableHTTPOptions{
-		JSONResponse:               true,
-		Stateless:                  true,
-		DisableLocalhostProtection: true,
-	})
-
 	return &Server{
 		mcpServer: mcpSrv,
-		handler:   handler,
 	}
 }
 
@@ -54,11 +44,6 @@ func NewServerForClients(fsClient ateenvv1.FileSystemServiceClient, procClient a
 	reg := tool.NewRegistry()
 	_ = reg.Register(tools...)
 	return NewServer(reg)
-}
-
-// ServeHTTP handles MCP HTTP transport requests.
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.handler.ServeHTTP(w, r)
 }
 
 // MCPServer returns the underlying mcp.Server instance.
