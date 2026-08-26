@@ -84,7 +84,7 @@ func TestMCPNewHandlerInvalidID(t *testing.T) {
 
 	h := internalmcp.NewHandler(client)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/v1/envs//mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	req := httptest.NewRequest("POST", "/v1alpha/envs//mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	h.ServeHTTP(rec, req)
@@ -120,7 +120,7 @@ func TestGuestMCPProxy(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 
 	mux := http.NewServeMux()
-	mux.Handle("/v1/envs/{id}/mcp", internalmcp.NewHandler(client))
+	mux.Handle("/v1alpha/envs/{id}/mcp", internalmcp.NewHandler(client))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -159,7 +159,7 @@ func TestGuestMCPProxy(t *testing.T) {
 	}, nil)
 
 	transport := &mcp.StreamableClientTransport{
-		Endpoint: srv.URL + "/v1/envs/web-1/mcp",
+		Endpoint: srv.URL + "/v1alpha/envs/web-1/mcp",
 	}
 
 	ctx := t.Context()

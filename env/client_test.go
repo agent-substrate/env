@@ -70,7 +70,7 @@ func newFixture(t *testing.T) *fixture {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
 	})
-	mux.Handle("/v1/envs/{id}/mcp", mcp.NewHandler(directClient))
+	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(directClient))
 	mux.Handle("/", grpcServer)
 
 	var protocols http.Protocols

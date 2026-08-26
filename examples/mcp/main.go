@@ -43,7 +43,7 @@ func main() {
 
 	// 3. Connect to the environment's MCP endpoint.
 	transport := &mcp.StreamableClientTransport{
-		Endpoint: "http://localhost:7777/v1/envs/mcp-demo/mcp",
+		Endpoint: "http://localhost:7777/v1alpha/envs/mcp-demo/mcp",
 	}
 
 	session, err := mcpClient.Connect(ctx, transport, nil)
