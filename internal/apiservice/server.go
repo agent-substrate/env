@@ -386,23 +386,25 @@ func ActorToEnvironment(actor *ateapipb.Actor) *ateenvv1.Environment {
 	}
 }
 
-// ActorStatusToEnvStatus maps an ateapipb Actor_Status to an ateenvv1 EnvironmentStatus.
-func ActorStatusToEnvStatus(st ateapipb.Actor_Status) ateenvv1.EnvironmentStatus {
-	switch st {
-	case ateapipb.Actor_STATUS_RESUMING:
+// ActorStatusToEnvStatus maps an ateapipb ActorStatus to an ateenvv1 EnvironmentStatus.
+func ActorStatusToEnvStatus(st *ateapipb.ActorStatus) ateenvv1.EnvironmentStatus {
+	switch st.GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING
-	case ateapipb.Actor_STATUS_RUNNING:
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING
-	case ateapipb.Actor_STATUS_SUSPENDING:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING
-	case ateapipb.Actor_STATUS_SUSPENDED:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED
-	case ateapipb.Actor_STATUS_PAUSING:
+	case ateapipb.ActorState_ACTOR_STATE_PAUSING:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING
-	case ateapipb.Actor_STATUS_PAUSED:
+	case ateapipb.ActorState_ACTOR_STATE_PAUSED:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED
-	case ateapipb.Actor_STATUS_CRASHED:
+	case ateapipb.ActorState_ACTOR_STATE_CRASHED:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED
+	case ateapipb.ActorState_ACTOR_STATE_DELETING:
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_DELETING
 	default:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED
 	}

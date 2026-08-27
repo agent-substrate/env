@@ -47,7 +47,7 @@ func newFullTestEnv(t *testing.T) *testEnv {
 
 	router := fakerouter.New()
 	router.Running = func(id string) bool {
-		return control.Status(id) == ateapipb.Actor_STATUS_RUNNING
+		return control.Status(id) == ateapipb.ActorState_ACTOR_STATE_RUNNING
 	}
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)
@@ -237,7 +237,7 @@ func TestSuspendEnvironment(t *testing.T) {
 		t.Fatalf("CreateEnvironment failed: %v", err)
 	}
 
-	if got := control.Status("env-susp"); got != ateapipb.Actor_STATUS_RUNNING {
+	if got := control.Status("env-susp"); got != ateapipb.ActorState_ACTOR_STATE_RUNNING {
 		t.Fatalf("status before suspend = %v, want RUNNING", got)
 	}
 
@@ -250,7 +250,7 @@ func TestSuspendEnvironment(t *testing.T) {
 	if suspResp == nil {
 		t.Fatal("expected non-nil SuspendEnvironmentResponse")
 	}
-	if got := control.Status("env-susp"); got != ateapipb.Actor_STATUS_SUSPENDED {
+	if got := control.Status("env-susp"); got != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Errorf("control plane status after suspend = %v, want SUSPENDED", got)
 	}
 
@@ -415,5 +415,28 @@ func TestProxyGuestServices(t *testing.T) {
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("got error code %v, want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestActorStatusToEnvStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		in   *ateapipb.ActorStatus
+		want ateenvv1.EnvironmentStatus
+	}{
+		{"nil status", nil, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED},
+		{"resuming", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RESUMING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING},
+		{"running", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING},
+		{"suspending", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING},
+		{"suspended", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED},
+		{"pausing", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING},
+		{"paused", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED},
+		{"crashed", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_CRASHED}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED},
+		{"deleting", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_DELETING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_DELETING},
+	}
+	for _, tc := range cases {
+		if got := apiservice.ActorStatusToEnvStatus(tc.in); got != tc.want {
+			t.Errorf("%s: ActorStatusToEnvStatus = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
