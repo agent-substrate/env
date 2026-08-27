@@ -43,15 +43,6 @@ func New() *Server {
 	}
 }
 
-// SetStatus forces the status of the actor with the given name, so tests can
-// stage states the fake's own lifecycle transitions do not produce.
-func (s *Server) SetStatus(name string, st ateapipb.Actor_Status) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if a := s.find(name); a != nil {
-		a.Status = st
-	}
-}
 
 // Serve starts the fake on a random localhost port and returns its
 // address and a shutdown function. Like the real ateapi, it serves TLS
@@ -180,14 +171,6 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 	return &ateapipb.SuspendActorResponse{Actor: clone(a)}, nil
 }
 
-// Suspend suspends the actor with the given name.
-func (s *Server) Suspend(name string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if a := s.find(name); a != nil {
-		s.suspend(a)
-	}
-}
 
 // suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
