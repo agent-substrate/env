@@ -55,12 +55,14 @@ actor boots. Retry until it serves (see the how-to below).
 
 > [!IMPORTANT]
 > The guest path requires a Substrate deployment that carries gRPC
-> (HTTP/2 + trailers) through the atenet router to actors — i.e.
-> [substrate PR #1183](https://github.com/agent-substrate/substrate/pull/1183)
-> ("atenet: h2 on the HTTPS ingress and mirror the protocol to actors").
-> Without it, every process/file operation fails with
+> (HTTP/2 + trailers) through the atenet router to actors. Substrate
+> ships this since
+> [substrate#1183](https://github.com/agent-substrate/substrate/pull/1183)
+> ("atenet: h2 on the HTTPS ingress and mirror the protocol to actors",
+> merged Aug 28, 2026). On older Substrate deployments, every
+> process/file operation fails with
 > `server closed the stream without sending trailers`, because the
-> router's actor upstream is pinned to HTTP/1.1, which drops gRPC
+> router's actor upstream was pinned to HTTP/1.1, which drops gRPC
 > trailers. Environment lifecycle operations are unaffected.
 
 ### What calls where
@@ -324,10 +326,9 @@ ATE_ENV_GUEST_TARGET=127.0.0.1:8090 .venv/bin/pytest tests/e2e
 
 ### Full-stack tests against a cluster
 
-With a cluster running Agent Substrate (including
-[substrate PR #1183](https://github.com/agent-substrate/substrate/pull/1183),
-required for the gRPC guest data plane — see the note under
-"How it works") and a deployed ate-env-api built from current main:
+With a cluster running Agent Substrate (current main — see the
+Substrate version note under "How it works") and a deployed ate-env-api
+built from current main:
 
 ```bash
 kubectl -n ate-env port-forward svc/ate-env-api 17777:7777 &
