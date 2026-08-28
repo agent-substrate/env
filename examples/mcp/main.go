@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/agent-substrate/env/env"
+	"github.com/agent-substrate/env/clients/go/env"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

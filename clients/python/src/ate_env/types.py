@@ -35,6 +35,7 @@ class EnvironmentStatus(enum.IntEnum):
     PAUSING = 5
     PAUSED = 6
     CRASHED = 7
+    DELETING = 8
 
 
 class ProcessStatus(enum.IntEnum):

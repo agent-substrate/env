@@ -86,12 +86,12 @@ func selfSignedCert() (tls.Certificate, error) {
 
 func key(atespace, name string) string { return atespace + "/" + name }
 
-// Status returns the current status of the actor with the given name, or
-// STATUS_UNSPECIFIED if it does not exist.
-func (s *Server) Status(name string) ateapipb.Actor_Status {
+// Status returns the current state of the actor with the given name, or
+// ACTOR_STATE_UNSPECIFIED if it does not exist.
+func (s *Server) Status(name string) ateapipb.ActorState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.find(name).GetStatus()
+	return s.find(name).GetStatus().GetState()
 }
 
 // find returns the actor with the given name, whichever atespace holds it, or
@@ -141,7 +141,7 @@ func (s *Server) CreateActor(ctx context.Context, req *ateapipb.CreateActorReque
 		return nil, status.Errorf(codes.AlreadyExists, "actor %q already exists", name)
 	}
 	a := clone(actor)
-	a.Status = ateapipb.Actor_STATUS_RUNNING
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}
 	s.actors[k] = a
 	return clone(a), nil
 }
@@ -153,10 +153,14 @@ func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorReque
 	if err != nil {
 		return nil, err
 	}
-	a.Status = ateapipb.Actor_STATUS_RUNNING
-	a.AteomPodNamespace = "ate-system"
-	a.AteomPodName = "worker-0"
-	a.AteomPodIp = "10.0.0.1"
+	a.Status = &ateapipb.ActorStatus{
+		State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
+		WorkerAssignment: &ateapipb.WorkerAssignment{
+			WorkerNamespace: "ate-system",
+			WorkerPod:       "worker-0",
+			WorkerPodIp:     "10.0.0.1",
+		},
+	}
 	return &ateapipb.ResumeActorResponse{Actor: clone(a)}, nil
 }
 
@@ -174,15 +178,11 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 
 // suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
-	a.Status = ateapipb.Actor_STATUS_SUSPENDED
-	a.AteomPodNamespace = ""
-	a.AteomPodName = ""
-	a.AteomPodIp = ""
-	a.LatestSnapshotInfo = &ateapipb.SnapshotInfo{
-		Data: &ateapipb.SnapshotInfo_External{
-			External: &ateapipb.ExternalSnapshotInfo{
-				SnapshotUriPrefix: fmt.Sprintf("gs://snapshots/%s", a.GetMetadata().GetName()),
-			},
+	a.Status = &ateapipb.ActorStatus{
+		State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+		LatestSnapshot: &ateapipb.ObjectRef{
+			Atespace: a.GetMetadata().GetAtespace(),
+			Name:     fmt.Sprintf("snapshot-%s", a.GetMetadata().GetName()),
 		},
 	}
 }
@@ -194,7 +194,7 @@ func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest
 	if err != nil {
 		return nil, err
 	}
-	a.Status = ateapipb.Actor_STATUS_PAUSED
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}
 	return &ateapipb.PauseActorResponse{Actor: clone(a)}, nil
 }
 
@@ -206,9 +206,9 @@ func (s *Server) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorReque
 	if err != nil {
 		return nil, err
 	}
-	if a.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
+	if a.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		return nil, status.Errorf(codes.FailedPrecondition, "actor %q is %s, only suspended actors can be deleted",
-			ref.GetName(), a.GetStatus())
+			ref.GetName(), a.GetStatus().GetState())
 	}
 	delete(s.actors, key(ref.GetAtespace(), ref.GetName()))
 	return clone(a), nil
