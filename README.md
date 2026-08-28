@@ -28,6 +28,7 @@ while this project adds the environment-shaped API on top.
 - **`cmd/ate-env-api`** — The API service that manages environments and proxies remote guest requests.
 - **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
 - **`clients/go/env`** — The Go client library to manage environments, run commands, and perform file operations.
+- **`clients/python`** — The async Python client library ([README](clients/python/README.md)).
 
 ## Installation
 

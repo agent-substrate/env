@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ate-env-client"
+version = "0.1.0"
+description = "Async Python client for the Agent Substrate Environment API (ate-env-api)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+    "grpcio>=1.83",
+    "protobuf>=7.35",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1.0",
+    "grpcio-tools>=1.83",
+]
+
+[project.urls]
+Homepage = "https://github.com/agent-substrate/env"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ate_env = ["py.typed", "_gen/**/*.pyi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -48,10 +48,6 @@ func NewTools(fsClient ateenvv1.FileSystemServiceClient, procClient ateenvv1.Pro
 	return tools
 }
 
-// New returns all MCP tools backed by FileSystemService and ProcessService clients.
-func New(fsClient ateenvv1.FileSystemServiceClient, procClient ateenvv1.ProcessServiceClient) []tool.Tool {
-	return NewTools(fsClient, procClient)
-}
 
 // --- read_file ---------------------------------------------------------------
 

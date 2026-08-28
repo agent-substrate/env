@@ -29,39 +29,3 @@ type ShellResponse struct {
 	ExitCode int `json:"exit_code"`
 }
 
-// ReadFileResponse is the response of the read file endpoint.
-type ReadFileResponse struct {
-	Content []byte `json:"content"`
-	Mode    string `json:"mode,omitempty"`
-	Size    int64  `json:"size"`
-}
-
-// WriteFileRequest is the request body for writing a file.
-type WriteFileRequest struct {
-	// Path of the file inside the environment. Required.
-	Path string `json:"path"`
-
-	// Mode is the octal file mode, e.g. "644".
-	Mode string `json:"mode,omitempty"`
-
-	// Content is the file content.
-	Content []byte `json:"content,omitempty"`
-}
-
-// Error codes returned in Error.Code.
-const (
-	CodeNotFound        = "not_found"
-	CodeInvalidArgument = "invalid_argument"
-	CodeNotFile            = "not_file"
-	CodeNotDirectory       = "not_directory"
-	CodeInternal           = "internal"
-)
-
-// Error is the JSON error envelope returned by the guest daemon and the
-// ate-env-api service on non-2xx responses.
-type Error struct {
-	Code    string `json:"code"`
-	Message string `json:"error"`
-}
-
-func (e *Error) Error() string { return e.Message }
