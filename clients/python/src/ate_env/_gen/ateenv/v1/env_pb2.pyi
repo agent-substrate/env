@@ -16,6 +16,7 @@ class EnvironmentStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ENVIRONMENT_STATUS_PAUSING: _ClassVar[EnvironmentStatus]
     ENVIRONMENT_STATUS_PAUSED: _ClassVar[EnvironmentStatus]
     ENVIRONMENT_STATUS_CRASHED: _ClassVar[EnvironmentStatus]
+    ENVIRONMENT_STATUS_DELETING: _ClassVar[EnvironmentStatus]
 ENVIRONMENT_STATUS_UNSPECIFIED: EnvironmentStatus
 ENVIRONMENT_STATUS_RESUMING: EnvironmentStatus
 ENVIRONMENT_STATUS_RUNNING: EnvironmentStatus
@@ -24,6 +25,7 @@ ENVIRONMENT_STATUS_SUSPENDED: EnvironmentStatus
 ENVIRONMENT_STATUS_PAUSING: EnvironmentStatus
 ENVIRONMENT_STATUS_PAUSED: EnvironmentStatus
 ENVIRONMENT_STATUS_CRASHED: EnvironmentStatus
+ENVIRONMENT_STATUS_DELETING: EnvironmentStatus
 
 class Template(_message.Message):
     __slots__ = ("name", "namespace")
