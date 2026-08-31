@@ -30,6 +30,7 @@ type manifestConfig struct {
 	apiImage        string
 	apiReplicas     int32
 	apiPort         int32
+	apiNodePort     int32
 	idleTTL         string
 	guestCommand    []string
 	poolLabels      map[string]string
@@ -71,6 +72,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
 	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
+	cmd.Flags().Int32Var(&cfg.apiNodePort, "api-node-port", 0, "expose the ate-env-api service as a NodePort on this port (30000-32767); 0 keeps a ClusterIP service")
 	cmd.Flags().StringVar(&cfg.idleTTL, "idle-ttl", "", "suspend environments after this much inactivity, e.g. 90s or 5m (defaults to the ate-env-api built-in; 0 disables)")
 	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
 	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
@@ -292,7 +294,7 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 
 func buildAPIService(cfg manifestConfig) *corev1.Service {
 	labels := map[string]string{"app": apiName}
-	return &corev1.Service{
+	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      apiName,
@@ -307,4 +309,9 @@ func buildAPIService(cfg manifestConfig) *corev1.Service {
 			}},
 		},
 	}
+	if cfg.apiNodePort != 0 {
+		svc.Spec.Type = corev1.ServiceTypeNodePort
+		svc.Spec.Ports[0].NodePort = cfg.apiNodePort
+	}
+	return svc
 }

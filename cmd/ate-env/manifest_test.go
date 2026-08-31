@@ -157,3 +157,20 @@ func TestWriteManifests(t *testing.T) {
 		t.Errorf("output should not contain empty map literals ({}):\n%s", out)
 	}
 }
+
+func TestManifestAPINodePort(t *testing.T) {
+	cfg := testManifestConfig()
+	cfg.apiNodePort = 30777
+	var svc *corev1.Service
+	for _, obj := range buildManifests(cfg) {
+		if s, ok := obj.(*corev1.Service); ok {
+			svc = s
+		}
+	}
+	if svc == nil {
+		t.Fatal("no Service in manifests")
+	}
+	if svc.Spec.Type != corev1.ServiceTypeNodePort || svc.Spec.Ports[0].NodePort != 30777 {
+		t.Fatalf("service type=%s nodePort=%d, want NodePort 30777", svc.Spec.Type, svc.Spec.Ports[0].NodePort)
+	}
+}
