@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/tool"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,7 +21,10 @@ type Server struct {
 }
 
 // NewServer creates an MCP server using github.com/modelcontextprotocol/go-sdk.
-func NewServer(reg *tool.Registry) *Server {
+// pin, if non-nil, is invoked when a tool call starts; the func it returns is
+// invoked when the call completes. It marks environment activity for idle
+// tracking, keeping the environment pinned for the duration of the call.
+func NewServer(reg *tool.Registry, pin func() func()) *Server {
 	mcpSrv := mcp.NewServer(&mcp.Implementation{
 		Name:    "ate-env-api",
 		Version: "1.0.0",
@@ -28,6 +32,9 @@ func NewServer(reg *tool.Registry) *Server {
 
 	for _, t := range reg.Definitions() {
 		mcpSrv.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if pin != nil {
+				defer pin()()
+			}
 			return reg.Invoke(ctx, req.Params.Name, req.Params.Arguments), nil
 		})
 	}
@@ -43,7 +50,7 @@ func NewServerForClients(fsClient ateenvv1.FileSystemServiceClient, procClient a
 	tools := NewTools(fsClient, procClient)
 	reg := tool.NewRegistry()
 	_ = reg.Register(tools...)
-	return NewServer(reg)
+	return NewServer(reg, nil)
 }
 
 // MCPServer returns the underlying mcp.Server instance.
@@ -51,9 +58,27 @@ func (s *Server) MCPServer() *mcp.Server {
 	return s.mcpServer
 }
 
+// HandlerOption configures NewHandler.
+type HandlerOption func(*handlerOptions)
+
+type handlerOptions struct {
+	tracker *idle.Tracker
+}
+
+// WithIdleTracker records MCP tool-call activity on tracker, so the idle
+// reaper never suspends an environment with a tool call in flight.
+func WithIdleTracker(t *idle.Tracker) HandlerOption {
+	return func(o *handlerOptions) { o.tracker = t }
+}
+
 // NewHandler returns an http.Handler that dynamically serves MCP requests for
 // environment actors backed by client.
-func NewHandler(client *ate.Client) http.Handler {
+func NewHandler(client *ate.Client, opts ...HandlerOption) http.Handler {
+	var options handlerOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	var (
 		mu      sync.Mutex
 		servers = make(map[string]*Server)
@@ -70,9 +95,16 @@ func NewHandler(client *ate.Client) http.Handler {
 		if err != nil {
 			return nil, err
 		}
-		fsClient := ateenvv1.NewFileSystemServiceClient(conn)
-		procClient := ateenvv1.NewProcessServiceClient(conn)
-		srv := NewServerForClients(fsClient, procClient)
+		reg := tool.NewRegistry()
+		if err := reg.Register(NewTools(ateenvv1.NewFileSystemServiceClient(conn), ateenvv1.NewProcessServiceClient(conn))...); err != nil {
+			return nil, err
+		}
+		var pin func() func()
+		if options.tracker != nil {
+			env := idle.Env{Atespace: atespace, ID: id}
+			pin = func() func() { return options.tracker.Pin(env) }
+		}
+		srv := NewServer(reg, pin)
 		servers[key] = srv
 		return srv.mcpServer, nil
 	}

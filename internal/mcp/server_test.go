@@ -66,7 +66,7 @@ func TestMCPServer(t *testing.T) {
 
 func TestMCPServerNewServer(t *testing.T) {
 	reg := tool.NewRegistry()
-	srv := internalmcp.NewServer(reg)
+	srv := internalmcp.NewServer(reg, nil)
 	if srv.MCPServer() == nil {
 		t.Fatalf("expected non-nil MCPServer")
 	}

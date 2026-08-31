@@ -30,6 +30,7 @@ type manifestConfig struct {
 	apiImage        string
 	apiReplicas     int32
 	apiPort         int32
+	idleTTL         string
 	guestCommand    []string
 	poolLabels      map[string]string
 }
@@ -70,6 +71,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
 	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
+	cmd.Flags().StringVar(&cfg.idleTTL, "idle-ttl", "", "suspend environments after this much inactivity, e.g. 90s or 5m (defaults to the ate-env-api built-in; 0 disables)")
 	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
 	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
 	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
@@ -227,6 +229,13 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 	labels := map[string]string{"app": apiName}
 	replicas := cfg.apiReplicas
 	tokenExpiration := int64(7200)
+	args := []string{
+		"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort),
+		"-ateapi-token-file=/var/run/secrets/ateapi/token",
+	}
+	if cfg.idleTTL != "" {
+		args = append(args, "-idle-ttl="+cfg.idleTTL)
+	}
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -245,10 +254,7 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 						Image: cfg.apiImage,
 						// ateapi/atenet default to the in-cluster
 						// Substrate service addresses.
-						Args: []string{
-							"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort),
-							"-ateapi-token-file=/var/run/secrets/ateapi/token",
-						},
+						Args: args,
 						Ports: []corev1.ContainerPort{{ContainerPort: cfg.apiPort}},
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "ateapi-token",

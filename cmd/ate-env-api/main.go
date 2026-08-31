@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
+	"github.com/agent-substrate/env/internal/idle"
 	"github.com/agent-substrate/env/internal/mcp"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc"
@@ -26,6 +28,7 @@ func main() {
 		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile  = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
+		idleTTL    = flag.Duration("idle-ttl", 5*time.Minute, "suspend environments after this much inactivity; 0 disables idle suspension")
 	)
 	flag.Parse()
 
@@ -44,7 +47,23 @@ func main() {
 	apisvc := apiservice.New(client, *atenet, *hostSuffix)
 	defer apisvc.Close()
 
-	grpcServer := grpc.NewServer()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var serverOpts []grpc.ServerOption
+	var mcpOpts []mcp.HandlerOption
+	if *idleTTL > 0 {
+		tracker := idle.NewTracker()
+		serverOpts = append(serverOpts,
+			grpc.ChainUnaryInterceptor(idle.UnaryServerInterceptor(tracker)),
+			grpc.ChainStreamInterceptor(idle.StreamServerInterceptor(tracker)),
+		)
+		mcpOpts = append(mcpOpts, mcp.WithIdleTracker(tracker))
+		reaper := &idle.Reaper{Client: client, Tracker: tracker, TTL: *idleTTL}
+		go reaper.Run(ctx)
+	}
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apisvc)
 	ateenvv1.RegisterProcessServiceServer(grpcServer, apisvc)
 	ateenvv1.RegisterFileSystemServiceServer(grpcServer, apisvc)
@@ -53,7 +72,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
 	})
-	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(client))
+	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(client, mcpOpts...))
 	mux.Handle("/", grpcServer)
 
 	// Enable both HTTP/1.1 (for /healthz and /v1alpha/ HTTP endpoints) and
@@ -67,9 +86,6 @@ func main() {
 		Handler:   mux,
 		Protocols: &protocols,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		<-ctx.Done()
