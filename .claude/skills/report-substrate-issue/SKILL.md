@@ -58,7 +58,7 @@ Body (omit sections with nothing to say — short beats complete):
 <1-3 sentences; include the exact error text or tool output>
 
 ### How to reproduce
-<numbered steps, or the single command; mention docs/demo-kind.md phase if applicable>
+<numbered steps, or the single command; mention the docs/setup-kind.md phase or docs/demo-kind.md beat if applicable>
 
 ### Expected
 <one sentence>
