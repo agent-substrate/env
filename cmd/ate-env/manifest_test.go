@@ -59,7 +59,7 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Namespace != cfg.namespace || pool.Name != "default-env-workerpool" {
 		t.Errorf("workerpool = %s/%s, want %s/default-env-workerpool", pool.Namespace, pool.Name, cfg.namespace)
 	}
-	if pool.Spec.Replicas != 3 || pool.Spec.AteomImage != cfg.ateomImage {
+	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.ateomImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and ateom image %q", pool.Spec, cfg.ateomImage)
 	}
 	if pool.Labels["workload"] != "default-env" {

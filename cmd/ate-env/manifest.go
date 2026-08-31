@@ -180,8 +180,8 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 			Labels:    cfg.poolLabels,
 		},
 		Spec: atev1alpha1.WorkerPoolSpec{
-			Replicas:   cfg.replicas,
-			AteomImage: cfg.ateomImage,
+			Replicas:    cfg.replicas,
+			WorkerImage: cfg.ateomImage,
 		},
 	}
 }
