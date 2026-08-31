@@ -141,6 +141,38 @@ func newCreateCommand() *cobra.Command {
 	return cmd
 }
 
+func newGetCommand() *cobra.Command {
+	var (
+		endpoint string
+		atespace string
+	)
+	cmd := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Show an environment's status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, err := env.NewClient(env.ClientOptions{
+				Endpoint: endpoint,
+			})
+			if err != nil {
+				return err
+			}
+			defer client.Close()
+
+			e, err := client.Get(cmd.Context(), atespace, args[0])
+			if err != nil {
+				return err
+			}
+			status := strings.TrimPrefix(e.GetStatus().String(), "ENVIRONMENT_STATUS_")
+			fmt.Printf("%s\t%s\t%s\n", e.GetId(), e.GetAtespace(), strings.ToLower(status))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
+	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	return cmd
+}
+
 func newSuspendCommand() *cobra.Command {
 	var (
 		endpoint string
@@ -209,6 +241,7 @@ Common environment commands:
 
 	root.AddCommand(newManifestCommand())
 	root.AddCommand(newCreateCommand())
+	root.AddCommand(newGetCommand())
 	root.AddCommand(newSuspendCommand())
 	root.AddCommand(newDeleteCommand())
 
