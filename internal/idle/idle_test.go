@@ -178,3 +178,22 @@ func TestUnaryInterceptorForgetsOnSuspend(t *testing.T) {
 		t.Fatal("manually suspended env still tracked")
 	}
 }
+
+func TestUnaryInterceptorIgnoresGetEnvironment(t *testing.T) {
+	tr := NewTracker()
+	interceptor := UnaryServerInterceptor(tr)
+
+	_, err := interceptor(context.Background(), withID{id: "e1"},
+		&grpc.UnaryServerInfo{FullMethod: "/ateenv.v1.EnvironmentService/GetEnvironment"},
+		func(ctx context.Context, req any) (any, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tr.mu.Lock()
+	n := len(tr.envs)
+	tr.mu.Unlock()
+	if n != 0 {
+		t.Fatal("status poll tracked as activity")
+	}
+}

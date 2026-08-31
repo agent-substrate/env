@@ -15,6 +15,11 @@ import (
 // tracker instead.
 func UnaryServerInterceptor(t *Tracker) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		// Status polls are not activity: a monitoring loop must not keep an
+		// environment running forever.
+		if strings.HasSuffix(info.FullMethod, "/GetEnvironment") {
+			return handler(ctx, req)
+		}
 		env, ok := envFromContext(ctx)
 		if !ok {
 			env, ok = envFromRequest(req)
