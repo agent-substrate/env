@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"time"
 
+	"github.com/agent-substrate/env/internal/procstream"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"google.golang.org/grpc/metadata"
 )
@@ -49,29 +50,9 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 	}
 
 	pid := startResp.GetProcessId()
-	outStream, err := e.client.process.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
-		ProcessId: pid,
-		Follow:    true,
-	})
+	stdout, stderr, err := procstream.Collect(ctx, e.client.process, pid, procstream.Options{Follow: true})
 	if err != nil {
 		return nil, fromGRPCError(err)
-	}
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	for {
-		chunk, err := outStream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fromGRPCError(err)
-		}
-		switch chunk.GetSource() {
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
-			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
-			stderrBuf.Write(chunk.GetData())
-		}
 	}
 
 	// Retrieve final process state / exit code
@@ -95,8 +76,8 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 	}
 
 	return &ShellResponse{
-		Stdout:   stdoutBuf.String(),
-		Stderr:   stderrBuf.String(),
+		Stdout:   string(stdout),
+		Stderr:   string(stderr),
 		ExitCode: exitCode,
 	}, nil
 }

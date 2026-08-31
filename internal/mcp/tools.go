@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/agent-substrate/env/internal/procstream"
 	"github.com/agent-substrate/env/internal/tool"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -206,29 +207,9 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceC
 	}
 	procID := startResp.GetProcessId()
 
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
-		ProcessId: procID,
-		Follow:    true,
-	})
+	stdout, stderr, err := procstream.Collect(ctx, client, procID, procstream.Options{Follow: true})
 	if err != nil {
-		return "", fmt.Errorf("stream outputs failed: %w", err)
-	}
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", fmt.Errorf("reading process output chunk: %w", err)
-		}
-		switch chunk.GetSource() {
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
-			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
-			stderrBuf.Write(chunk.GetData())
-		}
+		return "", fmt.Errorf("reading process output: %w", err)
 	}
 
 	proc, err := client.GetProcess(ctx, &ateenvv1.GetProcessRequest{ProcessId: procID})
@@ -237,14 +218,13 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceC
 	}
 
 	var out strings.Builder
-	if stdoutBuf.Len() > 0 {
-		out.WriteString(stdoutBuf.String())
-	}
-	if stderrBuf.Len() > 0 {
+	out.Write(stdout)
+	if len(stderr) > 0 {
 		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
 			out.WriteString("\n")
 		}
-		out.WriteString("[STDERR]\n" + stderrBuf.String())
+		out.WriteString("[STDERR]\n")
+		out.Write(stderr)
 	}
 	if proc.GetExitCode() != 0 {
 		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
@@ -372,8 +352,7 @@ func streamProcessLogsTool(client ateenvv1.ProcessServiceClient) tool.Tool {
 		if strings.TrimSpace(p.ProcessID) == "" {
 			return "", errors.New("process_id must not be empty")
 		}
-		stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
-			ProcessId:    p.ProcessID,
+		stdout, stderr, err := procstream.Collect(ctx, client, p.ProcessID, procstream.Options{
 			StdoutOffset: p.StdoutOffset,
 			StderrOffset: p.StderrOffset,
 			Follow:       p.Follow,
@@ -382,32 +361,14 @@ func streamProcessLogsTool(client ateenvv1.ProcessServiceClient) tool.Tool {
 			return "", fmt.Errorf("stream_process_logs failed: %w", err)
 		}
 
-		var stdoutBuf, stderrBuf bytes.Buffer
-		for {
-			chunk, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				return "", fmt.Errorf("reading process output chunk: %w", err)
-			}
-			switch chunk.GetSource() {
-			case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
-				stdoutBuf.Write(chunk.GetData())
-			case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
-				stderrBuf.Write(chunk.GetData())
-			}
-		}
-
 		var out strings.Builder
-		if stdoutBuf.Len() > 0 {
-			out.WriteString(stdoutBuf.String())
-		}
-		if stderrBuf.Len() > 0 {
+		out.Write(stdout)
+		if len(stderr) > 0 {
 			if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
 				out.WriteString("\n")
 			}
-			out.WriteString("[STDERR]\n" + stderrBuf.String())
+			out.WriteString("[STDERR]\n")
+			out.Write(stderr)
 		}
 		if out.Len() == 0 {
 			return "(no output)", nil
