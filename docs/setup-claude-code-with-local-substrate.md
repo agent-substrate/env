@@ -50,7 +50,7 @@ from the host through a small always-on relay container (Phase 3) — not a
 
 ## Phase 0 — one-time host prep
 
-Two things kill kind clusters on a laptop, and both look like "no container
+[Optional] Two things kill kind clusters on a laptop, and both look like "no container
 comes up healthy":
 
 1. **inotify limits.** This one is not superstition: a full Substrate
@@ -72,8 +72,7 @@ comes up healthy":
 2. **Memory.** Give the Docker VM ≥ 8 GB and run **one** kind cluster at a
    time.
 
-## Phase 1 — cluster + Substrate (~10 min, once)
-
+## Phase 1 — cluster + Substrate
 ```bash
 cd substrate
 hack/create-kind-cluster.sh
@@ -108,7 +107,7 @@ kubectl ate delete actor my-counter-1 -a demo && kubectl ate delete atespace dem
 kill %%
 ```
 
-## Phase 2 — env system (~5 min first time, seconds after)
+## Phase 2 — env system
 
 Images build with Substrate's pinned ko into the local registry.
 (`run-tool.sh` resolves tools per-repo, so grab the ko binary path from the
@@ -154,12 +153,10 @@ only pick up a new guest image when recreated.
 
 ## Phase 3 — a persistent endpoint + first environment
 
-`kubectl port-forward` is the obvious way to reach the api, but it dies
-whenever the api pod rolls (every image rebuild) and whenever kubectl
-hiccups — a session-killer for a long-lived Claude Code setup. Instead,
-expose the NodePort from Phase 2 through a tiny relay container on the kind
-docker network. It restarts with Docker (`--restart=always`), follows the
-api across pod rolls, and needs no kubectl process:
+`kubectl port-forward` is the obvious way to reach the api, but if we want 
+something more persistent, we can expose the NodePort from Phase 2 through a
+tiny relay container on the kind docker network. It restarts with Docker
+(`--restart=always`), and needs no kubectl process:
 
 ```bash
 docker run -d --name ate-env-endpoint --restart=always --network kind \
@@ -190,7 +187,7 @@ With `--idle-ttl 90s`, the environment suspends ~90–120s after the last
 call and any later call transparently resumes it (~1s). That is a feature,
 not a failure.
 
-## Phase 4 — wire up Claude Code (~30 s)
+## Phase 4 — wire up Claude Code
 
 ```bash
 claude mcp add --transport http substrate-env http://localhost:7777/v1alpha/envs/demo1/mcp
