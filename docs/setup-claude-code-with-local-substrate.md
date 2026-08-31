@@ -5,7 +5,7 @@ any MCP-capable harness — with its shell and file operations executing
 inside Substrate environments on a local kind cluster. Environments
 **auto-suspend** when idle and resume transparently on the next tool call.
 
-Once you're set up, [demo-kind.md](demo-kind.md) has a scripted demo that
+Once you're set up, [demo-claude-code-with-local-substrate.md](demo-claude-code-with-local-substrate.md) has a scripted demo that
 shows the whole thing off in five beats.
 
 ```
@@ -20,13 +20,6 @@ ate-env-api serves standard MCP over streamable HTTP at
 translates them into `ateenv.v1` ProcessService/FileSystemService gRPC calls
 proxied to the guest through the atenet router. No stdio bridge, no local
 binary between the harness and the cluster — just a URL.
-
-**Why streams don't break things:** the router bounds every request with its
-route timeout (10s by default), and an environment can be suspended mid-
-command. The data plane therefore treats streams as disposable — the MCP
-tools and the Go client reconnect by process id + byte offset until the
-process exits (`internal/procstream`). A 75s command, or a background job
-that gets suspended and resumed halfway, loses nothing.
 
 ## Prerequisites
 
@@ -45,8 +38,8 @@ avoid anything that breaks harder than a noisy `command not found: #`.
 
 Networking model: cluster nodes have **no outbound internet**. Every image
 comes from the local kind registry (`localhost:5001`). The api is reached
-from the host through a small always-on relay container (Phase 3) — not a
-`kubectl port-forward`, which dies every time the api pod rolls.
+from the host through a small always-on relay container (Phase 3) (or a
+`kubectl port-forward`).
 
 ## Phase 0 — one-time host prep
 
@@ -204,7 +197,7 @@ registering another URL: `/tmp/ate-env create alice-dev` →
 `.../envs/alice-dev/mcp`.
 
 That's it — you're set up. Take it for a spin with the scripted
-[demo](demo-kind.md), or just start working: tell Claude to use only the
+[demo](demo-claude-code-with-local-substrate.md), or just start working: tell Claude to use only the
 substrate-env tools for shell and file operations.
 
 ## Troubleshooting
