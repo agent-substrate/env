@@ -130,35 +130,6 @@ func TestMCPProcessTools(t *testing.T) {
 	if !strings.Contains(shellOut, "hello from shell") {
 		t.Fatalf("unexpected shell output: %q", shellOut)
 	}
-
-	// 2. Test start_process, get_process, stream_process_logs, kill_process
-	startInput, _ := json.Marshal(map[string]any{
-		"command": []string{"sleep", "10"},
-	})
-	res = reg.Invoke(ctx, "start_process", startInput)
-	if res.IsError {
-		t.Fatalf("start_process failed: %v", res)
-	}
-	startText := res.Content[0].(*mcp.TextContent).Text
-	procID := strings.TrimPrefix(startText, "Process started with ID: ")
-
-	// get_process
-	getInput, _ := json.Marshal(map[string]any{
-		"process_id": procID,
-	})
-	res = reg.Invoke(ctx, "get_process", getInput)
-	if res.IsError {
-		t.Fatalf("get_process failed: %v", res)
-	}
-
-	// kill_process
-	killInput, _ := json.Marshal(map[string]any{
-		"process_id": procID,
-	})
-	res = reg.Invoke(ctx, "kill_process", killInput)
-	if res.IsError {
-		t.Fatalf("kill_process failed: %v", res)
-	}
 }
 
 func TestMCPAllTools(t *testing.T) {
@@ -166,8 +137,8 @@ func TestMCPAllTools(t *testing.T) {
 	defer teardown()
 
 	tools := internalmcp.NewTools(fsClient, procClient)
-	if len(tools) != 7 {
-		t.Fatalf("expected 7 tools, got %d", len(tools))
+	if len(tools) != 3 {
+		t.Fatalf("expected 3 tools, got %d", len(tools))
 	}
 
 	reg := tool.NewRegistry()
@@ -176,7 +147,7 @@ func TestMCPAllTools(t *testing.T) {
 	}
 
 	names := reg.Names()
-	expected := []string{"get_process", "kill_process", "read_file", "shell", "start_process", "stream_process_logs", "write_file"}
+	expected := []string{"read_file", "shell", "write_file"}
 	if len(names) != len(expected) {
 		t.Fatalf("expected %v, got %v", expected, names)
 	}
