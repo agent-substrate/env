@@ -174,8 +174,8 @@ func TestGuestMCPProxy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(tools.Tools) < 7 {
-		t.Fatalf("expected at least 7 tools, got %d", len(tools.Tools))
+	if len(tools.Tools) != 3 {
+		t.Fatalf("expected 3 tools, got %d", len(tools.Tools))
 	}
 
 	// 2. Call write_file tool over MCP

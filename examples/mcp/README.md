@@ -28,7 +28,7 @@ sequenceDiagram
     Router-->>-API: Forward gRPC Response
     API-->>-Client: JSON-RPC Response (mcp.CallToolResult)
 
-    Note over Client,Guest: 3. Process Execution (shell / start_process)
+    Note over Client,Guest: 3. Process Execution (shell)
     Client->>+API: POST /v1alpha/envs/{id}/mcp (tools/call: shell)
     API->>+Router: ProcessService.StartProcess & StreamProcessLogs (gRPC)
     Router->>+Guest: Execute command & stream stdout/stderr
@@ -46,10 +46,6 @@ sequenceDiagram
 | **`read_file`** | Read file content from the environment workspace. | Synchronous |
 | **`write_file`** | Write file content to the environment workspace. | Synchronous |
 | **`shell`** | Run a shell command line (`sh -c "<command>"`) with stdout, stderr, and exit code. | Synchronous |
-| **`start_process`** | Launch a background process inside the container. | Asynchronous |
-| **`get_process`** | Retrieve process status, exit code, and timestamps. | Synchronous |
-| **`stream_process_logs`**| Stream or read stdout and stderr logs of a process. | Streaming / Polling |
-| **`kill_process`** | Terminate a running background process. | Synchronous |
 
 ---
 
