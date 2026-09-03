@@ -110,8 +110,8 @@ func TestCreateAndGetEnvironment(t *testing.T) {
 	if createResp.GetEnvironment().GetTemplate().GetName() != apiservice.DefaultTemplate {
 		t.Errorf("got template name %q, want %q", createResp.GetEnvironment().GetTemplate().GetName(), apiservice.DefaultTemplate)
 	}
-	if createResp.GetEnvironment().GetTemplate().GetNamespace() != apiservice.DefaultNamespace {
-		t.Errorf("got template namespace %q, want %q", createResp.GetEnvironment().GetTemplate().GetNamespace(), apiservice.DefaultNamespace)
+	if createResp.GetEnvironment().GetTemplate().GetAtespace() != apiservice.DefaultAtespace {
+		t.Errorf("got template atespace %q, want %q", createResp.GetEnvironment().GetTemplate().GetAtespace(), apiservice.DefaultAtespace)
 	}
 	if createResp.GetEnvironment().GetAtespace() != apiservice.DefaultAtespace {
 		t.Errorf("got atespace %q, want %q", createResp.GetEnvironment().GetAtespace(), apiservice.DefaultAtespace)
@@ -149,8 +149,8 @@ func TestCustomAtespace(t *testing.T) {
 		Id:       "custom-env",
 		Atespace: "my-space",
 		Template: &ateenvv1.Template{
-			Name:      "custom-tmpl",
-			Namespace: "custom-ns",
+			Name:     "custom-tmpl",
+			Atespace: "my-space",
 		},
 	})
 	if err != nil {
@@ -162,8 +162,8 @@ func TestCustomAtespace(t *testing.T) {
 	if createResp.GetEnvironment().GetTemplate().GetName() != "custom-tmpl" {
 		t.Errorf("got template name %q, want custom-tmpl", createResp.GetEnvironment().GetTemplate().GetName())
 	}
-	if createResp.GetEnvironment().GetTemplate().GetNamespace() != "custom-ns" {
-		t.Errorf("got template namespace %q, want custom-ns", createResp.GetEnvironment().GetTemplate().GetNamespace())
+	if createResp.GetEnvironment().GetTemplate().GetAtespace() != "my-space" {
+		t.Errorf("got template atespace %q, want my-space", createResp.GetEnvironment().GetTemplate().GetAtespace())
 	}
 
 	getResp, err := client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
@@ -229,8 +229,7 @@ func TestSuspendEnvironment(t *testing.T) {
 	_, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
 		Id: "env-susp",
 		Template: &ateenvv1.Template{
-			Name:      "custom-template",
-			Namespace: "custom-ns",
+			Name: "custom-template",
 		},
 	})
 	if err != nil {

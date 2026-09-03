@@ -61,7 +61,7 @@ class Template:
     """ActorTemplate an environment is instantiated from."""
 
     name: str
-    namespace: str
+    atespace: str
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,7 @@ class ShellResult:
 
 
 def _template_from_pb(pb: env_pb2.Template) -> Template:
-    return Template(name=pb.name, namespace=pb.namespace)
+    return Template(name=pb.name, atespace=pb.atespace)
 
 
 def _environment_info_from_pb(pb: env_pb2.Environment) -> EnvironmentInfo:

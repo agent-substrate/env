@@ -73,17 +73,17 @@ class Client:
         *,
         atespace: str = DEFAULT_ATESPACE,
         template_name: str | None = None,
-        template_namespace: str | None = None,
+        template_atespace: str | None = None,
     ) -> Env:
         """Register and start a new environment; returns a handle to it.
 
         The server fills defaults for the template (name "default-env" in
-        namespace "ate-env") when none is given.
+        atespace "default") when none is given.
         """
         req = env_pb2.CreateEnvironmentRequest(id=id, atespace=atespace)
-        if template_name or template_namespace:
+        if template_name or template_atespace:
             req.template.name = template_name or ""
-            req.template.namespace = template_namespace or ""
+            req.template.atespace = template_atespace or ""
         try:
             resp = await self._environments.CreateEnvironment(req)
         except grpc.RpcError as e:

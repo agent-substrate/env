@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -16,7 +17,7 @@ func testManifestConfig() manifestConfig {
 		template:        "default-env",
 		workerPool:      "default-env-workerpool",
 		guestImage:      "example.com/guest@sha256:aaaa",
-		ateomImage:      "example.com/ateom@sha256:bbbb",
+		workerImage:     "example.com/ateom@sha256:bbbb",
 		apiImage:        "example.com/api@sha256:cccc",
 		snapshotsBucket: "gs://bucket/ate-env/",
 		replicas:        3,
@@ -30,24 +31,36 @@ func testManifestConfig() manifestConfig {
 func TestResolveImages(t *testing.T) {
 	cfg := testManifestConfig()
 	if err := cfg.resolveImages(); err != nil {
-		t.Errorf("resolveImages with both images set: %v", err)
+		t.Errorf("resolveImages with images set: %v", err)
 	}
-	cfg.ateomImage = ""
-	if err := cfg.resolveImages(); err == nil {
-		t.Error("resolveImages with a missing image: want error, got nil")
-	}
-	cfg = testManifestConfig()
 	cfg.apiImage = ""
 	if err := cfg.resolveImages(); err == nil {
 		t.Error("resolveImages with a missing api image: want error, got nil")
+	}
+	cfg = testManifestConfig()
+	cfg.guestImage = ""
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("resolveImages with a missing guest image: want error, got nil")
+	}
+
+	cfg = testManifestConfig()
+	cfg.templateOnly = true
+	cfg.apiImage = ""
+	cfg.workerImage = ""
+	if err := cfg.resolveImages(); err != nil {
+		t.Errorf("resolveImages templateOnly with guest image: %v", err)
+	}
+	cfg.guestImage = ""
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("resolveImages templateOnly without guest image: want error, got nil")
 	}
 }
 
 func TestBuildManifests(t *testing.T) {
 	cfg := testManifestConfig()
 	objs := buildManifests(cfg)
-	if len(objs) != 5 {
-		t.Fatalf("got %d manifests, want 5", len(objs))
+	if len(objs) != 4 {
+		t.Fatalf("got %d manifests, want 4", len(objs))
 	}
 
 	ns := objs[0].(*corev1.Namespace)
@@ -59,30 +72,14 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Namespace != cfg.namespace || pool.Name != "default-env-workerpool" {
 		t.Errorf("workerpool = %s/%s, want %s/default-env-workerpool", pool.Namespace, pool.Name, cfg.namespace)
 	}
-	if pool.Spec.Replicas != 3 || pool.Spec.AteomImage != cfg.ateomImage {
-		t.Errorf("workerpool spec = %+v, want replicas 3 and ateom image %q", pool.Spec, cfg.ateomImage)
+	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.workerImage {
+		t.Errorf("workerpool spec = %+v, want replicas 3 and worker image %q", pool.Spec, cfg.workerImage)
 	}
 	if pool.Labels["workload"] != "default-env" {
 		t.Errorf("workerpool labels = %v, want workload=default-env", pool.Labels)
 	}
 
-	template := objs[2].(*atev1alpha1.ActorTemplate)
-	if len(template.Spec.Containers) != 1 || template.Spec.Containers[0].Image != cfg.guestImage {
-		t.Errorf("template containers = %+v, want one guest container with image %q",
-			template.Spec.Containers, cfg.guestImage)
-	}
-	if template.Spec.SnapshotsConfig.Location != cfg.snapshotsBucket {
-		t.Errorf("snapshots location = %q, want %q", template.Spec.SnapshotsConfig.Location, cfg.snapshotsBucket)
-	}
-	if got := template.Spec.WorkerSelector.MatchLabels["workload"]; got != "default-env" {
-		t.Errorf("worker selector = %v, want workload=default-env", template.Spec.WorkerSelector)
-	}
-	readyz := template.Spec.Containers[0].Readyz
-	if readyz == nil || readyz.HTTPGet == nil || readyz.HTTPGet.Path != "/readyz" {
-		t.Errorf("readyz = %+v, want HTTP GET /readyz", readyz)
-	}
-
-	deployment := objs[3].(*appsv1.Deployment)
+	deployment := objs[2].(*appsv1.Deployment)
 	containers := deployment.Spec.Template.Spec.Containers
 	if len(containers) != 1 || containers[0].Image != cfg.apiImage {
 		t.Errorf("api containers = %+v, want one container with image %q", containers, cfg.apiImage)
@@ -91,7 +88,7 @@ func TestBuildManifests(t *testing.T) {
 		t.Errorf("api replicas = %d, want 1", *deployment.Spec.Replicas)
 	}
 
-	service := objs[4].(*corev1.Service)
+	service := objs[3].(*corev1.Service)
 	if service.Spec.Selector["app"] != apiName {
 		t.Errorf("api service selector = %v, want app=%s", service.Spec.Selector, apiName)
 	}
@@ -100,12 +97,38 @@ func TestBuildManifests(t *testing.T) {
 	}
 }
 
+func TestBuildActorTemplate(t *testing.T) {
+	cfg := testManifestConfig()
+	var template *ateapipb.ActorTemplate = buildActorTemplate(cfg)
+
+	if template.GetMetadata().GetName() != "default-env" {
+		t.Errorf("template name = %q, want default-env", template.GetMetadata().GetName())
+	}
+	if template.GetMetadata().GetAtespace() != "default" {
+		t.Errorf("template atespace = %q, want default", template.GetMetadata().GetAtespace())
+	}
+	if len(template.Containers) != 1 || template.Containers[0].Image != cfg.guestImage {
+		t.Errorf("template containers = %+v, want one guest container with image %q",
+			template.Containers, cfg.guestImage)
+	}
+	if template.GetSnapshotsConfig().GetStorageLocation() != cfg.snapshotsBucket {
+		t.Errorf("snapshots location = %q, want %q", template.GetSnapshotsConfig().GetStorageLocation(), cfg.snapshotsBucket)
+	}
+	if got := template.GetWorkerSelector().GetMatchLabels()["workload"]; got != "default-env" {
+		t.Errorf("worker selector = %v, want workload=default-env", template.WorkerSelector)
+	}
+	readyz := template.Containers[0].Readyz
+	if readyz == nil || readyz.GetHttpGet() == nil || readyz.GetHttpGet().Path != "/readyz" {
+		t.Errorf("readyz = %+v, want HTTP GET /readyz", readyz)
+	}
+}
+
 func TestBuildManifestsCustomAPIPort(t *testing.T) {
 	cfg := testManifestConfig()
 	cfg.apiPort = 9999
 	objs := buildManifests(cfg)
 
-	deployment := objs[3].(*appsv1.Deployment)
+	deployment := objs[2].(*appsv1.Deployment)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	if got := container.Args[1]; got != "0.0.0.0:9999" {
 		t.Errorf("api -listen arg = %q, want 0.0.0.0:9999", got)
@@ -117,7 +140,7 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 		t.Errorf("api probe port = %d, want 9999", got)
 	}
 
-	service := objs[4].(*corev1.Service)
+	service := objs[3].(*corev1.Service)
 	if service.Spec.Ports[0].Port != 9999 || service.Spec.Ports[0].TargetPort.IntValue() != 9999 {
 		t.Errorf("api service ports = %+v, want 9999 -> 9999", service.Spec.Ports)
 	}
@@ -130,18 +153,14 @@ func TestWriteManifests(t *testing.T) {
 	}
 	out := buf.String()
 
-	if got := strings.Count(out, "\n---\n"); got != 4 {
-		t.Errorf("got %d document separators, want 4:\n%s", got, out)
+	if got := strings.Count(out, "\n---\n"); got != 3 {
+		t.Errorf("got %d document separators, want 3:\n%s", got, out)
 	}
 	for _, want := range []string{
 		"kind: Namespace",
 		"kind: WorkerPool",
-		"kind: ActorTemplate",
-		"apiVersion: ate.dev/v1alpha1",
 		"kind: Deployment",
 		"kind: Service",
-		"image: example.com/guest@sha256:aaaa",
-		"location: gs://bucket/ate-env/",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -149,6 +168,33 @@ func TestWriteManifests(t *testing.T) {
 	}
 	if strings.Contains(out, "status") {
 		t.Errorf("output should not contain status fields:\n%s", out)
+	}
+	if strings.Contains(out, "{}") {
+		t.Errorf("output should not contain empty map literals ({}):\n%s", out)
+	}
+}
+
+func TestWriteActorTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeActorTemplate(&buf, buildActorTemplate(testManifestConfig())); err != nil {
+		t.Fatalf("writeActorTemplate: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{
+		"name: default-env",
+		"image: example.com/guest@sha256:aaaa",
+		"storageLocation: gs://bucket/ate-env/",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "status") {
+		t.Errorf("output should not contain status fields:\n%s", out)
+	}
+	if strings.Contains(out, "pauseImage") {
+		t.Errorf("output should not contain pauseImage field:\n%s", out)
 	}
 	if strings.Contains(out, "onResume") {
 		t.Errorf("output should not contain empty onResume field:\n%s", out)

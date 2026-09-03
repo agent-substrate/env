@@ -134,11 +134,11 @@ env = await client.create("dev1")
 ```
 
 The server instantiates the environment from the `default-env`
-ActorTemplate in the `ate-env` namespace unless you override it:
+ActorTemplate in the `default` atespace unless you override it:
 
 ```python
 env = await client.create("dev1", template_name="my-template",
-                          template_namespace="my-namespace")
+                          template_atespace="my-atespace")
 ```
 
 To get a handle to an environment that already exists (no RPC is made):

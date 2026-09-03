@@ -8,7 +8,10 @@ import (
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,7 +27,7 @@ type manifestConfig struct {
 	template        string
 	workerPool      string
 	guestImage      string
-	ateomImage      string
+	workerImage     string
 	snapshotsBucket string
 	replicas        int32
 	apiImage        string
@@ -32,6 +35,8 @@ type manifestConfig struct {
 	apiPort         int32
 	guestCommand    []string
 	poolLabels      map[string]string
+	atespace        string
+	templateOnly    bool
 }
 
 func newManifestCommand() *cobra.Command {
@@ -42,9 +47,11 @@ func newManifestCommand() *cobra.Command {
 		Short: "Generate Kubernetes manifests to deploy the system",
 		Long: `Manifest generates Kubernetes manifests for everything environments need on
 a cluster that already runs the Agent Substrate system: the target
-namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
-environments are created from, and the ate-env-api service. It prints YAML to
-stdout without touching the cluster; apply it with kubectl.`,
+namespace, a WorkerPool of pre-warmed workers, and the ate-env-api service.
+It prints YAML to stdout without touching the cluster; apply it with kubectl.
+
+To generate the Substrate ActorTemplate manifest (for kubectl-ate), use
+the --template-only flag.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfg.resolveImages(); err != nil {
@@ -58,14 +65,19 @@ stdout without touching the cluster; apply it with kubectl.`,
 			}
 			cfg.poolLabels = map[string]string{"workload": cfg.template}
 
+			if cfg.templateOnly {
+				return writeActorTemplate(cmd.OutOrStdout(), buildActorTemplate(cfg))
+			}
 			return writeManifests(cmd.OutOrStdout(), buildManifests(cfg))
 		},
 	}
 
 	cmd.Flags().StringVar(&cfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
+	cmd.Flags().StringVar(&cfg.atespace, "atespace", "default", "Substrate atespace for the ActorTemplate")
 	cmd.Flags().StringVar(&cfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
-	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
+	cmd.Flags().StringVar(&cfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
+	cmd.Flags().StringVar(&cfg.workerImage, "ateom-image", "", "alias for --worker-image")
 	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
 	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
@@ -73,6 +85,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
 	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
 	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
+	cmd.Flags().BoolVar(&cfg.templateOnly, "template-only", false, "generate only the Substrate ActorTemplate manifest (for kubectl-ate create actor-template -f -)")
 	cmd.MarkFlagRequired("snapshots-bucket")
 
 	return cmd
@@ -81,10 +94,16 @@ stdout without touching the cluster; apply it with kubectl.`,
 // resolveImages verifies that all deployment images are set, either baked
 // in at release time or passed as flags.
 func (c *manifestConfig) resolveImages() error {
-	if c.guestImage != "" && c.ateomImage != "" && c.apiImage != "" {
+	if c.templateOnly {
+		if c.guestImage == "" {
+			return errors.New("--guest-image is required; use the digest-pinned ate-env-guest image")
+		}
 		return nil
 	}
-	return errors.New(`--guest-image, --api-image, and --ateom-image are required; use the
+	if c.guestImage != "" && c.workerImage != "" && c.apiImage != "" {
+		return nil
+	}
+	return errors.New(`--guest-image, --api-image, and --worker-image (or --ateom-image) are required; use the
 digest-pinned images published by the latest release (the README
 quickstart records them), or build and push your own.`)
 }
@@ -95,16 +114,44 @@ func buildManifests(cfg manifestConfig) []any {
 	return []any{
 		buildNamespace(cfg),
 		buildWorkerPool(cfg),
-		buildActorTemplate(cfg),
 		buildAPIDeployment(cfg),
 		buildAPIService(cfg),
 	}
 }
 
+// writeActorTemplate writes a single Substrate ActorTemplate as protojson-shaped YAML.
+func writeActorTemplate(w io.Writer, tmpl *ateapipb.ActorTemplate) error {
+	opts := protojson.MarshalOptions{
+		UseProtoNames: false,
+	}
+	jsonBytes, err := opts.Marshal(tmpl)
+	if err != nil {
+		return fmt.Errorf("encoding actor template json: %w", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(jsonBytes, &m); err != nil {
+		return fmt.Errorf("decoding actor template json: %w", err)
+	}
+	delete(m, "status")
+	prune(m)
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("encoding actor template yaml: %w", err)
+	}
+	_, err = w.Write(data)
+	return err
+}
+
 // writeManifests writes the objects as a multi-document YAML stream.
 func writeManifests(w io.Writer, objs []any) error {
 	for i, obj := range objs {
-		jsonBytes, err := json.Marshal(obj)
+		var jsonBytes []byte
+		var err error
+		if m, ok := obj.(proto.Message); ok {
+			jsonBytes, err = protojson.Marshal(m)
+		} else {
+			jsonBytes, err = json.Marshal(obj)
+		}
 		if err != nil {
 			return fmt.Errorf("encoding json: %w", err)
 		}
@@ -178,45 +225,46 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 			Labels:    cfg.poolLabels,
 		},
 		Spec: atev1alpha1.WorkerPoolSpec{
-			Replicas:   cfg.replicas,
-			AteomImage: cfg.ateomImage,
+			Replicas:    cfg.replicas,
+			WorkerImage: cfg.workerImage,
 		},
 	}
 }
 
-func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
-	port := "80"
-	return &atev1alpha1.ActorTemplate{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: atev1alpha1.GroupVersion.String(),
-			Kind:       "ActorTemplate",
+func buildActorTemplate(cfg manifestConfig) *ateapipb.ActorTemplate {
+	atespace := cfg.atespace
+	if atespace == "" {
+		atespace = "default"
+	}
+	return &ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{
+			Name:     cfg.template,
+			Atespace: atespace,
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cfg.template,
-			Namespace: cfg.namespace,
+		WorkerSelector: &ateapipb.Selector{
+			MatchLabels: cfg.poolLabels,
 		},
-		Spec: atev1alpha1.ActorTemplateSpec{
-			WorkerSelector: &metav1.LabelSelector{
-				MatchLabels: cfg.poolLabels,
-			},
-			Containers: []atev1alpha1.Container{{
-				Name:    "guest",
-				Image:   cfg.guestImage,
-				Command: cfg.guestCommand,
-				Env: []atev1alpha1.EnvVar{{
-					Name:  "PORT",
-					Value: port,
-				}},
-				Readyz: &atev1alpha1.ContainerReadyz{
-					HTTPGet: &atev1alpha1.HTTPGetAction{
-						Path: "/readyz",
-						Port: 80,
-					},
-				},
+		Containers: []*ateapipb.Container{{
+			Name:    "guest",
+			Image:   cfg.guestImage,
+			Command: cfg.guestCommand,
+			Env: []*ateapipb.EnvVar{{
+				Name:  "PORT",
+				Value: "80",
 			}},
-			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
-				Location: cfg.snapshotsBucket,
+			Readyz: &ateapipb.ContainerReadyz{
+				HttpGet: &ateapipb.HTTPGetAction{
+					Path: "/readyz",
+					Port: 80,
+				},
 			},
+		}},
+		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+			StorageLocation: cfg.snapshotsBucket,
+		},
+		SandboxConfig: &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			ConfigName:   "gvisor-default",
 		},
 	}
 }

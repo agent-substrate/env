@@ -26,7 +26,7 @@ async def test_create_uses_server_defaults(fake_stack):
     assert env.atespace == "default"
     stored = fakes.environments.environments[("default", "dev1")]
     assert stored.template.name == "default-env"
-    assert stored.template.namespace == "ate-env"
+    assert stored.template.atespace == "default"
 
 
 async def test_create_omits_template_when_not_given(fake_stack):
@@ -52,13 +52,13 @@ async def test_create_empty_id_rejected(fake_stack):
 async def test_create_with_template(fake_stack):
     client, _ = fake_stack
     env = await client.create(
-        "dev2", atespace="team-a", template_name="big-env", template_namespace="ns1"
+        "dev2", atespace="team-a", template_name="big-env", template_atespace="ns1"
     )
     info = await env.info()
     assert info.atespace == "team-a"
     assert info.template is not None
     assert info.template.name == "big-env"
-    assert info.template.namespace == "ns1"
+    assert info.template.atespace == "ns1"
 
 
 async def test_lifecycle_roundtrip(fake_stack):

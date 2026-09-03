@@ -32,12 +32,12 @@ def test_environment_info_with_template():
     pb = env_pb2.Environment(
         id="dev1",
         atespace="default",
-        template=env_pb2.Template(name="big-env", namespace="ns1"),
+        template=env_pb2.Template(name="big-env", atespace="ns1"),
         status=env_pb2.ENVIRONMENT_STATUS_RUNNING,
     )
     info = _environment_info_from_pb(pb)
     assert info.template is not None
-    assert (info.template.name, info.template.namespace) == ("big-env", "ns1")
+    assert (info.template.name, info.template.atespace) == ("big-env", "ns1")
 
 
 def test_process_info_without_timestamps():

@@ -1,8 +1,7 @@
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+from typing import ClassVar as _ClassVar, Mapping as _Mapping, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -28,12 +27,12 @@ ENVIRONMENT_STATUS_CRASHED: EnvironmentStatus
 ENVIRONMENT_STATUS_DELETING: EnvironmentStatus
 
 class Template(_message.Message):
-    __slots__ = ("name", "namespace")
+    __slots__ = ("name", "atespace")
     NAME_FIELD_NUMBER: _ClassVar[int]
-    NAMESPACE_FIELD_NUMBER: _ClassVar[int]
+    ATESPACE_FIELD_NUMBER: _ClassVar[int]
     name: str
-    namespace: str
-    def __init__(self, name: _Optional[str] = ..., namespace: _Optional[str] = ...) -> None: ...
+    atespace: str
+    def __init__(self, name: _Optional[str] = ..., atespace: _Optional[str] = ...) -> None: ...
 
 class Environment(_message.Message):
     __slots__ = ("id", "atespace", "template", "status")

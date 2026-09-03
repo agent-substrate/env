@@ -21,15 +21,13 @@ import (
 
 func main() {
 	var (
-		addr      string
-		atespace  string
-		template  string
-		namespace string
+		addr     string
+		atespace string
+		template string
 	)
 	flag.StringVar(&addr, "addr", "localhost:7777", "address of the ate-env-api gRPC service")
 	flag.StringVar(&atespace, "atespace", "default", "Substrate atespace")
 	flag.StringVar(&template, "template", "default-env", "ActorTemplate name")
-	flag.StringVar(&namespace, "namespace", "ate-env", "ActorTemplate namespace")
 	flag.Parse()
 
 	id := "env-" + uuid.NewString()
@@ -46,13 +44,13 @@ func main() {
 	client := ateenvv1.NewEnvironmentServiceClient(conn)
 
 	// 1. Create the environment.
-	fmt.Printf("1. Creating environment %q (template: %s/%s, atespace: %s)...\n", id, namespace, template, atespace)
+	fmt.Printf("1. Creating environment %q (template: %s, atespace: %s)...\n", id, template, atespace)
 	createResp, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 		Template: &ateenvv1.Template{
-			Name:      template,
-			Namespace: namespace,
+			Name:     template,
+			Atespace: atespace,
 		},
 	})
 	if err != nil {
@@ -71,8 +69,8 @@ func main() {
 		log.Fatalf("GetEnvironment failed: %v", err)
 	}
 	env = getResp.GetEnvironment()
-	fmt.Printf("   Retrieved: id=%s, atespace=%s, template=%s/%s, status=%v\n\n",
-		env.GetId(), env.GetAtespace(), env.GetTemplate().GetNamespace(), env.GetTemplate().GetName(), env.GetStatus())
+	fmt.Printf("   Retrieved: id=%s, atespace=%s, template=%s (atespace: %s), status=%v\n\n",
+		env.GetId(), env.GetAtespace(), env.GetTemplate().GetName(), env.GetTemplate().GetAtespace(), env.GetStatus())
 
 	// 3. Suspend the environment.
 	fmt.Printf("3. Suspending environment %q...\n", id)

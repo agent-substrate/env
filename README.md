@@ -41,18 +41,30 @@ go install github.com/agent-substrate/env/cmd/ate-env@latest
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket.
 
-First, deploy the system — namespace, worker pool, environment template, and
-API:
+### 1. Deploy the Kubernetes Resources
+
+Deploy the namespace, worker pool, and API service:
 
 ```bash
+export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ate-env manifest \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:7983b1ac8d56a8fddae523ea4965b6c9cff40920f6033a1dea526c41c6f563a9 \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:8c37085273a8b9b99bcd3ce0d701f56db2f1ba2db6b7f0e9ff749532e4feed3b \
-  --ateom-image    gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor@sha256:9992059c51c9af88a3489104c1c792644f4c28d22073af7bdbed07c1f2c7d1f1 \
-  --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:4f5678b9304a9047551fc95458e7b948c77d6fce5337de1897888daa7e0e4900 \
+  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:8579e1eebdd652cd2bfc7a130d4ebc2ce0d7a1a9d2efcb9d04b9eedf597a027d \
+  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:7a5f89e9c8ca875eee611b05fdf003b63b260b631362c83c1099073d003e0372 \
+  --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl apply -f -
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env
+```
+
+### 2. Register the ActorTemplate in Substrate
+
+Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest --template-only` to generate the Substrate ActorTemplate manifest:
+
+```bash
+ate-env manifest --template-only \
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:4f5678b9304a9047551fc95458e7b948c77d6fce5337de1897888daa7e0e4900 \
+  --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
 ```
 
 Then create and use an environment:

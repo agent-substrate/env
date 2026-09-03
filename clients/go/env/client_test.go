@@ -112,8 +112,8 @@ func (f *fixture) create(t *testing.T, id string) *env.Env {
 	sb, err := f.client.Create(t.Context(), &ateenvv1.CreateEnvironmentRequest{
 		Id: id,
 		Template: &ateenvv1.Template{
-			Name:      "default-env",
-			Namespace: "envs",
+			Name:     "default-env",
+			Atespace: "envs",
 		},
 	})
 	if err != nil {

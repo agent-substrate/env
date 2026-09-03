@@ -102,10 +102,10 @@ func newGuestCommand(id string) *cobra.Command {
 
 func newCreateCommand() *cobra.Command {
 	var (
-		endpoint        string
-		atespace        string
-		createTemplate  string
-		createNamespace string
+		endpoint               string
+		atespace               string
+		createTemplate         string
+		createTemplateAtespace string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <id>",
@@ -124,10 +124,14 @@ func newCreateCommand() *cobra.Command {
 				Id:       args[0],
 				Atespace: atespace,
 			}
-			if createTemplate != "" || createNamespace != "" {
+			if createTemplate != "" || createTemplateAtespace != "" {
+				tmplAtespace := createTemplateAtespace
+				if tmplAtespace == "" {
+					tmplAtespace = atespace
+				}
 				req.Template = &ateenvv1.Template{
-					Name:      createTemplate,
-					Namespace: createNamespace,
+					Name:     createTemplate,
+					Atespace: tmplAtespace,
 				}
 			}
 			_, err = client.Create(cmd.Context(), req)
@@ -137,7 +141,7 @@ func newCreateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
 	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
 	cmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
-	cmd.Flags().StringVar(&createNamespace, "namespace", "", "Kubernetes namespace of the ActorTemplate (defaults to server default)")
+	cmd.Flags().StringVar(&createTemplateAtespace, "template-atespace", "", "Substrate atespace of the ActorTemplate (defaults to environment atespace)")
 	return cmd
 }
 

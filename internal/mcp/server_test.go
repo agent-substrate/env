@@ -145,9 +145,9 @@ func TestGuestMCPProxy(t *testing.T) {
 
 	// Create environment via direct client.
 	if err := client.Create(t.Context(), ate.CreateOptions{
-		ID:        "web-1",
-		Template:  "default-env",
-		Namespace: "envs",
+		ID:       "web-1",
+		Template: "default-env",
+		Atespace: "envs",
 	}); err != nil {
 		t.Fatalf("client.Create: %v", err)
 	}

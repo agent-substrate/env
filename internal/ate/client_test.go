@@ -54,7 +54,7 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) create(t *testing.T, id string) {
 	t.Helper()
 	f.router.Register(id, http.NotFoundHandler())
-	req := ate.CreateOptions{ID: id, Template: "default-env", Namespace: "envs"}
+	req := ate.CreateOptions{ID: id, Template: "default-env"}
 	if err := f.client.Create(t.Context(), req); err != nil {
 		t.Fatalf("creating actor %q: %v", id, err)
 	}

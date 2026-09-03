@@ -41,12 +41,12 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
                 grpc.StatusCode.ALREADY_EXISTS,
                 f'environment "{request.id}" already exists',
             )
-        template = env_pb2.Template(name="default-env", namespace="ate-env")
+        template = env_pb2.Template(name="default-env", atespace="default")
         if request.HasField("template"):
             if request.template.name:
                 template.name = request.template.name
-            if request.template.namespace:
-                template.namespace = request.template.namespace
+            if request.template.atespace:
+                template.atespace = request.template.atespace
         environment = env_pb2.Environment(
             id=request.id,
             atespace=atespace,
