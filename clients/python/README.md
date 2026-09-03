@@ -95,7 +95,7 @@ pip install ./clients/python
 ```
 
 The distribution is named `ate-env-client`; the import package is
-`ate_env` (mirroring the Go client, which lives at `clients/go/env`).
+`ate_env` (mirroring the Go client, which lives at `clients/go`).
 
 ### Connect
 

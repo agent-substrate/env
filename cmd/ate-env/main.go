@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agent-substrate/env/clients/go/env"
+	"github.com/agent-substrate/env/clients/go"
 	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
 	"github.com/spf13/cobra"
 )
