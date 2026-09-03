@@ -104,7 +104,7 @@ func TestGuestMCPProxy(t *testing.T) {
 
 	router := fakerouter.New()
 	router.Running = func(id string) bool {
-		return control.Status(id) == ateapipb.Actor_STATUS_RUNNING
+		return control.Status(id) == ateapipb.ActorState_ACTOR_STATE_RUNNING
 	}
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)

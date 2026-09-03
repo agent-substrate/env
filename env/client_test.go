@@ -44,7 +44,7 @@ func newFixture(t *testing.T) *fixture {
 
 	router := fakerouter.New()
 	router.Running = func(id string) bool {
-		return control.Status(id) == ateapipb.Actor_STATUS_RUNNING
+		return control.Status(id) == ateapipb.ActorState_ACTOR_STATE_RUNNING
 	}
 	routerAddr, stopRouter := router.Serve()
 	t.Cleanup(stopRouter)
@@ -139,7 +139,7 @@ func TestSuspend(t *testing.T) {
 		t.Fatalf("Suspend: %v", err)
 	}
 
-	if st := f.control.Status("sb-susp"); st != ateapipb.Actor_STATUS_SUSPENDED {
+	if st := f.control.Status("sb-susp"); st != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Errorf("status = %v, want SUSPENDED", st)
 	}
 }

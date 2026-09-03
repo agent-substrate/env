@@ -44,11 +44,12 @@ First, deploy the system — namespace, worker pool, environment template, and
 API:
 
 ```bash
+export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ate-env manifest \
-  --guest-image    gcr.io/dberkov-gke-dev3/ate-env-guest@sha256:7983b1ac8d56a8fddae523ea4965b6c9cff40920f6033a1dea526c41c6f563a9 \
-  --api-image      gcr.io/dberkov-gke-dev3/ate-env-api@sha256:8c37085273a8b9b99bcd3ce0d701f56db2f1ba2db6b7f0e9ff749532e4feed3b \
-  --ateom-image    gcr.io/dberkov-gke-dev3/ate-images/ateom-gvisor@sha256:9992059c51c9af88a3489104c1c792644f4c28d22073af7bdbed07c1f2c7d1f1 \
-  --snapshots-bucket gs://$GCS_BUCKET/ate-env/ | kubectl apply -f -
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:2b3d455a9b52f2ff1f63184ef9e9ca2a22ae61fd9f49ab858d8f16a94e42fdcc \
+  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:6bcdf8c354cdb1daa0755c9c97ae6370e51984244f3c626948c846c7b22950e3 \
+  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:7a5f89e9c8ca875eee611b05fdf003b63b260b631362c83c1099073d003e0372 \
+  --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl apply -f -
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env

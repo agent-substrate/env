@@ -8,7 +8,10 @@ import (
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,7 +27,7 @@ type manifestConfig struct {
 	template        string
 	workerPool      string
 	guestImage      string
-	ateomImage      string
+	workerImage     string
 	snapshotsBucket string
 	replicas        int32
 	apiImage        string
@@ -65,7 +68,8 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
 	cmd.Flags().StringVar(&cfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
-	cmd.Flags().StringVar(&cfg.ateomImage, "ateom-image", "", "digest-pinned ateom image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
+	cmd.Flags().StringVar(&cfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
+	cmd.Flags().StringVar(&cfg.workerImage, "ateom-image", "", "alias for --worker-image")
 	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
 	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
 	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
@@ -81,10 +85,10 @@ stdout without touching the cluster; apply it with kubectl.`,
 // resolveImages verifies that all deployment images are set, either baked
 // in at release time or passed as flags.
 func (c *manifestConfig) resolveImages() error {
-	if c.guestImage != "" && c.ateomImage != "" && c.apiImage != "" {
+	if c.guestImage != "" && c.workerImage != "" && c.apiImage != "" {
 		return nil
 	}
-	return errors.New(`--guest-image, --api-image, and --ateom-image are required; use the
+	return errors.New(`--guest-image, --api-image, and --worker-image (or --ateom-image) are required; use the
 digest-pinned images published by the latest release (the README
 quickstart records them), or build and push your own.`)
 }
@@ -104,7 +108,13 @@ func buildManifests(cfg manifestConfig) []any {
 // writeManifests writes the objects as a multi-document YAML stream.
 func writeManifests(w io.Writer, objs []any) error {
 	for i, obj := range objs {
-		jsonBytes, err := json.Marshal(obj)
+		var jsonBytes []byte
+		var err error
+		if m, ok := obj.(proto.Message); ok {
+			jsonBytes, err = protojson.Marshal(m)
+		} else {
+			jsonBytes, err = json.Marshal(obj)
+		}
 		if err != nil {
 			return fmt.Errorf("encoding json: %w", err)
 		}
@@ -178,45 +188,42 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 			Labels:    cfg.poolLabels,
 		},
 		Spec: atev1alpha1.WorkerPoolSpec{
-			Replicas:   cfg.replicas,
-			AteomImage: cfg.ateomImage,
+			Replicas:    cfg.replicas,
+			WorkerImage: cfg.workerImage,
 		},
 	}
 }
 
-func buildActorTemplate(cfg manifestConfig) *atev1alpha1.ActorTemplate {
-	port := "80"
-	return &atev1alpha1.ActorTemplate{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: atev1alpha1.GroupVersion.String(),
-			Kind:       "ActorTemplate",
+func buildActorTemplate(cfg manifestConfig) *ateapipb.ActorTemplate {
+	return &ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{
+			Name:     cfg.template,
+			Atespace: cfg.namespace,
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cfg.template,
-			Namespace: cfg.namespace,
+		WorkerSelector: &ateapipb.Selector{
+			MatchLabels: cfg.poolLabels,
 		},
-		Spec: atev1alpha1.ActorTemplateSpec{
-			WorkerSelector: &metav1.LabelSelector{
-				MatchLabels: cfg.poolLabels,
-			},
-			Containers: []atev1alpha1.Container{{
-				Name:    "guest",
-				Image:   cfg.guestImage,
-				Command: cfg.guestCommand,
-				Env: []atev1alpha1.EnvVar{{
-					Name:  "PORT",
-					Value: &port,
-				}},
-				Readyz: &atev1alpha1.ContainerReadyz{
-					HTTPGet: &atev1alpha1.HTTPGetAction{
-						Path: "/readyz",
-						Port: 80,
-					},
-				},
+		Containers: []*ateapipb.Container{{
+			Name:    "guest",
+			Image:   cfg.guestImage,
+			Command: cfg.guestCommand,
+			Env: []*ateapipb.EnvVar{{
+				Name:  "PORT",
+				Value: "80",
 			}},
-			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
-				Location: cfg.snapshotsBucket,
+			Readyz: &ateapipb.ContainerReadyz{
+				HttpGet: &ateapipb.HTTPGetAction{
+					Path: "/readyz",
+					Port: 80,
+				},
 			},
+		}},
+		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+			StorageLocation: cfg.snapshotsBucket,
+		},
+		SandboxConfig: &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			ConfigName:   "gvisor-default",
 		},
 	}
 }

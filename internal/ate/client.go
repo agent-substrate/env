@@ -234,8 +234,10 @@ func (c *Client) Create(ctx context.Context, opts CreateOptions) error {
 			Atespace: atespace,
 			Name:     opts.ID,
 		},
-		ActorTemplateNamespace: opts.Namespace,
-		ActorTemplateName:      opts.Template,
+		ActorTemplate: &ateapipb.ObjectRef{
+			Atespace: atespace,
+			Name:     opts.Template,
+		},
 	}
 	if _, err := c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: actor}); err != nil {
 		return fmt.Errorf("ate: creating %q: %w", opts.ID, wrapGRPCError(err))
