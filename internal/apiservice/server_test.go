@@ -11,7 +11,7 @@ import (
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -21,15 +21,15 @@ import (
 )
 
 type testEnv struct {
-	envClient  ateenvv1.EnvironmentServiceClient
-	procClient ateenvv1.ProcessServiceClient
-	fsClient   ateenvv1.FileSystemServiceClient
+	envClient  ateenvv1alpha.EnvironmentServiceClient
+	procClient ateenvv1alpha.ProcessServiceClient
+	fsClient   ateenvv1alpha.FileSystemServiceClient
 	conn       *grpc.ClientConn
 	router     *fakerouter.Router
 	control    *fakecontrol.Server
 }
 
-func newTestEnv(t *testing.T) (ateenvv1.EnvironmentServiceClient, *fakecontrol.Server) {
+func newTestEnv(t *testing.T) (ateenvv1alpha.EnvironmentServiceClient, *fakecontrol.Server) {
 	t.Helper()
 	te := newFullTestEnv(t)
 	return te.envClient, te.control
@@ -66,9 +66,9 @@ func newFullTestEnv(t *testing.T) *testEnv {
 	t.Cleanup(srv.Close)
 
 	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, srv)
-	ateenvv1.RegisterProcessServiceServer(grpcServer, srv)
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, srv)
+	ateenvv1alpha.RegisterEnvironmentServiceServer(grpcServer, srv)
+	ateenvv1alpha.RegisterProcessServiceServer(grpcServer, srv)
+	ateenvv1alpha.RegisterFileSystemServiceServer(grpcServer, srv)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -84,9 +84,9 @@ func newFullTestEnv(t *testing.T) *testEnv {
 	t.Cleanup(func() { conn.Close() })
 
 	return &testEnv{
-		envClient:  ateenvv1.NewEnvironmentServiceClient(conn),
-		procClient: ateenvv1.NewProcessServiceClient(conn),
-		fsClient:   ateenvv1.NewFileSystemServiceClient(conn),
+		envClient:  ateenvv1alpha.NewEnvironmentServiceClient(conn),
+		procClient: ateenvv1alpha.NewProcessServiceClient(conn),
+		fsClient:   ateenvv1alpha.NewFileSystemServiceClient(conn),
 		conn:       conn,
 		router:     router,
 		control:    control,
@@ -98,7 +98,7 @@ func TestCreateAndGetEnvironment(t *testing.T) {
 	ctx := context.Background()
 
 	// Create with defaults.
-	createResp, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+	createResp, err := client.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id: "env-1",
 	})
 	if err != nil {
@@ -116,12 +116,12 @@ func TestCreateAndGetEnvironment(t *testing.T) {
 	if createResp.GetEnvironment().GetAtespace() != apiservice.DefaultAtespace {
 		t.Errorf("got atespace %q, want %q", createResp.GetEnvironment().GetAtespace(), apiservice.DefaultAtespace)
 	}
-	if createResp.GetEnvironment().GetStatus() != ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED {
+	if createResp.GetEnvironment().GetStatus() != ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED {
 		t.Errorf("got status %v, want UNSPECIFIED", createResp.GetEnvironment().GetStatus())
 	}
 
 	// Get environment.
-	getResp, err := client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	getResp, err := client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id: "env-1",
 	})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestCreateAndGetEnvironment(t *testing.T) {
 	if getResp.GetEnvironment().GetAtespace() != apiservice.DefaultAtespace {
 		t.Errorf("got atespace %q, want %q", getResp.GetEnvironment().GetAtespace(), apiservice.DefaultAtespace)
 	}
-	if getResp.GetEnvironment().GetStatus() != ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING {
+	if getResp.GetEnvironment().GetStatus() != ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING {
 		t.Errorf("got status %v, want RUNNING", getResp.GetEnvironment().GetStatus())
 	}
 }
@@ -145,10 +145,10 @@ func TestCustomAtespace(t *testing.T) {
 	client, _ := newTestEnv(t)
 	ctx := context.Background()
 
-	createResp, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+	createResp, err := client.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id:       "custom-env",
 		Atespace: "my-space",
-		Template: &ateenvv1.Template{
+		Template: &ateenvv1alpha.Template{
 			Name:     "custom-tmpl",
 			Atespace: "my-space",
 		},
@@ -166,7 +166,7 @@ func TestCustomAtespace(t *testing.T) {
 		t.Errorf("got template atespace %q, want my-space", createResp.GetEnvironment().GetTemplate().GetAtespace())
 	}
 
-	getResp, err := client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	getResp, err := client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id:       "custom-env",
 		Atespace: "my-space",
 	})
@@ -177,7 +177,7 @@ func TestCustomAtespace(t *testing.T) {
 		t.Errorf("got atespace %q, want my-space", getResp.GetEnvironment().GetAtespace())
 	}
 
-	_, err = client.SuspendEnvironment(ctx, &ateenvv1.SuspendEnvironmentRequest{
+	_, err = client.SuspendEnvironment(ctx, &ateenvv1alpha.SuspendEnvironmentRequest{
 		Id:       "custom-env",
 		Atespace: "my-space",
 	})
@@ -185,7 +185,7 @@ func TestCustomAtespace(t *testing.T) {
 		t.Fatalf("SuspendEnvironment failed: %v", err)
 	}
 
-	_, err = client.DeleteEnvironment(ctx, &ateenvv1.DeleteEnvironmentRequest{
+	_, err = client.DeleteEnvironment(ctx, &ateenvv1alpha.DeleteEnvironmentRequest{
 		Id:       "custom-env",
 		Atespace: "my-space",
 	})
@@ -198,7 +198,7 @@ func TestCreateValidation(t *testing.T) {
 	client, _ := newTestEnv(t)
 	ctx := context.Background()
 
-	_, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{})
+	_, err := client.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{})
 	if err == nil {
 		t.Fatal("expected error for empty id")
 	}
@@ -211,7 +211,7 @@ func TestGetNotFound(t *testing.T) {
 	client, _ := newTestEnv(t)
 	ctx := context.Background()
 
-	_, err := client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	_, err := client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id: "nonexistent",
 	})
 	if err == nil {
@@ -226,9 +226,9 @@ func TestSuspendEnvironment(t *testing.T) {
 	client, control := newTestEnv(t)
 	ctx := context.Background()
 
-	_, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+	_, err := client.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id: "env-susp",
-		Template: &ateenvv1.Template{
+		Template: &ateenvv1alpha.Template{
 			Name: "custom-template",
 		},
 	})
@@ -240,7 +240,7 @@ func TestSuspendEnvironment(t *testing.T) {
 		t.Fatalf("status before suspend = %v, want RUNNING", got)
 	}
 
-	suspResp, err := client.SuspendEnvironment(ctx, &ateenvv1.SuspendEnvironmentRequest{
+	suspResp, err := client.SuspendEnvironment(ctx, &ateenvv1alpha.SuspendEnvironmentRequest{
 		Id: "env-susp",
 	})
 	if err != nil {
@@ -253,13 +253,13 @@ func TestSuspendEnvironment(t *testing.T) {
 		t.Errorf("control plane status after suspend = %v, want SUSPENDED", got)
 	}
 
-	getResp, err := client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	getResp, err := client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id: "env-susp",
 	})
 	if err != nil {
 		t.Fatalf("GetEnvironment after suspend failed: %v", err)
 	}
-	if getResp.GetEnvironment().GetStatus() != ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED {
+	if getResp.GetEnvironment().GetStatus() != ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED {
 		t.Errorf("got status %v, want SUSPENDED", getResp.GetEnvironment().GetStatus())
 	}
 }
@@ -268,14 +268,14 @@ func TestDeleteEnvironment(t *testing.T) {
 	client, _ := newTestEnv(t)
 	ctx := context.Background()
 
-	_, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+	_, err := client.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id: "env-del",
 	})
 	if err != nil {
 		t.Fatalf("CreateEnvironment failed: %v", err)
 	}
 
-	delResp, err := client.DeleteEnvironment(ctx, &ateenvv1.DeleteEnvironmentRequest{
+	delResp, err := client.DeleteEnvironment(ctx, &ateenvv1alpha.DeleteEnvironmentRequest{
 		Id: "env-del",
 	})
 	if err != nil {
@@ -286,7 +286,7 @@ func TestDeleteEnvironment(t *testing.T) {
 	}
 
 	// Should no longer exist.
-	_, err = client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	_, err = client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id: "env-del",
 	})
 	if status.Code(err) != codes.NotFound {
@@ -299,7 +299,7 @@ func TestProxyGuestServices(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Create environment
-	_, err := te.envClient.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+	_, err := te.envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id: "guest-test",
 	})
 	if err != nil {
@@ -327,7 +327,7 @@ func TestProxyGuestServices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteFile stream: %v", err)
 	}
-	if err := writeStream.Send(&ateenvv1.WriteFileRequest{
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  "proxy-file.txt",
 		Mode:  0644,
 		Chunk: []byte("proxied content"),
@@ -342,7 +342,7 @@ func TestProxyGuestServices(t *testing.T) {
 		t.Errorf("bytes written = %d, want %d", writeResp.GetBytesWritten(), len("proxied content"))
 	}
 
-	readStream, err := te.fsClient.ReadFile(envCtx, &ateenvv1.ReadFileRequest{
+	readStream, err := te.fsClient.ReadFile(envCtx, &ateenvv1alpha.ReadFileRequest{
 		Path: "proxy-file.txt",
 	})
 	if err != nil {
@@ -364,7 +364,7 @@ func TestProxyGuestServices(t *testing.T) {
 	}
 
 	// 4. Test ProcessService proxying
-	startResp, err := te.procClient.StartProcess(envCtx, &ateenvv1.StartProcessRequest{
+	startResp, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"echo", "hello-from-proxy"},
 	})
 	if err != nil {
@@ -374,7 +374,7 @@ func TestProxyGuestServices(t *testing.T) {
 		t.Fatal("empty process ID")
 	}
 
-	logStream, err := te.procClient.StreamProcessOutputs(envCtx, &ateenvv1.StreamProcessOutputsRequest{
+	logStream, err := te.procClient.StreamProcessOutputs(envCtx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId: startResp.GetProcessId(),
 		Follow:    true,
 	})
@@ -390,7 +390,7 @@ func TestProxyGuestServices(t *testing.T) {
 		if err != nil {
 			t.Fatalf("StreamProcessOutputs recv: %v", err)
 		}
-		if chunk.GetSource() == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
+		if chunk.GetSource() == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdout += string(chunk.GetData())
 		}
 	}
@@ -398,7 +398,7 @@ func TestProxyGuestServices(t *testing.T) {
 		t.Errorf("stdout = %q, want hello-from-proxy\\n", stdout)
 	}
 
-	getProc, err := te.procClient.GetProcess(envCtx, &ateenvv1.GetProcessRequest{
+	getProc, err := te.procClient.GetProcess(envCtx, &ateenvv1alpha.GetProcessRequest{
 		ProcessId: startResp.GetProcessId(),
 	})
 	if err != nil {
@@ -409,7 +409,7 @@ func TestProxyGuestServices(t *testing.T) {
 	}
 
 	// 5. Test missing metadata error
-	_, err = te.procClient.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	_, err = te.procClient.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"echo", "no-meta"},
 	})
 	if status.Code(err) != codes.InvalidArgument {
@@ -421,17 +421,17 @@ func TestActorStatusToEnvStatus(t *testing.T) {
 	cases := []struct {
 		name string
 		in   *ateapipb.ActorStatus
-		want ateenvv1.EnvironmentStatus
+		want ateenvv1alpha.EnvironmentStatus
 	}{
-		{"nil status", nil, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED},
-		{"resuming", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RESUMING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING},
-		{"running", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING},
-		{"suspending", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING},
-		{"suspended", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED},
-		{"pausing", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING},
-		{"paused", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED},
-		{"crashed", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_CRASHED}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED},
-		{"deleting", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_DELETING}, ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_DELETING},
+		{"nil status", nil, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED},
+		{"resuming", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RESUMING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING},
+		{"running", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING},
+		{"suspending", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING},
+		{"suspended", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED},
+		{"pausing", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING},
+		{"paused", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED},
+		{"crashed", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_CRASHED}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED},
+		{"deleting", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_DELETING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_DELETING},
 	}
 	for _, tc := range cases {
 		if got := apiservice.ActorStatusToEnvStatus(tc.in); got != tc.want {

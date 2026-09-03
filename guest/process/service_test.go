@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -17,12 +17,12 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func setupTestServer(t *testing.T) (ateenvv1.ProcessServiceClient, func()) {
+func setupTestServer(t *testing.T) (ateenvv1alpha.ProcessServiceClient, func()) {
 	t.Helper()
 	return setupTestServerWithConfig(t, DefaultConfig(t.TempDir()))
 }
 
-func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) (ateenvv1.ProcessServiceClient, func()) {
+func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) (ateenvv1alpha.ProcessServiceClient, func()) {
 	t.Helper()
 	if cfg.LogDir == "" {
 		cfg.LogDir = t.TempDir()
@@ -36,7 +36,7 @@ func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) (ateenvv1.Proces
 	lis := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
 	svc := NewService(tracker)
-	ateenvv1.RegisterProcessServiceServer(server, svc)
+	ateenvv1alpha.RegisterProcessServiceServer(server, svc)
 
 	go func() {
 		_ = server.Serve(lis)
@@ -52,7 +52,7 @@ func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) (ateenvv1.Proces
 		t.Fatalf("failed to dial bufnet: %v", err)
 	}
 
-	client := ateenvv1.NewProcessServiceClient(conn)
+	client := ateenvv1alpha.NewProcessServiceClient(conn)
 
 	cleanup := func() {
 		tracker.Close()
@@ -70,7 +70,7 @@ func TestStartAndGetProcess(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "echo 'hello from substrate'"},
 	})
 	if err != nil {
@@ -82,21 +82,21 @@ func TestStartAndGetProcess(t *testing.T) {
 	}
 
 	// Poll until completed
-	var proc *ateenvv1.Process
+	var proc *ateenvv1alpha.Process
 	for i := 0; i < 20; i++ {
-		proc, err = client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+		proc, err = client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
 			ProcessId: startRes.ProcessId,
 		})
 		if err != nil {
 			t.Fatalf("GetProcess failed: %v", err)
 		}
-		if proc.Status == ateenvv1.ProcessStatus_PROCESS_STATUS_COMPLETED {
+		if proc.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_COMPLETED {
+	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED {
 		t.Fatalf("expected status COMPLETED, got %v", proc.Status)
 	}
 	if proc.ExitCode != 0 {
@@ -112,28 +112,28 @@ func TestProcessFailureExitCode(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "exit 42"},
 	})
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	var proc *ateenvv1.Process
+	var proc *ateenvv1alpha.Process
 	for i := 0; i < 20; i++ {
-		proc, err = client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+		proc, err = client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
 			ProcessId: startRes.ProcessId,
 		})
 		if err != nil {
 			t.Fatalf("GetProcess failed: %v", err)
 		}
-		if proc.Status == ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED {
+		if proc.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED {
+	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED {
 		t.Fatalf("expected status FAILED, got %v", proc.Status)
 	}
 	if proc.ExitCode != 42 {
@@ -146,14 +146,14 @@ func TestStreamProcessOutputs(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "echo 'out1'; echo 'err1' >&2; sleep 0.1; echo 'out2'"},
 	})
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId: startRes.ProcessId,
 		Follow:    true,
 	})
@@ -172,9 +172,9 @@ func TestStreamProcessOutputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error reading output chunk: %v", err)
 		}
-		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdoutBuilder.Write(chunk.Data)
-		} else if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR {
+		} else if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR {
 			stderrBuilder.Write(chunk.Data)
 		}
 	}
@@ -195,7 +195,7 @@ func TestStreamProcessOutputsWithOffset(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "echo 'prefix-to-skip'; echo 'streamed-line'"},
 	})
 	if err != nil {
@@ -205,7 +205,7 @@ func TestStreamProcessOutputsWithOffset(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	skipLen := int64(len("prefix-to-skip\n"))
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId:    startRes.ProcessId,
 		StdoutOffset: skipLen,
 		Follow:       false,
@@ -223,7 +223,7 @@ func TestStreamProcessOutputsWithOffset(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error reading output chunk: %v", err)
 		}
-		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdoutBuilder.Write(chunk.Data)
 		}
 	}
@@ -242,7 +242,7 @@ func TestStreamProcessOutputsSnapshotNoFollow(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "echo 'instant-output'; sleep 5"},
 	})
 	if err != nil {
@@ -252,7 +252,7 @@ func TestStreamProcessOutputsSnapshotNoFollow(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	start := time.Now()
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId: startRes.ProcessId,
 		Follow:    false,
 	})
@@ -286,7 +286,7 @@ func TestKillProcess(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "sleep 60"},
 	})
 	if err != nil {
@@ -295,7 +295,7 @@ func TestKillProcess(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	killRes, err := client.KillProcess(ctx, &ateenvv1.KillProcessRequest{
+	killRes, err := client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{
 		ProcessId: startRes.ProcessId,
 	})
 	if err != nil {
@@ -306,14 +306,14 @@ func TestKillProcess(t *testing.T) {
 		t.Fatalf("expected exit code 137 after kill, got %d", killRes.ExitCode)
 	}
 
-	proc, err := client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
 		ProcessId: startRes.ProcessId,
 	})
 	if err != nil {
 		t.Fatalf("GetProcess failed: %v", err)
 	}
 
-	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
 		t.Fatalf("expected status TERMINATED, got %v", proc.Status)
 	}
 	if proc.ExitCode != 137 {
@@ -326,28 +326,28 @@ func TestProcessSignalDeath(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "kill -15 $$"},
 	})
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	var proc *ateenvv1.Process
+	var proc *ateenvv1alpha.Process
 	for i := 0; i < 20; i++ {
-		proc, err = client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+		proc, err = client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
 			ProcessId: startRes.ProcessId,
 		})
 		if err != nil {
 			t.Fatalf("GetProcess failed: %v", err)
 		}
-		if proc.Status == ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+		if proc.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
 		t.Fatalf("expected status TERMINATED, got %v", proc.Status)
 	}
 	if proc.ExitCode != 143 { // 128 + 15 (SIGTERM)
@@ -366,7 +366,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 	ctx := context.Background()
 
 	// Launch job 1 (running for 5s)
-	res1, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	res1, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "sleep 5"},
 	})
 	if err != nil {
@@ -374,7 +374,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 	}
 
 	// Launch job 2 (running for 5s)
-	res2, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	res2, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "sleep 5"},
 	})
 	if err != nil {
@@ -382,7 +382,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 	}
 
 	// Launch job 3 -> Must be rejected with ResourceExhausted!
-	_, err = client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	_, err = client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "echo 'should fail'"},
 	})
 	if status.Code(err) != codes.ResourceExhausted {
@@ -390,7 +390,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 	}
 
 	// Kill job 1 to free up a slot
-	_, err = client.KillProcess(ctx, &ateenvv1.KillProcessRequest{
+	_, err = client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{
 		ProcessId: res1.ProcessId,
 	})
 	if err != nil {
@@ -398,7 +398,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 	}
 
 	// Now job 3 should succeed
-	res3, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	res3, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "echo 'now succeeds'"},
 	})
 	if err != nil {
@@ -409,7 +409,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 	}
 
 	// Clean up job 2
-	_, _ = client.KillProcess(ctx, &ateenvv1.KillProcessRequest{ProcessId: res2.ProcessId})
+	_, _ = client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{ProcessId: res2.ProcessId})
 }
 
 func TestLogCapping(t *testing.T) {
@@ -423,14 +423,14 @@ func TestLogCapping(t *testing.T) {
 	ctx := context.Background()
 
 	// Command outputs 10,000 bytes of spam
-	res, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	res, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "for i in $(seq 1 500); do echo 'spamming-log-line-0123456789'; done"},
 	})
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId: res.ProcessId,
 		Follow:    true,
 	})
@@ -447,7 +447,7 @@ func TestLogCapping(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stream recv error: %v", err)
 		}
-		if chunk.Source == ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT {
+		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
 			stdout.Write(chunk.Data)
 		}
 	}
@@ -474,7 +474,7 @@ func TestWatchdogTimeout(t *testing.T) {
 	ctx := context.Background()
 
 	// Process attempts to sleep 30 seconds
-	res, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	res, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", "sleep 30"},
 	})
 	if err != nil {
@@ -484,14 +484,14 @@ func TestWatchdogTimeout(t *testing.T) {
 	// Wait 250ms for watchdog timer to trigger
 	time.Sleep(250 * time.Millisecond)
 
-	proc, err := client.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
 		ProcessId: res.ProcessId,
 	})
 	if err != nil {
 		t.Fatalf("GetProcess failed: %v", err)
 	}
 
-	if proc.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
 		t.Fatalf("expected status TERMINATED by watchdog timeout, got %v", proc.Status)
 	}
 	if proc.ExitCode != 137 {

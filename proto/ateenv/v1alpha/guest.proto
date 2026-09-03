@@ -5,9 +5,9 @@
 
 syntax = "proto3";
 
-package ateenv.v1;
+package ateenv.v1alpha;
 
-option go_package = "github.com/agent-substrate/env/proto/ateenv/v1;ateenvv1";
+option go_package = "github.com/agent-substrate/env/proto/ateenv/v1alpha;ateenvv1alpha";
 
 import "google/protobuf/timestamp.proto";
 

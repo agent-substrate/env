@@ -13,7 +13,7 @@ import (
 	"log"
 	"time"
 
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -41,14 +41,14 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := ateenvv1.NewEnvironmentServiceClient(conn)
+	client := ateenvv1alpha.NewEnvironmentServiceClient(conn)
 
 	// 1. Create the environment.
 	fmt.Printf("1. Creating environment %q (template: %s, atespace: %s)...\n", id, template, atespace)
-	createResp, err := client.CreateEnvironment(ctx, &ateenvv1.CreateEnvironmentRequest{
+	createResp, err := client.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
-		Template: &ateenvv1.Template{
+		Template: &ateenvv1alpha.Template{
 			Name:     template,
 			Atespace: atespace,
 		},
@@ -61,7 +61,7 @@ func main() {
 
 	// 2. Get environment details.
 	fmt.Printf("2. Getting environment %q...\n", id)
-	getResp, err := client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	getResp, err := client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 	})
@@ -74,7 +74,7 @@ func main() {
 
 	// 3. Suspend the environment.
 	fmt.Printf("3. Suspending environment %q...\n", id)
-	if _, err := client.SuspendEnvironment(ctx, &ateenvv1.SuspendEnvironmentRequest{
+	if _, err := client.SuspendEnvironment(ctx, &ateenvv1alpha.SuspendEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 	}); err != nil {
@@ -83,7 +83,7 @@ func main() {
 	fmt.Printf("   Suspended environment %q successfully.\n\n", id)
 
 	// 4. Verify status after suspension.
-	getResp, err = client.GetEnvironment(ctx, &ateenvv1.GetEnvironmentRequest{
+	getResp, err = client.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 	})
@@ -94,7 +94,7 @@ func main() {
 
 	// 5. Delete the environment.
 	fmt.Printf("5. Deleting environment %q...\n", id)
-	if _, err := client.DeleteEnvironment(ctx, &ateenvv1.DeleteEnvironmentRequest{
+	if _, err := client.DeleteEnvironment(ctx, &ateenvv1alpha.DeleteEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 	}); err != nil {

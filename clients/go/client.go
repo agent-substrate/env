@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/env/internal/ate"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -36,9 +36,9 @@ type Client struct {
 	endpoint   string
 	opts       ClientOptions
 	grpcConn   *grpc.ClientConn
-	grpc       ateenvv1.EnvironmentServiceClient
-	process    ateenvv1.ProcessServiceClient
-	filesystem ateenvv1.FileSystemServiceClient
+	grpc       ateenvv1alpha.EnvironmentServiceClient
+	process    ateenvv1alpha.ProcessServiceClient
+	filesystem ateenvv1alpha.FileSystemServiceClient
 }
 
 // NewClient returns a Client targeting endpoint.
@@ -70,9 +70,9 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		endpoint:   endpoint,
 		opts:       opts,
 		grpcConn:   grpcConn,
-		grpc:       ateenvv1.NewEnvironmentServiceClient(grpcConn),
-		process:    ateenvv1.NewProcessServiceClient(grpcConn),
-		filesystem: ateenvv1.NewFileSystemServiceClient(grpcConn),
+		grpc:       ateenvv1alpha.NewEnvironmentServiceClient(grpcConn),
+		process:    ateenvv1alpha.NewProcessServiceClient(grpcConn),
+		filesystem: ateenvv1alpha.NewFileSystemServiceClient(grpcConn),
 	}, nil
 }
 
@@ -86,7 +86,7 @@ func (c *Client) Close() error {
 
 // Create registers a new env with the parameters given in req and
 // starts it using the gRPC EnvironmentService.
-func (c *Client) Create(ctx context.Context, req *ateenvv1.CreateEnvironmentRequest) (*Env, error) {
+func (c *Client) Create(ctx context.Context, req *ateenvv1alpha.CreateEnvironmentRequest) (*Env, error) {
 	resp, err := c.grpc.CreateEnvironment(ctx, req)
 	if err != nil {
 		return nil, fromGRPCError(err)
@@ -97,7 +97,7 @@ func (c *Client) Create(ctx context.Context, req *ateenvv1.CreateEnvironmentRequ
 
 // Suspend checkpoints and stops the environment using the gRPC EnvironmentService.
 func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
-	req := &ateenvv1.SuspendEnvironmentRequest{
+	req := &ateenvv1alpha.SuspendEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 	}
@@ -110,7 +110,7 @@ func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
 
 // Delete removes the environment permanently using the gRPC EnvironmentService.
 func (c *Client) Delete(ctx context.Context, atespace, id string) error {
-	req := &ateenvv1.DeleteEnvironmentRequest{
+	req := &ateenvv1alpha.DeleteEnvironmentRequest{
 		Id:       id,
 		Atespace: atespace,
 	}

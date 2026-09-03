@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from . import env_pb2 as ateenv_dot_v1_dot_env__pb2
+from . import env_pb2 as ateenv_dot_v1alpha_dot_env__pb2
 
 
 class EnvironmentServiceStub(object):
@@ -25,24 +25,24 @@ class EnvironmentServiceStub(object):
             channel: A grpc.Channel.
         """
         self.CreateEnvironment = channel.unary_unary(
-                '/ateenv.v1.EnvironmentService/CreateEnvironment',
-                request_serializer=ateenv_dot_v1_dot_env__pb2.CreateEnvironmentRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_env__pb2.CreateEnvironmentResponse.FromString,
+                '/ateenv.v1alpha.EnvironmentService/CreateEnvironment',
+                request_serializer=ateenv_dot_v1alpha_dot_env__pb2.CreateEnvironmentRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_env__pb2.CreateEnvironmentResponse.FromString,
                 )
         self.GetEnvironment = channel.unary_unary(
-                '/ateenv.v1.EnvironmentService/GetEnvironment',
-                request_serializer=ateenv_dot_v1_dot_env__pb2.GetEnvironmentRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_env__pb2.GetEnvironmentResponse.FromString,
+                '/ateenv.v1alpha.EnvironmentService/GetEnvironment',
+                request_serializer=ateenv_dot_v1alpha_dot_env__pb2.GetEnvironmentRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_env__pb2.GetEnvironmentResponse.FromString,
                 )
         self.SuspendEnvironment = channel.unary_unary(
-                '/ateenv.v1.EnvironmentService/SuspendEnvironment',
-                request_serializer=ateenv_dot_v1_dot_env__pb2.SuspendEnvironmentRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_env__pb2.SuspendEnvironmentResponse.FromString,
+                '/ateenv.v1alpha.EnvironmentService/SuspendEnvironment',
+                request_serializer=ateenv_dot_v1alpha_dot_env__pb2.SuspendEnvironmentRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_env__pb2.SuspendEnvironmentResponse.FromString,
                 )
         self.DeleteEnvironment = channel.unary_unary(
-                '/ateenv.v1.EnvironmentService/DeleteEnvironment',
-                request_serializer=ateenv_dot_v1_dot_env__pb2.DeleteEnvironmentRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_env__pb2.DeleteEnvironmentResponse.FromString,
+                '/ateenv.v1alpha.EnvironmentService/DeleteEnvironment',
+                request_serializer=ateenv_dot_v1alpha_dot_env__pb2.DeleteEnvironmentRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_env__pb2.DeleteEnvironmentResponse.FromString,
                 )
 
 
@@ -92,27 +92,27 @@ def add_EnvironmentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'CreateEnvironment': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateEnvironment,
-                    request_deserializer=ateenv_dot_v1_dot_env__pb2.CreateEnvironmentRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_env__pb2.CreateEnvironmentResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_env__pb2.CreateEnvironmentRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_env__pb2.CreateEnvironmentResponse.SerializeToString,
             ),
             'GetEnvironment': grpc.unary_unary_rpc_method_handler(
                     servicer.GetEnvironment,
-                    request_deserializer=ateenv_dot_v1_dot_env__pb2.GetEnvironmentRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_env__pb2.GetEnvironmentResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_env__pb2.GetEnvironmentRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_env__pb2.GetEnvironmentResponse.SerializeToString,
             ),
             'SuspendEnvironment': grpc.unary_unary_rpc_method_handler(
                     servicer.SuspendEnvironment,
-                    request_deserializer=ateenv_dot_v1_dot_env__pb2.SuspendEnvironmentRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_env__pb2.SuspendEnvironmentResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_env__pb2.SuspendEnvironmentRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_env__pb2.SuspendEnvironmentResponse.SerializeToString,
             ),
             'DeleteEnvironment': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteEnvironment,
-                    request_deserializer=ateenv_dot_v1_dot_env__pb2.DeleteEnvironmentRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_env__pb2.DeleteEnvironmentResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_env__pb2.DeleteEnvironmentRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_env__pb2.DeleteEnvironmentResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'ateenv.v1.EnvironmentService', rpc_method_handlers)
+            'ateenv.v1alpha.EnvironmentService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
 
 
@@ -141,9 +141,9 @@ class EnvironmentService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.EnvironmentService/CreateEnvironment',
-            ateenv_dot_v1_dot_env__pb2.CreateEnvironmentRequest.SerializeToString,
-            ateenv_dot_v1_dot_env__pb2.CreateEnvironmentResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.EnvironmentService/CreateEnvironment',
+            ateenv_dot_v1alpha_dot_env__pb2.CreateEnvironmentRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_env__pb2.CreateEnvironmentResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -158,9 +158,9 @@ class EnvironmentService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.EnvironmentService/GetEnvironment',
-            ateenv_dot_v1_dot_env__pb2.GetEnvironmentRequest.SerializeToString,
-            ateenv_dot_v1_dot_env__pb2.GetEnvironmentResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.EnvironmentService/GetEnvironment',
+            ateenv_dot_v1alpha_dot_env__pb2.GetEnvironmentRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_env__pb2.GetEnvironmentResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -175,9 +175,9 @@ class EnvironmentService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.EnvironmentService/SuspendEnvironment',
-            ateenv_dot_v1_dot_env__pb2.SuspendEnvironmentRequest.SerializeToString,
-            ateenv_dot_v1_dot_env__pb2.SuspendEnvironmentResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.EnvironmentService/SuspendEnvironment',
+            ateenv_dot_v1alpha_dot_env__pb2.SuspendEnvironmentRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_env__pb2.SuspendEnvironmentResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -192,8 +192,8 @@ class EnvironmentService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.EnvironmentService/DeleteEnvironment',
-            ateenv_dot_v1_dot_env__pb2.DeleteEnvironmentRequest.SerializeToString,
-            ateenv_dot_v1_dot_env__pb2.DeleteEnvironmentResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.EnvironmentService/DeleteEnvironment',
+            ateenv_dot_v1alpha_dot_env__pb2.DeleteEnvironmentRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_env__pb2.DeleteEnvironmentResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

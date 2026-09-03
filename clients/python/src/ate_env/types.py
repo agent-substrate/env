@@ -1,4 +1,4 @@
-"""Public dataclasses and enums mirroring the ateenv.v1 proto types.
+"""Public dataclasses and enums mirroring the ateenv.v1alpha proto types.
 
 Generated protobuf classes stay out of the public API; the raw stubs remain
 reachable under ate_env._gen for callers that need them.
@@ -10,7 +10,7 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from ._gen.ateenv.v1 import env_pb2, guest_pb2
+from ._gen.ateenv.v1alpha import env_pb2, guest_pb2
 
 __all__ = [
     "EnvironmentStatus",
@@ -25,7 +25,7 @@ __all__ = [
 
 
 class EnvironmentStatus(enum.IntEnum):
-    """Lifecycle status of an environment (ateenv.v1.EnvironmentStatus)."""
+    """Lifecycle status of an environment (ateenv.v1alpha.EnvironmentStatus)."""
 
     UNSPECIFIED = 0
     RESUMING = 1
@@ -39,7 +39,7 @@ class EnvironmentStatus(enum.IntEnum):
 
 
 class ProcessStatus(enum.IntEnum):
-    """Execution status of an asynchronous process (ateenv.v1.ProcessStatus)."""
+    """Execution status of an asynchronous process (ateenv.v1alpha.ProcessStatus)."""
 
     UNSPECIFIED = 0
     RUNNING = 1
@@ -49,7 +49,7 @@ class ProcessStatus(enum.IntEnum):
 
 
 class OutputSource(enum.IntEnum):
-    """Output log stream source (ateenv.v1.OutputSource)."""
+    """Output log stream source (ateenv.v1alpha.OutputSource)."""
 
     UNSPECIFIED = 0
     STDOUT = 1

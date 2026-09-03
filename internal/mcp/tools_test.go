@@ -12,13 +12,13 @@ import (
 	"github.com/agent-substrate/env/guest"
 	internalmcp "github.com/agent-substrate/env/internal/mcp"
 	"github.com/agent-substrate/env/internal/tool"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func setupTestServer(t *testing.T) (ateenvv1.FileSystemServiceClient, ateenvv1.ProcessServiceClient, func()) {
+func setupTestServer(t *testing.T) (ateenvv1alpha.FileSystemServiceClient, ateenvv1alpha.ProcessServiceClient, func()) {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -54,8 +54,8 @@ func setupTestServer(t *testing.T) (ateenvv1.FileSystemServiceClient, ateenvv1.P
 		t.Fatalf("failed to dial server: %v", err)
 	}
 
-	fsClient := ateenvv1.NewFileSystemServiceClient(conn)
-	procClient := ateenvv1.NewProcessServiceClient(conn)
+	fsClient := ateenvv1alpha.NewFileSystemServiceClient(conn)
+	procClient := ateenvv1alpha.NewProcessServiceClient(conn)
 
 	teardown := func() {
 		conn.Close()

@@ -146,7 +146,7 @@ stdout without touching the cluster; apply it with kubectl.
 
 ## API
 
-Environment lifecycle is defined in [`proto/ateenv/v1/env.proto`](proto/ateenv/v1/env.proto):
+Environment lifecycle is defined in [`proto/ateenv/v1alpha/env.proto`](proto/ateenv/v1alpha/env.proto):
 
 | Operation | Description |
 | --- | ----------- |

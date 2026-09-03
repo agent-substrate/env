@@ -11,14 +11,14 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/env/internal/tool"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const defaultChunkSize = 64 * 1024
 
 // NewFileSystemTools returns MCP tools for FileSystemService RPCs.
-func NewFileSystemTools(client ateenvv1.FileSystemServiceClient) []tool.Tool {
+func NewFileSystemTools(client ateenvv1alpha.FileSystemServiceClient) []tool.Tool {
 	return []tool.Tool{
 		readFileTool(client),
 		writeFileTool(client),
@@ -26,14 +26,14 @@ func NewFileSystemTools(client ateenvv1.FileSystemServiceClient) []tool.Tool {
 }
 
 // NewProcessTools returns MCP tools for ProcessService RPCs.
-func NewProcessTools(client ateenvv1.ProcessServiceClient) []tool.Tool {
+func NewProcessTools(client ateenvv1alpha.ProcessServiceClient) []tool.Tool {
 	return []tool.Tool{
 		shellTool(client),
 	}
 }
 
 // NewTools returns all MCP tools backed by FileSystemService and ProcessService clients.
-func NewTools(fsClient ateenvv1.FileSystemServiceClient, procClient ateenvv1.ProcessServiceClient) []tool.Tool {
+func NewTools(fsClient ateenvv1alpha.FileSystemServiceClient, procClient ateenvv1alpha.ProcessServiceClient) []tool.Tool {
 	var tools []tool.Tool
 	if fsClient != nil {
 		tools = append(tools, NewFileSystemTools(fsClient)...)
@@ -50,7 +50,7 @@ type readFileParams struct {
 	Path string `json:"path"`
 }
 
-func readFileTool(client ateenvv1.FileSystemServiceClient) tool.Tool {
+func readFileTool(client ateenvv1alpha.FileSystemServiceClient) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "read_file",
 		Description: "Read a file from the environment filesystem via FileSystemService gRPC API.",
@@ -66,7 +66,7 @@ func readFileTool(client ateenvv1.FileSystemServiceClient) tool.Tool {
 		if strings.TrimSpace(p.Path) == "" {
 			return "", errors.New("path must not be empty")
 		}
-		stream, err := client.ReadFile(ctx, &ateenvv1.ReadFileRequest{Path: p.Path})
+		stream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{Path: p.Path})
 		if err != nil {
 			return "", fmt.Errorf("read_file failed: %w", err)
 		}
@@ -94,7 +94,7 @@ type writeFileParams struct {
 	Mode    uint32 `json:"mode,omitempty"`
 }
 
-func writeFileTool(client ateenvv1.FileSystemServiceClient) tool.Tool {
+func writeFileTool(client ateenvv1alpha.FileSystemServiceClient) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "write_file",
 		Description: "Write content to a file in the environment filesystem via FileSystemService gRPC API.",
@@ -119,7 +119,7 @@ func writeFileTool(client ateenvv1.FileSystemServiceClient) tool.Tool {
 
 		data := []byte(p.Content)
 		if len(data) == 0 {
-			if err := stream.Send(&ateenvv1.WriteFileRequest{
+			if err := stream.Send(&ateenvv1alpha.WriteFileRequest{
 				Path: p.Path,
 				Mode: p.Mode,
 			}); err != nil {
@@ -131,7 +131,7 @@ func writeFileTool(client ateenvv1.FileSystemServiceClient) tool.Tool {
 				if end > len(data) {
 					end = len(data)
 				}
-				req := &ateenvv1.WriteFileRequest{
+				req := &ateenvv1alpha.WriteFileRequest{
 					Chunk: data[i:end],
 				}
 				if i == 0 {
@@ -160,7 +160,7 @@ type shellParams struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-func shellTool(client ateenvv1.ProcessServiceClient) tool.Tool {
+func shellTool(client ateenvv1alpha.ProcessServiceClient) tool.Tool {
 	def := &mcp.Tool{
 		Name:        "shell",
 		Description: "Run a shell command line inside the environment using ProcessService gRPC API and return output and exit code.",
@@ -190,8 +190,8 @@ func shellTool(client ateenvv1.ProcessServiceClient) tool.Tool {
 	})
 }
 
-func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceClient, command []string, cwd string, env map[string]string) (string, error) {
-	startResp, err := client.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+func runProcessToCompletion(ctx context.Context, client ateenvv1alpha.ProcessServiceClient, command []string, cwd string, env map[string]string) (string, error) {
+	startResp, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: command,
 		Cwd:     cwd,
 		Env:     env,
@@ -201,7 +201,7 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceC
 	}
 	procID := startResp.GetProcessId()
 
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId: procID,
 		Follow:    true,
 	})
@@ -219,14 +219,14 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1.ProcessServiceC
 			return "", fmt.Errorf("reading process output chunk: %w", err)
 		}
 		switch chunk.GetSource() {
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
+		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT:
 			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
+		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR:
 			stderrBuf.Write(chunk.GetData())
 		}
 	}
 
-	proc, err := client.GetProcess(ctx, &ateenvv1.GetProcessRequest{ProcessId: procID})
+	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: procID})
 	if err != nil {
 		return "", fmt.Errorf("get process status failed: %w", err)
 	}

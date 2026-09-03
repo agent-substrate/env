@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import grpc
 
-from ._gen.ateenv.v1 import guest_pb2
+from ._gen.ateenv.v1alpha import guest_pb2
 from .errors import map_rpc_error
 from .types import (
     EnvironmentInfo,

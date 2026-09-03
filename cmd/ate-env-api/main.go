@@ -14,7 +14,7 @@ import (
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/mcp"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 )
 
@@ -45,9 +45,9 @@ func main() {
 	defer apisvc.Close()
 
 	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, apisvc)
-	ateenvv1.RegisterProcessServiceServer(grpcServer, apisvc)
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, apisvc)
+	ateenvv1alpha.RegisterEnvironmentServiceServer(grpcServer, apisvc)
+	ateenvv1alpha.RegisterProcessServiceServer(grpcServer, apisvc)
+	ateenvv1alpha.RegisterFileSystemServiceServer(grpcServer, apisvc)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

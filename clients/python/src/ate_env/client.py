@@ -5,7 +5,7 @@ from __future__ import annotations
 import grpc
 import grpc.aio
 
-from ._gen.ateenv.v1 import env_pb2, env_pb2_grpc, guest_pb2_grpc
+from ._gen.ateenv.v1alpha import env_pb2, env_pb2_grpc, guest_pb2_grpc
 from .env import Env
 from .errors import map_rpc_error
 from .types import EnvironmentInfo, _environment_info_from_pb

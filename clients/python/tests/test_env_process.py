@@ -11,7 +11,7 @@ from ate_env import (
     ProcessStatus,
     ShellResult,
 )
-from ate_env._gen.ateenv.v1 import guest_pb2
+from ate_env._gen.ateenv.v1alpha import guest_pb2
 
 from .fakes import FakeProc
 

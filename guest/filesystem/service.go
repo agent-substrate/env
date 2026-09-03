@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -40,10 +40,10 @@ func DefaultConfig() Config {
 	}
 }
 
-// Service implements ateenvv1.FileSystemServiceServer.
+// Service implements ateenvv1alpha.FileSystemServiceServer.
 // It provides in-actor chunked file transfer and manipulation for cmd/ate-env-guest.
 type Service struct {
-	ateenvv1.UnimplementedFileSystemServiceServer
+	ateenvv1alpha.UnimplementedFileSystemServiceServer
 	rootDir        string
 	readBufferSize int
 }
@@ -99,7 +99,7 @@ func (s *Service) resolveAndValidatePath(reqPath string) (string, error) {
 }
 
 // ReadFile streams the contents of a file in chunks to prevent memory bloat/OOM.
-func (s *Service) ReadFile(req *ateenvv1.ReadFileRequest, stream ateenvv1.FileSystemService_ReadFileServer) error {
+func (s *Service) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream ateenvv1alpha.FileSystemService_ReadFileServer) error {
 	filePath, err := s.resolveAndValidatePath(req.GetPath())
 	if err != nil {
 		return err
@@ -121,7 +121,7 @@ func (s *Service) ReadFile(req *ateenvv1.ReadFileRequest, stream ateenvv1.FileSy
 	for {
 		n, readErr := f.Read(buf)
 		if n > 0 {
-			if err := stream.Send(&ateenvv1.FileChunk{
+			if err := stream.Send(&ateenvv1alpha.FileChunk{
 				Data: buf[:n],
 			}); err != nil {
 				return err
@@ -139,7 +139,7 @@ func (s *Service) ReadFile(req *ateenvv1.ReadFileRequest, stream ateenvv1.FileSy
 }
 
 // WriteFile streams file chunks directly to disk with constant O(1) memory.
-func (s *Service) WriteFile(stream ateenvv1.FileSystemService_WriteFileServer) error {
+func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServer) error {
 	var f *os.File
 	var totalBytes int64
 	var filePath string
@@ -163,7 +163,7 @@ func (s *Service) WriteFile(stream ateenvv1.FileSystemService_WriteFileServer) e
 				return status.Errorf(codes.Internal, "failed to close file %q: %v", reqPath, err)
 			}
 			f = nil
-			return stream.SendAndClose(&ateenvv1.WriteFileResponse{
+			return stream.SendAndClose(&ateenvv1alpha.WriteFileResponse{
 				BytesWritten: totalBytes,
 			})
 		}
