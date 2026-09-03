@@ -1,7 +1,7 @@
 GOOGLE_CLOUD_PROJECT ?= $(shell gcloud config get-value project 2>/dev/null)
 ATE_ENV_IMAGE_REPO ?= gcr.io/$(GOOGLE_CLOUD_PROJECT)
 
-.PHONY: build install test vet clean images
+.PHONY: build install test vet clean images python-protos python-test
 
 build:
 	go build ./...
@@ -15,6 +15,16 @@ test:
 
 vet:
 	go vet ./...
+
+# Regenerate the committed Python gRPC stubs (requires grpcio-tools; see
+# clients/python/README.md).
+python-protos:
+	./clients/python/scripts/gen-protos.sh
+
+# Run the Python client tests (requires an environment with the dev extra
+# installed: pip install -e 'clients/python[dev]').
+python-test:
+	cd clients/python && python3 -m pytest
 
 images:
 	@echo "Building and pushing container images to $(ATE_ENV_IMAGE_REPO)..."

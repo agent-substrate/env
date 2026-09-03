@@ -35,6 +35,8 @@ type manifestConfig struct {
 	apiPort         int32
 	guestCommand    []string
 	poolLabels      map[string]string
+	atespace        string
+	templateOnly    bool
 }
 
 func newManifestCommand() *cobra.Command {
@@ -45,9 +47,11 @@ func newManifestCommand() *cobra.Command {
 		Short: "Generate Kubernetes manifests to deploy the system",
 		Long: `Manifest generates Kubernetes manifests for everything environments need on
 a cluster that already runs the Agent Substrate system: the target
-namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
-environments are created from, and the ate-env-api service. It prints YAML to
-stdout without touching the cluster; apply it with kubectl.`,
+namespace, a WorkerPool of pre-warmed workers, and the ate-env-api service.
+It prints YAML to stdout without touching the cluster; apply it with kubectl.
+
+To generate the Substrate ActorTemplate manifest (for kubectl-ate), use
+the --template-only flag.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfg.resolveImages(); err != nil {
@@ -61,11 +65,15 @@ stdout without touching the cluster; apply it with kubectl.`,
 			}
 			cfg.poolLabels = map[string]string{"workload": cfg.template}
 
+			if cfg.templateOnly {
+				return writeActorTemplate(cmd.OutOrStdout(), buildActorTemplate(cfg))
+			}
 			return writeManifests(cmd.OutOrStdout(), buildManifests(cfg))
 		},
 	}
 
 	cmd.Flags().StringVar(&cfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
+	cmd.Flags().StringVar(&cfg.atespace, "atespace", "default", "Substrate atespace for the ActorTemplate")
 	cmd.Flags().StringVar(&cfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringVar(&cfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
@@ -77,6 +85,7 @@ stdout without touching the cluster; apply it with kubectl.`,
 	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
 	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
 	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
+	cmd.Flags().BoolVar(&cfg.templateOnly, "template-only", false, "generate only the Substrate ActorTemplate manifest (for kubectl-ate create actor-template -f -)")
 	cmd.MarkFlagRequired("snapshots-bucket")
 
 	return cmd
@@ -85,6 +94,12 @@ stdout without touching the cluster; apply it with kubectl.`,
 // resolveImages verifies that all deployment images are set, either baked
 // in at release time or passed as flags.
 func (c *manifestConfig) resolveImages() error {
+	if c.templateOnly {
+		if c.guestImage == "" {
+			return errors.New("--guest-image is required; use the digest-pinned ate-env-guest image")
+		}
+		return nil
+	}
 	if c.guestImage != "" && c.workerImage != "" && c.apiImage != "" {
 		return nil
 	}
@@ -99,10 +114,32 @@ func buildManifests(cfg manifestConfig) []any {
 	return []any{
 		buildNamespace(cfg),
 		buildWorkerPool(cfg),
-		buildActorTemplate(cfg),
 		buildAPIDeployment(cfg),
 		buildAPIService(cfg),
 	}
+}
+
+// writeActorTemplate writes a single Substrate ActorTemplate as protojson-shaped YAML.
+func writeActorTemplate(w io.Writer, tmpl *ateapipb.ActorTemplate) error {
+	opts := protojson.MarshalOptions{
+		UseProtoNames: false,
+	}
+	jsonBytes, err := opts.Marshal(tmpl)
+	if err != nil {
+		return fmt.Errorf("encoding actor template json: %w", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(jsonBytes, &m); err != nil {
+		return fmt.Errorf("decoding actor template json: %w", err)
+	}
+	delete(m, "status")
+	prune(m)
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("encoding actor template yaml: %w", err)
+	}
+	_, err = w.Write(data)
+	return err
 }
 
 // writeManifests writes the objects as a multi-document YAML stream.
@@ -195,10 +232,14 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 }
 
 func buildActorTemplate(cfg manifestConfig) *ateapipb.ActorTemplate {
+	atespace := cfg.atespace
+	if atespace == "" {
+		atespace = "default"
+	}
 	return &ateapipb.ActorTemplate{
 		Metadata: &ateapipb.ResourceMetadata{
 			Name:     cfg.template,
-			Atespace: cfg.namespace,
+			Atespace: atespace,
 		},
 		WorkerSelector: &ateapipb.Selector{
 			MatchLabels: cfg.poolLabels,

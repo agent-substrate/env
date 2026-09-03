@@ -42,13 +42,25 @@ func TestResolveImages(t *testing.T) {
 	if err := cfg.resolveImages(); err == nil {
 		t.Error("resolveImages with a missing guest image: want error, got nil")
 	}
+
+	cfg = testManifestConfig()
+	cfg.templateOnly = true
+	cfg.apiImage = ""
+	cfg.workerImage = ""
+	if err := cfg.resolveImages(); err != nil {
+		t.Errorf("resolveImages templateOnly with guest image: %v", err)
+	}
+	cfg.guestImage = ""
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("resolveImages templateOnly without guest image: want error, got nil")
+	}
 }
 
 func TestBuildManifests(t *testing.T) {
 	cfg := testManifestConfig()
 	objs := buildManifests(cfg)
-	if len(objs) != 5 {
-		t.Fatalf("got %d manifests, want 5", len(objs))
+	if len(objs) != 4 {
+		t.Fatalf("got %d manifests, want 4", len(objs))
 	}
 
 	ns := objs[0].(*corev1.Namespace)
@@ -67,7 +79,34 @@ func TestBuildManifests(t *testing.T) {
 		t.Errorf("workerpool labels = %v, want workload=default-env", pool.Labels)
 	}
 
-	template := objs[2].(*ateapipb.ActorTemplate)
+	deployment := objs[2].(*appsv1.Deployment)
+	containers := deployment.Spec.Template.Spec.Containers
+	if len(containers) != 1 || containers[0].Image != cfg.apiImage {
+		t.Errorf("api containers = %+v, want one container with image %q", containers, cfg.apiImage)
+	}
+	if *deployment.Spec.Replicas != 1 {
+		t.Errorf("api replicas = %d, want 1", *deployment.Spec.Replicas)
+	}
+
+	service := objs[3].(*corev1.Service)
+	if service.Spec.Selector["app"] != apiName {
+		t.Errorf("api service selector = %v, want app=%s", service.Spec.Selector, apiName)
+	}
+	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != 7777 || service.Spec.Ports[0].TargetPort.IntValue() != 7777 {
+		t.Errorf("api service ports = %+v, want 7777 -> 7777", service.Spec.Ports)
+	}
+}
+
+func TestBuildActorTemplate(t *testing.T) {
+	cfg := testManifestConfig()
+	var template *ateapipb.ActorTemplate = buildActorTemplate(cfg)
+
+	if template.GetMetadata().GetName() != "default-env" {
+		t.Errorf("template name = %q, want default-env", template.GetMetadata().GetName())
+	}
+	if template.GetMetadata().GetAtespace() != "default" {
+		t.Errorf("template atespace = %q, want default", template.GetMetadata().GetAtespace())
+	}
 	if len(template.Containers) != 1 || template.Containers[0].Image != cfg.guestImage {
 		t.Errorf("template containers = %+v, want one guest container with image %q",
 			template.Containers, cfg.guestImage)
@@ -82,23 +121,6 @@ func TestBuildManifests(t *testing.T) {
 	if readyz == nil || readyz.GetHttpGet() == nil || readyz.GetHttpGet().Path != "/readyz" {
 		t.Errorf("readyz = %+v, want HTTP GET /readyz", readyz)
 	}
-
-	deployment := objs[3].(*appsv1.Deployment)
-	containers := deployment.Spec.Template.Spec.Containers
-	if len(containers) != 1 || containers[0].Image != cfg.apiImage {
-		t.Errorf("api containers = %+v, want one container with image %q", containers, cfg.apiImage)
-	}
-	if *deployment.Spec.Replicas != 1 {
-		t.Errorf("api replicas = %d, want 1", *deployment.Spec.Replicas)
-	}
-
-	service := objs[4].(*corev1.Service)
-	if service.Spec.Selector["app"] != apiName {
-		t.Errorf("api service selector = %v, want app=%s", service.Spec.Selector, apiName)
-	}
-	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != 7777 || service.Spec.Ports[0].TargetPort.IntValue() != 7777 {
-		t.Errorf("api service ports = %+v, want 7777 -> 7777", service.Spec.Ports)
-	}
 }
 
 func TestBuildManifestsCustomAPIPort(t *testing.T) {
@@ -106,7 +128,7 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 	cfg.apiPort = 9999
 	objs := buildManifests(cfg)
 
-	deployment := objs[3].(*appsv1.Deployment)
+	deployment := objs[2].(*appsv1.Deployment)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	if got := container.Args[1]; got != "0.0.0.0:9999" {
 		t.Errorf("api -listen arg = %q, want 0.0.0.0:9999", got)
@@ -118,7 +140,7 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 		t.Errorf("api probe port = %d, want 9999", got)
 	}
 
-	service := objs[4].(*corev1.Service)
+	service := objs[3].(*corev1.Service)
 	if service.Spec.Ports[0].Port != 9999 || service.Spec.Ports[0].TargetPort.IntValue() != 9999 {
 		t.Errorf("api service ports = %+v, want 9999 -> 9999", service.Spec.Ports)
 	}
@@ -131,15 +153,36 @@ func TestWriteManifests(t *testing.T) {
 	}
 	out := buf.String()
 
-	if got := strings.Count(out, "\n---\n"); got != 4 {
-		t.Errorf("got %d document separators, want 4:\n%s", got, out)
+	if got := strings.Count(out, "\n---\n"); got != 3 {
+		t.Errorf("got %d document separators, want 3:\n%s", got, out)
 	}
 	for _, want := range []string{
 		"kind: Namespace",
 		"kind: WorkerPool",
-		"name: default-env",
 		"kind: Deployment",
 		"kind: Service",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "status") {
+		t.Errorf("output should not contain status fields:\n%s", out)
+	}
+	if strings.Contains(out, "{}") {
+		t.Errorf("output should not contain empty map literals ({}):\n%s", out)
+	}
+}
+
+func TestWriteActorTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeActorTemplate(&buf, buildActorTemplate(testManifestConfig())); err != nil {
+		t.Fatalf("writeActorTemplate: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{
+		"name: default-env",
 		"image: example.com/guest@sha256:aaaa",
 		"storageLocation: gs://bucket/ate-env/",
 	} {

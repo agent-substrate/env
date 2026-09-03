@@ -27,7 +27,8 @@ while this project adds the environment-shaped API on top.
 - **`cmd/ate-env`** — CLI for managing environments, executing remote commands, and performing file I/O.
 - **`cmd/ate-env-api`** — The API service that manages environments and proxies remote guest requests.
 - **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
-- **`env`** — The Go client library to manage environments, run commands, and perform file operations.
+- **`clients/go/env`** — The Go client library to manage environments, run commands, and perform file operations.
+- **`clients/python`** — The async Python client library ([README](clients/python/README.md)).
 
 ## Installation
 
@@ -40,19 +41,30 @@ go install github.com/agent-substrate/env/cmd/ate-env@latest
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket.
 
-First, deploy the system — namespace, worker pool, environment template, and
-API:
+### 1. Deploy the Kubernetes Resources
+
+Deploy the namespace, worker pool, and API service:
 
 ```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ate-env manifest \
-  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:2b3d455a9b52f2ff1f63184ef9e9ca2a22ae61fd9f49ab858d8f16a94e42fdcc \
-  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:6bcdf8c354cdb1daa0755c9c97ae6370e51984244f3c626948c846c7b22950e3 \
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:4f5678b9304a9047551fc95458e7b948c77d6fce5337de1897888daa7e0e4900 \
+  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:8579e1eebdd652cd2bfc7a130d4ebc2ce0d7a1a9d2efcb9d04b9eedf597a027d \
   --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:7a5f89e9c8ca875eee611b05fdf003b63b260b631362c83c1099073d003e0372 \
   --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl apply -f -
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env
+```
+
+### 2. Register the ActorTemplate in Substrate
+
+Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest --template-only` to generate the Substrate ActorTemplate manifest:
+
+```bash
+ate-env manifest --template-only \
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:4f5678b9304a9047551fc95458e7b948c77d6fce5337de1897888daa7e0e4900 \
+  --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
 ```
 
 Then create and use an environment:

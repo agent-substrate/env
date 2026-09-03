@@ -23,8 +23,6 @@ type Env struct {
 // ID returns the environment's identifier.
 func (e *Env) ID() string { return e.id }
 
-// Atespace returns the environment's atespace.
-func (e *Env) Atespace() string { return e.atespace }
 
 func (e *Env) withEnv(ctx context.Context) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "x-env-id", e.id, "x-env-atespace", e.atespace)

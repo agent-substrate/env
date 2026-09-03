@@ -1,8 +1,11 @@
 version: v2
 plugins:
-  - local: /usr/local/google/home/shrutinair/go/bin/protoc-gen-go
+  # Resolved from PATH; install with:
+  #   go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+  #   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+  - local: protoc-gen-go
     out: .
     opt: paths=source_relative
-  - local: /usr/local/google/home/shrutinair/go/bin/protoc-gen-go-grpc
+  - local: protoc-gen-go-grpc
     out: .
     opt: paths=source_relative

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/env/env"
+	"github.com/agent-substrate/env/clients/go/env"
 	"github.com/agent-substrate/env/guest"
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
@@ -112,8 +112,8 @@ func (f *fixture) create(t *testing.T, id string) *env.Env {
 	sb, err := f.client.Create(t.Context(), &ateenvv1.CreateEnvironmentRequest{
 		Id: id,
 		Template: &ateenvv1.Template{
-			Name:      "default-env",
-			Namespace: "envs",
+			Name:     "default-env",
+			Atespace: "envs",
 		},
 	})
 	if err != nil {

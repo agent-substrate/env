@@ -24,8 +24,8 @@ import (
 // does not specify one.
 const DefaultTemplate = "default-env"
 
-// DefaultNamespace is the Kubernetes namespace the ActorTemplate is
-// looked up in when a create request does not specify one.
+// DefaultNamespace is the default Kubernetes namespace used when deploying
+// ate-env manifests.
 const DefaultNamespace = "ate-env"
 
 // DefaultAtespace is the Substrate atespace used when a request does not
@@ -75,20 +75,18 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1.CreateEnvi
 	if templateName == "" {
 		templateName = DefaultTemplate
 	}
-	templateNamespace := tmpl.GetNamespace()
-	if templateNamespace == "" {
-		templateNamespace = DefaultNamespace
-	}
 	atespace := req.GetAtespace()
+	if atespace == "" {
+		atespace = tmpl.GetAtespace()
+	}
 	if atespace == "" {
 		atespace = DefaultAtespace
 	}
 
 	opts := ate.CreateOptions{
-		ID:        req.GetId(),
-		Template:  templateName,
-		Namespace: templateNamespace,
-		Atespace:  atespace,
+		ID:       req.GetId(),
+		Template: templateName,
+		Atespace: atespace,
 	}
 	if err := s.client.Create(ctx, opts); err != nil {
 		return nil, toGRPCError(err)
@@ -99,8 +97,8 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1.CreateEnvi
 			Id:       req.GetId(),
 			Atespace: atespace,
 			Template: &ateenvv1.Template{
-				Name:      templateName,
-				Namespace: templateNamespace,
+				Name:     templateName,
+				Atespace: atespace,
 			},
 			Status: ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED,
 		},
@@ -376,25 +374,28 @@ func ActorToEnvironment(actor *ateapipb.Actor) *ateenvv1.Environment {
 		return nil
 	}
 	templateName := ""
-	templateNamespace := ""
+	templateAtespace := ""
 	if tmpl := actor.GetActorTemplate(); tmpl != nil {
 		templateName = tmpl.GetName()
-		templateNamespace = tmpl.GetAtespace()
+		templateAtespace = tmpl.GetAtespace()
 	}
 	return &ateenvv1.Environment{
 		Id:       actor.GetMetadata().GetName(),
 		Atespace: actor.GetMetadata().GetAtespace(),
 		Template: &ateenvv1.Template{
-			Name:      templateName,
-			Namespace: templateNamespace,
+			Name:     templateName,
+			Atespace: templateAtespace,
 		},
-		Status: ActorStatusToEnvStatus(actor.GetStatus().GetState()),
+		Status: ActorStatusToEnvStatus(actor.GetStatus()),
 	}
 }
 
-// ActorStatusToEnvStatus maps an ateapipb ActorState to an ateenvv1 EnvironmentStatus.
-func ActorStatusToEnvStatus(st ateapipb.ActorState) ateenvv1.EnvironmentStatus {
-	switch st {
+// ActorStatusToEnvStatus maps an ateapipb ActorStatus to an ateenvv1 EnvironmentStatus.
+func ActorStatusToEnvStatus(st *ateapipb.ActorStatus) ateenvv1.EnvironmentStatus {
+	if st == nil {
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED
+	}
+	switch st.GetState() {
 	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_RESUMING
 	case ateapipb.ActorState_ACTOR_STATE_RUNNING:
@@ -409,6 +410,8 @@ func ActorStatusToEnvStatus(st ateapipb.ActorState) ateenvv1.EnvironmentStatus {
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED
 	case ateapipb.ActorState_ACTOR_STATE_CRASHED:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED
+	case ateapipb.ActorState_ACTOR_STATE_DELETING:
+		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_DELETING
 	default:
 		return ateenvv1.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED
 	}

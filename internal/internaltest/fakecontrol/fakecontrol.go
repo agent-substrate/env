@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
 	"net"
 	"sync"
@@ -42,18 +43,6 @@ func New() *Server {
 	}
 }
 
-// SetStatus forces the status of the actor with the given name, so tests can
-// stage states the fake's own lifecycle transitions do not produce.
-func (s *Server) SetStatus(name string, st ateapipb.ActorState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if a := s.find(name); a != nil {
-		if a.Status == nil {
-			a.Status = &ateapipb.ActorStatus{}
-		}
-		a.Status.State = st
-	}
-}
 
 // Serve starts the fake on a random localhost port and returns its
 // address and a shutdown function. Like the real ateapi, it serves TLS
@@ -97,7 +86,7 @@ func selfSignedCert() (tls.Certificate, error) {
 
 func key(atespace, name string) string { return atespace + "/" + name }
 
-// Status returns the current status of the actor with the given name, or
+// Status returns the current state of the actor with the given name, or
 // ACTOR_STATE_UNSPECIFIED if it does not exist.
 func (s *Server) Status(name string) ateapipb.ActorState {
 	s.mu.Lock()
@@ -152,9 +141,7 @@ func (s *Server) CreateActor(ctx context.Context, req *ateapipb.CreateActorReque
 		return nil, status.Errorf(codes.AlreadyExists, "actor %q already exists", name)
 	}
 	a := clone(actor)
-	a.Status = &ateapipb.ActorStatus{
-		State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
-	}
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}
 	s.actors[k] = a
 	return clone(a), nil
 }
@@ -168,6 +155,11 @@ func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorReque
 	}
 	a.Status = &ateapipb.ActorStatus{
 		State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
+		WorkerAssignment: &ateapipb.WorkerAssignment{
+			WorkerNamespace: "ate-system",
+			WorkerPod:       "worker-0",
+			WorkerPodIp:     "10.0.0.1",
+		},
 	}
 	return &ateapipb.ResumeActorResponse{Actor: clone(a)}, nil
 }
@@ -183,19 +175,15 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 	return &ateapipb.SuspendActorResponse{Actor: clone(a)}, nil
 }
 
-// Suspend suspends the actor with the given name.
-func (s *Server) Suspend(name string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if a := s.find(name); a != nil {
-		s.suspend(a)
-	}
-}
 
 // suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
 	a.Status = &ateapipb.ActorStatus{
 		State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+		LatestSnapshot: &ateapipb.ObjectRef{
+			Atespace: a.GetMetadata().GetAtespace(),
+			Name:     fmt.Sprintf("snapshot-%s", a.GetMetadata().GetName()),
+		},
 	}
 }
 
@@ -206,10 +194,7 @@ func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest
 	if err != nil {
 		return nil, err
 	}
-	if a.Status == nil {
-		a.Status = &ateapipb.ActorStatus{}
-	}
-	a.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}
 	return &ateapipb.PauseActorResponse{Actor: clone(a)}, nil
 }
 

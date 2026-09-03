@@ -45,6 +45,8 @@ const (
 	EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED EnvironmentStatus = 6
 	// Environment process crashed.
 	EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED EnvironmentStatus = 7
+	// Environment is being deleted.
+	EnvironmentStatus_ENVIRONMENT_STATUS_DELETING EnvironmentStatus = 8
 )
 
 // Enum value maps for EnvironmentStatus.
@@ -58,6 +60,7 @@ var (
 		5: "ENVIRONMENT_STATUS_PAUSING",
 		6: "ENVIRONMENT_STATUS_PAUSED",
 		7: "ENVIRONMENT_STATUS_CRASHED",
+		8: "ENVIRONMENT_STATUS_DELETING",
 	}
 	EnvironmentStatus_value = map[string]int32{
 		"ENVIRONMENT_STATUS_UNSPECIFIED": 0,
@@ -68,6 +71,7 @@ var (
 		"ENVIRONMENT_STATUS_PAUSING":     5,
 		"ENVIRONMENT_STATUS_PAUSED":      6,
 		"ENVIRONMENT_STATUS_CRASHED":     7,
+		"ENVIRONMENT_STATUS_DELETING":    8,
 	}
 )
 
@@ -103,8 +107,8 @@ type Template struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name of the ActorTemplate (e.g. "default-env").
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Kubernetes namespace where the ActorTemplate is located.
-	Namespace     string `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// Substrate atespace where the ActorTemplate is located.
+	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -146,9 +150,9 @@ func (x *Template) GetName() string {
 	return ""
 }
 
-func (x *Template) GetNamespace() string {
+func (x *Template) GetAtespace() string {
 	if x != nil {
-		return x.Namespace
+		return x.Atespace
 	}
 	return ""
 }
@@ -233,7 +237,7 @@ type CreateEnvironmentRequest struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Substrate atespace for the environment (defaults to "default").
 	Atespace string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
-	// ActorTemplate configuration to instantiate (defaults to name "default-env" in namespace "ate-env").
+	// ActorTemplate configuration to instantiate (defaults to name "default-env" in atespace "default").
 	Template      *Template `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -625,10 +629,10 @@ var File_proto_ateenv_v1_env_proto protoreflect.FileDescriptor
 
 const file_proto_ateenv_v1_env_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/ateenv/v1/env.proto\x12\tateenv.v1\"<\n" +
+	"\x19proto/ateenv/v1/env.proto\x12\tateenv.v1\":\n" +
 	"\bTemplate\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\"\xa0\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
+	"\batespace\x18\x02 \x01(\tR\batespace\"\xa0\x01\n" +
 	"\vEnvironment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\batespace\x18\x02 \x01(\tR\batespace\x12/\n" +
@@ -652,7 +656,7 @@ const file_proto_ateenv_v1_env_proto_rawDesc = "" +
 	"\x18DeleteEnvironmentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\batespace\x18\x02 \x01(\tR\batespace\"\x1b\n" +
-	"\x19DeleteEnvironmentResponse*\x9c\x02\n" +
+	"\x19DeleteEnvironmentResponse*\xbd\x02\n" +
 	"\x11EnvironmentStatus\x12\"\n" +
 	"\x1eENVIRONMENT_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bENVIRONMENT_STATUS_RESUMING\x10\x01\x12\x1e\n" +
@@ -661,7 +665,8 @@ const file_proto_ateenv_v1_env_proto_rawDesc = "" +
 	"\x1cENVIRONMENT_STATUS_SUSPENDED\x10\x04\x12\x1e\n" +
 	"\x1aENVIRONMENT_STATUS_PAUSING\x10\x05\x12\x1d\n" +
 	"\x19ENVIRONMENT_STATUS_PAUSED\x10\x06\x12\x1e\n" +
-	"\x1aENVIRONMENT_STATUS_CRASHED\x10\a2\x8e\x03\n" +
+	"\x1aENVIRONMENT_STATUS_CRASHED\x10\a\x12\x1f\n" +
+	"\x1bENVIRONMENT_STATUS_DELETING\x10\b2\x8e\x03\n" +
 	"\x12EnvironmentService\x12^\n" +
 	"\x11CreateEnvironment\x12#.ateenv.v1.CreateEnvironmentRequest\x1a$.ateenv.v1.CreateEnvironmentResponse\x12U\n" +
 	"\x0eGetEnvironment\x12 .ateenv.v1.GetEnvironmentRequest\x1a!.ateenv.v1.GetEnvironmentResponse\x12a\n" +

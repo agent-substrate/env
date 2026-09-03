@@ -204,15 +204,13 @@ func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 
 // CreateOptions configures the creation of a new actor.
 type CreateOptions struct {
-	ID        string
-	Template  string
-	Namespace string
-	Atespace  string
+	ID       string
+	Template string
+	Atespace string
 }
 
 // Create registers a new actor from opts and starts it. ID and Template are
-// required; Namespace is the Kubernetes namespace the ActorTemplate is looked
-// up in. Atespace is the Substrate atespace the actor lives in.
+// required. Atespace is the Substrate atespace the actor and template live in.
 func (c *Client) Create(ctx context.Context, opts CreateOptions) error {
 	if opts.ID == "" {
 		return errors.New("ate: CreateOptions.ID is required")
