@@ -16,7 +16,7 @@ import (
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	"github.com/agent-substrate/env/internal/mcp"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 )
@@ -63,9 +63,9 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(service.Close)
 
 	grpcServer := grpc.NewServer()
-	ateenvv1.RegisterEnvironmentServiceServer(grpcServer, service)
-	ateenvv1.RegisterProcessServiceServer(grpcServer, service)
-	ateenvv1.RegisterFileSystemServiceServer(grpcServer, service)
+	ateenvv1alpha.RegisterEnvironmentServiceServer(grpcServer, service)
+	ateenvv1alpha.RegisterProcessServiceServer(grpcServer, service)
+	ateenvv1alpha.RegisterFileSystemServiceServer(grpcServer, service)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
@@ -109,9 +109,9 @@ func (f *fixture) create(t *testing.T, id string) *env.Env {
 
 	f.router.Register(id, grpcGuestServer)
 
-	sb, err := f.client.Create(t.Context(), &ateenvv1.CreateEnvironmentRequest{
+	sb, err := f.client.Create(t.Context(), &ateenvv1alpha.CreateEnvironmentRequest{
 		Id: id,
-		Template: &ateenvv1.Template{
+		Template: &ateenvv1alpha.Template{
 			Name:     "default-env",
 			Atespace: "envs",
 		},

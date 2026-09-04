@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ate_env import EnvironmentStatus, OutputSource, ProcessStatus
-from ate_env._gen.ateenv.v1 import env_pb2, guest_pb2
+from ate_env._gen.ateenv.v1alpha import env_pb2, guest_pb2
 from ate_env.types import _environment_info_from_pb, _process_info_from_pb
 
 

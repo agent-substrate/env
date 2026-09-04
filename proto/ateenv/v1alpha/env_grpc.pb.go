@@ -7,9 +7,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v5.28.2
-// source: proto/ateenv/v1/env.proto
+// source: proto/ateenv/v1alpha/env.proto
 
-package ateenvv1
+package ateenvv1alpha
 
 import (
 	context "context"
@@ -24,10 +24,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EnvironmentService_CreateEnvironment_FullMethodName  = "/ateenv.v1.EnvironmentService/CreateEnvironment"
-	EnvironmentService_GetEnvironment_FullMethodName     = "/ateenv.v1.EnvironmentService/GetEnvironment"
-	EnvironmentService_SuspendEnvironment_FullMethodName = "/ateenv.v1.EnvironmentService/SuspendEnvironment"
-	EnvironmentService_DeleteEnvironment_FullMethodName  = "/ateenv.v1.EnvironmentService/DeleteEnvironment"
+	EnvironmentService_CreateEnvironment_FullMethodName  = "/ateenv.v1alpha.EnvironmentService/CreateEnvironment"
+	EnvironmentService_GetEnvironment_FullMethodName     = "/ateenv.v1alpha.EnvironmentService/GetEnvironment"
+	EnvironmentService_SuspendEnvironment_FullMethodName = "/ateenv.v1alpha.EnvironmentService/SuspendEnvironment"
+	EnvironmentService_DeleteEnvironment_FullMethodName  = "/ateenv.v1alpha.EnvironmentService/DeleteEnvironment"
 )
 
 // EnvironmentServiceClient is the client API for EnvironmentService service.
@@ -227,7 +227,7 @@ func _EnvironmentService_DeleteEnvironment_Handler(srv interface{}, ctx context.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var EnvironmentService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "ateenv.v1.EnvironmentService",
+	ServiceName: "ateenv.v1alpha.EnvironmentService",
 	HandlerType: (*EnvironmentServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -248,5 +248,5 @@ var EnvironmentService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/ateenv/v1/env.proto",
+	Metadata: "proto/ateenv/v1alpha/env.proto",
 }

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func setupTestFileSystemServer(t *testing.T, configs ...Config) (ateenvv1.FileSystemServiceClient, func()) {
+func setupTestFileSystemServer(t *testing.T, configs ...Config) (ateenvv1alpha.FileSystemServiceClient, func()) {
 	t.Helper()
 
 	cfg := Config{
@@ -32,7 +32,7 @@ func setupTestFileSystemServer(t *testing.T, configs ...Config) (ateenvv1.FileSy
 	lis := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
 	svc := NewService(cfg)
-	ateenvv1.RegisterFileSystemServiceServer(server, svc)
+	ateenvv1alpha.RegisterFileSystemServiceServer(server, svc)
 
 	go func() {
 		_ = server.Serve(lis)
@@ -48,7 +48,7 @@ func setupTestFileSystemServer(t *testing.T, configs ...Config) (ateenvv1.FileSy
 		t.Fatalf("failed to dial bufnet: %v", err)
 	}
 
-	client := ateenvv1.NewFileSystemServiceClient(conn)
+	client := ateenvv1alpha.NewFileSystemServiceClient(conn)
 
 	cleanup := func() {
 		conn.Close()
@@ -74,7 +74,7 @@ func TestWriteAndReadFileSmall(t *testing.T) {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	err = writeStream.Send(&ateenvv1.WriteFileRequest{
+	err = writeStream.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  targetPath,
 		Chunk: testData,
 		Mode:  0644,
@@ -93,7 +93,7 @@ func TestWriteAndReadFileSmall(t *testing.T) {
 	}
 
 	// 2. Read file via server stream
-	readStream, err := client.ReadFile(ctx, &ateenvv1.ReadFileRequest{
+	readStream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{
 		Path: targetPath,
 	})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestWriteAndReadFileMultiChunk(t *testing.T) {
 			end = len(largeData)
 		}
 
-		req := &ateenvv1.WriteFileRequest{
+		req := &ateenvv1alpha.WriteFileRequest{
 			Chunk: largeData[i:end],
 		}
 		if first {
@@ -176,7 +176,7 @@ func TestWriteAndReadFileMultiChunk(t *testing.T) {
 	}
 
 	// Stream read back and compare
-	readStream, err := client.ReadFile(ctx, &ateenvv1.ReadFileRequest{
+	readStream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{
 		Path: targetPath,
 	})
 	if err != nil {
@@ -218,7 +218,7 @@ func TestSandboxConfinementAndTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteFile init failed: %v", err)
 	}
-	_ = writeStream.Send(&ateenvv1.WriteFileRequest{
+	_ = writeStream.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  outsidePath,
 		Chunk: []byte("malicious write"),
 	})
@@ -233,7 +233,7 @@ func TestSandboxConfinementAndTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteFile init failed: %v", err)
 	}
-	_ = writeStream2.Send(&ateenvv1.WriteFileRequest{
+	_ = writeStream2.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  traversalPath,
 		Chunk: []byte("traversal write"),
 	})
@@ -243,7 +243,7 @@ func TestSandboxConfinementAndTraversal(t *testing.T) {
 	}
 
 	// 3. Attempt read outside sandbox
-	readStream, err := client.ReadFile(ctx, &ateenvv1.ReadFileRequest{
+	readStream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{
 		Path: "/etc/passwd",
 	})
 	if err != nil {
@@ -259,7 +259,7 @@ func TestSandboxConfinementAndTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteFile init failed: %v", err)
 	}
-	_ = writeStream3.Send(&ateenvv1.WriteFileRequest{
+	_ = writeStream3.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  "relative_file.txt",
 		Chunk: []byte("valid sandboxed write"),
 	})
@@ -283,7 +283,7 @@ func TestReadFileNotFound(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	stream, err := client.ReadFile(ctx, &ateenvv1.ReadFileRequest{
+	stream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{
 		Path: "/non/existent/path/for/sure.txt",
 	})
 	if err != nil {
@@ -301,7 +301,7 @@ func TestReadFileEmptyPath(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	stream, err := client.ReadFile(ctx, &ateenvv1.ReadFileRequest{
+	stream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{
 		Path: "",
 	})
 	if err != nil {
@@ -325,7 +325,7 @@ func TestWriteFileMissingPath(t *testing.T) {
 	}
 
 	// Send chunk with missing path on first message
-	_ = writeStream.Send(&ateenvv1.WriteFileRequest{
+	_ = writeStream.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  "",
 		Chunk: []byte("orphan chunk"),
 	})

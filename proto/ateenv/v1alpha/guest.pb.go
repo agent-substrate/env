@@ -7,9 +7,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v5.28.2
-// source: proto/ateenv/v1/guest.proto
+// source: proto/ateenv/v1alpha/guest.proto
 
-package ateenvv1
+package ateenvv1alpha
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -71,11 +71,11 @@ func (x ProcessStatus) String() string {
 }
 
 func (ProcessStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_ateenv_v1_guest_proto_enumTypes[0].Descriptor()
+	return file_proto_ateenv_v1alpha_guest_proto_enumTypes[0].Descriptor()
 }
 
 func (ProcessStatus) Type() protoreflect.EnumType {
-	return &file_proto_ateenv_v1_guest_proto_enumTypes[0]
+	return &file_proto_ateenv_v1alpha_guest_proto_enumTypes[0]
 }
 
 func (x ProcessStatus) Number() protoreflect.EnumNumber {
@@ -84,7 +84,7 @@ func (x ProcessStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ProcessStatus.Descriptor instead.
 func (ProcessStatus) EnumDescriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{0}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{0}
 }
 
 // Output stream source.
@@ -121,11 +121,11 @@ func (x OutputSource) String() string {
 }
 
 func (OutputSource) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_ateenv_v1_guest_proto_enumTypes[1].Descriptor()
+	return file_proto_ateenv_v1alpha_guest_proto_enumTypes[1].Descriptor()
 }
 
 func (OutputSource) Type() protoreflect.EnumType {
-	return &file_proto_ateenv_v1_guest_proto_enumTypes[1]
+	return &file_proto_ateenv_v1alpha_guest_proto_enumTypes[1]
 }
 
 func (x OutputSource) Number() protoreflect.EnumNumber {
@@ -134,7 +134,7 @@ func (x OutputSource) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OutputSource.Descriptor instead.
 func (OutputSource) EnumDescriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{1}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{1}
 }
 
 // The Process resource representing execution state and metadata.
@@ -143,7 +143,7 @@ type Process struct {
 	// Unique process identifier.
 	ProcessId string `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
 	// Current execution lifecycle state.
-	Status ProcessStatus `protobuf:"varint,2,opt,name=status,proto3,enum=ateenv.v1.ProcessStatus" json:"status,omitempty"`
+	Status ProcessStatus `protobuf:"varint,2,opt,name=status,proto3,enum=ateenv.v1alpha.ProcessStatus" json:"status,omitempty"`
 	// Process exit status code (0 for success, 1-127 for program exit code,
 	// 128 + signal number if terminated by signal, e.g. 137 for SIGKILL, 143 for SIGTERM).
 	// Valid once status is COMPLETED, FAILED, or TERMINATED.
@@ -158,7 +158,7 @@ type Process struct {
 
 func (x *Process) Reset() {
 	*x = Process{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[0]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -170,7 +170,7 @@ func (x *Process) String() string {
 func (*Process) ProtoMessage() {}
 
 func (x *Process) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[0]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -183,7 +183,7 @@ func (x *Process) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Process.ProtoReflect.Descriptor instead.
 func (*Process) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{0}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Process) GetProcessId() string {
@@ -236,7 +236,7 @@ type StartProcessRequest struct {
 
 func (x *StartProcessRequest) Reset() {
 	*x = StartProcessRequest{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[1]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -248,7 +248,7 @@ func (x *StartProcessRequest) String() string {
 func (*StartProcessRequest) ProtoMessage() {}
 
 func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[1]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -261,7 +261,7 @@ func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProcessRequest.ProtoReflect.Descriptor instead.
 func (*StartProcessRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{1}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *StartProcessRequest) GetCommand() []string {
@@ -296,7 +296,7 @@ type StartProcessResponse struct {
 
 func (x *StartProcessResponse) Reset() {
 	*x = StartProcessResponse{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[2]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -308,7 +308,7 @@ func (x *StartProcessResponse) String() string {
 func (*StartProcessResponse) ProtoMessage() {}
 
 func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[2]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -321,7 +321,7 @@ func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProcessResponse.ProtoReflect.Descriptor instead.
 func (*StartProcessResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{2}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StartProcessResponse) GetProcessId() string {
@@ -342,7 +342,7 @@ type GetProcessRequest struct {
 
 func (x *GetProcessRequest) Reset() {
 	*x = GetProcessRequest{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[3]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -354,7 +354,7 @@ func (x *GetProcessRequest) String() string {
 func (*GetProcessRequest) ProtoMessage() {}
 
 func (x *GetProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[3]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -367,7 +367,7 @@ func (x *GetProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProcessRequest.ProtoReflect.Descriptor instead.
 func (*GetProcessRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{3}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetProcessRequest) GetProcessId() string {
@@ -394,7 +394,7 @@ type StreamProcessOutputsRequest struct {
 
 func (x *StreamProcessOutputsRequest) Reset() {
 	*x = StreamProcessOutputsRequest{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[4]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +406,7 @@ func (x *StreamProcessOutputsRequest) String() string {
 func (*StreamProcessOutputsRequest) ProtoMessage() {}
 
 func (x *StreamProcessOutputsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[4]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +419,7 @@ func (x *StreamProcessOutputsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamProcessOutputsRequest.ProtoReflect.Descriptor instead.
 func (*StreamProcessOutputsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{4}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StreamProcessOutputsRequest) GetProcessId() string {
@@ -454,7 +454,7 @@ func (x *StreamProcessOutputsRequest) GetFollow() bool {
 type OutputChunk struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Stream source (stdout or stderr).
-	Source OutputSource `protobuf:"varint,1,opt,name=source,proto3,enum=ateenv.v1.OutputSource" json:"source,omitempty"`
+	Source OutputSource `protobuf:"varint,1,opt,name=source,proto3,enum=ateenv.v1alpha.OutputSource" json:"source,omitempty"`
 	// Output content bytes.
 	Data          []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -463,7 +463,7 @@ type OutputChunk struct {
 
 func (x *OutputChunk) Reset() {
 	*x = OutputChunk{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[5]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -475,7 +475,7 @@ func (x *OutputChunk) String() string {
 func (*OutputChunk) ProtoMessage() {}
 
 func (x *OutputChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[5]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -488,7 +488,7 @@ func (x *OutputChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputChunk.ProtoReflect.Descriptor instead.
 func (*OutputChunk) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{5}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *OutputChunk) GetSource() OutputSource {
@@ -516,7 +516,7 @@ type KillProcessRequest struct {
 
 func (x *KillProcessRequest) Reset() {
 	*x = KillProcessRequest{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[6]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -528,7 +528,7 @@ func (x *KillProcessRequest) String() string {
 func (*KillProcessRequest) ProtoMessage() {}
 
 func (x *KillProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[6]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -541,7 +541,7 @@ func (x *KillProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillProcessRequest.ProtoReflect.Descriptor instead.
 func (*KillProcessRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{6}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *KillProcessRequest) GetProcessId() string {
@@ -562,7 +562,7 @@ type KillProcessResponse struct {
 
 func (x *KillProcessResponse) Reset() {
 	*x = KillProcessResponse{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[7]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -574,7 +574,7 @@ func (x *KillProcessResponse) String() string {
 func (*KillProcessResponse) ProtoMessage() {}
 
 func (x *KillProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[7]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -587,7 +587,7 @@ func (x *KillProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KillProcessResponse.ProtoReflect.Descriptor instead.
 func (*KillProcessResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{7}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *KillProcessResponse) GetExitCode() int32 {
@@ -608,7 +608,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[8]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -620,7 +620,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[8]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -633,7 +633,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{8}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ReadFileRequest) GetPath() string {
@@ -654,7 +654,7 @@ type FileChunk struct {
 
 func (x *FileChunk) Reset() {
 	*x = FileChunk{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[9]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +666,7 @@ func (x *FileChunk) String() string {
 func (*FileChunk) ProtoMessage() {}
 
 func (x *FileChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[9]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +679,7 @@ func (x *FileChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileChunk.ProtoReflect.Descriptor instead.
 func (*FileChunk) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{9}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FileChunk) GetData() []byte {
@@ -704,7 +704,7 @@ type WriteFileRequest struct {
 
 func (x *WriteFileRequest) Reset() {
 	*x = WriteFileRequest{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[10]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -716,7 +716,7 @@ func (x *WriteFileRequest) String() string {
 func (*WriteFileRequest) ProtoMessage() {}
 
 func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[10]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -729,7 +729,7 @@ func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileRequest.ProtoReflect.Descriptor instead.
 func (*WriteFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{10}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WriteFileRequest) GetPath() string {
@@ -764,7 +764,7 @@ type WriteFileResponse struct {
 
 func (x *WriteFileResponse) Reset() {
 	*x = WriteFileResponse{}
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[11]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -776,7 +776,7 @@ func (x *WriteFileResponse) String() string {
 func (*WriteFileResponse) ProtoMessage() {}
 
 func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_guest_proto_msgTypes[11]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -789,7 +789,7 @@ func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileResponse.ProtoReflect.Descriptor instead.
 func (*WriteFileResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_guest_proto_rawDescGZIP(), []int{11}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WriteFileResponse) GetBytesWritten() int64 {
@@ -799,24 +799,24 @@ func (x *WriteFileResponse) GetBytesWritten() int64 {
 	return 0
 }
 
-var File_proto_ateenv_v1_guest_proto protoreflect.FileDescriptor
+var File_proto_ateenv_v1alpha_guest_proto protoreflect.FileDescriptor
 
-const file_proto_ateenv_v1_guest_proto_rawDesc = "" +
+const file_proto_ateenv_v1alpha_guest_proto_rawDesc = "" +
 	"\n" +
-	"\x1bproto/ateenv/v1/guest.proto\x12\tateenv.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xef\x01\n" +
+	" proto/ateenv/v1alpha/guest.proto\x12\x0eateenv.v1alpha\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf4\x01\n" +
 	"\aProcess\x12\x1d\n" +
 	"\n" +
-	"process_id\x18\x01 \x01(\tR\tprocessId\x120\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x18.ateenv.v1.ProcessStatusR\x06status\x12\x1b\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId\x125\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1d.ateenv.v1alpha.ProcessStatusR\x06status\x12\x1b\n" +
 	"\texit_code\x18\x03 \x01(\x05R\bexitCode\x129\n" +
 	"\n" +
 	"started_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12;\n" +
 	"\vfinished_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"\xb4\x01\n" +
+	"finishedAt\"\xb9\x01\n" +
 	"\x13StartProcessRequest\x12\x18\n" +
 	"\acommand\x18\x01 \x03(\tR\acommand\x12\x10\n" +
-	"\x03cwd\x18\x02 \x01(\tR\x03cwd\x129\n" +
-	"\x03env\x18\x03 \x03(\v2'.ateenv.v1.StartProcessRequest.EnvEntryR\x03env\x1a6\n" +
+	"\x03cwd\x18\x02 \x01(\tR\x03cwd\x12>\n" +
+	"\x03env\x18\x03 \x03(\v2,.ateenv.v1alpha.StartProcessRequest.EnvEntryR\x03env\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"5\n" +
@@ -831,9 +831,9 @@ const file_proto_ateenv_v1_guest_proto_rawDesc = "" +
 	"process_id\x18\x01 \x01(\tR\tprocessId\x12#\n" +
 	"\rstdout_offset\x18\x02 \x01(\x03R\fstdoutOffset\x12#\n" +
 	"\rstderr_offset\x18\x03 \x01(\x03R\fstderrOffset\x12\x16\n" +
-	"\x06follow\x18\x04 \x01(\bR\x06follow\"R\n" +
-	"\vOutputChunk\x12/\n" +
-	"\x06source\x18\x01 \x01(\x0e2\x17.ateenv.v1.OutputSourceR\x06source\x12\x12\n" +
+	"\x06follow\x18\x04 \x01(\bR\x06follow\"W\n" +
+	"\vOutputChunk\x124\n" +
+	"\x06source\x18\x01 \x01(\x0e2\x1c.ateenv.v1alpha.OutputSourceR\x06source\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"3\n" +
 	"\x12KillProcessRequest\x12\x1d\n" +
 	"\n" +
@@ -859,67 +859,67 @@ const file_proto_ateenv_v1_guest_proto_rawDesc = "" +
 	"\fOutputSource\x12\x1d\n" +
 	"\x19OUTPUT_SOURCE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14OUTPUT_SOURCE_STDOUT\x10\x01\x12\x18\n" +
-	"\x14OUTPUT_SOURCE_STDERR\x10\x022\xc9\x02\n" +
-	"\x0eProcessService\x12O\n" +
-	"\fStartProcess\x12\x1e.ateenv.v1.StartProcessRequest\x1a\x1f.ateenv.v1.StartProcessResponse\x12>\n" +
+	"\x14OUTPUT_SOURCE_STDERR\x10\x022\xf1\x02\n" +
+	"\x0eProcessService\x12Y\n" +
+	"\fStartProcess\x12#.ateenv.v1alpha.StartProcessRequest\x1a$.ateenv.v1alpha.StartProcessResponse\x12H\n" +
 	"\n" +
-	"GetProcess\x12\x1c.ateenv.v1.GetProcessRequest\x1a\x12.ateenv.v1.Process\x12X\n" +
-	"\x14StreamProcessOutputs\x12&.ateenv.v1.StreamProcessOutputsRequest\x1a\x16.ateenv.v1.OutputChunk0\x01\x12L\n" +
-	"\vKillProcess\x12\x1d.ateenv.v1.KillProcessRequest\x1a\x1e.ateenv.v1.KillProcessResponse2\x9d\x01\n" +
-	"\x11FileSystemService\x12>\n" +
-	"\bReadFile\x12\x1a.ateenv.v1.ReadFileRequest\x1a\x14.ateenv.v1.FileChunk0\x01\x12H\n" +
-	"\tWriteFile\x12\x1b.ateenv.v1.WriteFileRequest\x1a\x1c.ateenv.v1.WriteFileResponse(\x01B9Z7github.com/agent-substrate/env/proto/ateenv/v1;ateenvv1b\x06proto3"
+	"GetProcess\x12!.ateenv.v1alpha.GetProcessRequest\x1a\x17.ateenv.v1alpha.Process\x12b\n" +
+	"\x14StreamProcessOutputs\x12+.ateenv.v1alpha.StreamProcessOutputsRequest\x1a\x1b.ateenv.v1alpha.OutputChunk0\x01\x12V\n" +
+	"\vKillProcess\x12\".ateenv.v1alpha.KillProcessRequest\x1a#.ateenv.v1alpha.KillProcessResponse2\xb1\x01\n" +
+	"\x11FileSystemService\x12H\n" +
+	"\bReadFile\x12\x1f.ateenv.v1alpha.ReadFileRequest\x1a\x19.ateenv.v1alpha.FileChunk0\x01\x12R\n" +
+	"\tWriteFile\x12 .ateenv.v1alpha.WriteFileRequest\x1a!.ateenv.v1alpha.WriteFileResponse(\x01BCZAgithub.com/agent-substrate/env/proto/ateenv/v1alpha;ateenvv1alphab\x06proto3"
 
 var (
-	file_proto_ateenv_v1_guest_proto_rawDescOnce sync.Once
-	file_proto_ateenv_v1_guest_proto_rawDescData []byte
+	file_proto_ateenv_v1alpha_guest_proto_rawDescOnce sync.Once
+	file_proto_ateenv_v1alpha_guest_proto_rawDescData []byte
 )
 
-func file_proto_ateenv_v1_guest_proto_rawDescGZIP() []byte {
-	file_proto_ateenv_v1_guest_proto_rawDescOnce.Do(func() {
-		file_proto_ateenv_v1_guest_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1_guest_proto_rawDesc), len(file_proto_ateenv_v1_guest_proto_rawDesc)))
+func file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP() []byte {
+	file_proto_ateenv_v1alpha_guest_proto_rawDescOnce.Do(func() {
+		file_proto_ateenv_v1alpha_guest_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1alpha_guest_proto_rawDesc), len(file_proto_ateenv_v1alpha_guest_proto_rawDesc)))
 	})
-	return file_proto_ateenv_v1_guest_proto_rawDescData
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescData
 }
 
-var file_proto_ateenv_v1_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_ateenv_v1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-var file_proto_ateenv_v1_guest_proto_goTypes = []any{
-	(ProcessStatus)(0),                  // 0: ateenv.v1.ProcessStatus
-	(OutputSource)(0),                   // 1: ateenv.v1.OutputSource
-	(*Process)(nil),                     // 2: ateenv.v1.Process
-	(*StartProcessRequest)(nil),         // 3: ateenv.v1.StartProcessRequest
-	(*StartProcessResponse)(nil),        // 4: ateenv.v1.StartProcessResponse
-	(*GetProcessRequest)(nil),           // 5: ateenv.v1.GetProcessRequest
-	(*StreamProcessOutputsRequest)(nil), // 6: ateenv.v1.StreamProcessOutputsRequest
-	(*OutputChunk)(nil),                 // 7: ateenv.v1.OutputChunk
-	(*KillProcessRequest)(nil),          // 8: ateenv.v1.KillProcessRequest
-	(*KillProcessResponse)(nil),         // 9: ateenv.v1.KillProcessResponse
-	(*ReadFileRequest)(nil),             // 10: ateenv.v1.ReadFileRequest
-	(*FileChunk)(nil),                   // 11: ateenv.v1.FileChunk
-	(*WriteFileRequest)(nil),            // 12: ateenv.v1.WriteFileRequest
-	(*WriteFileResponse)(nil),           // 13: ateenv.v1.WriteFileResponse
-	nil,                                 // 14: ateenv.v1.StartProcessRequest.EnvEntry
+var file_proto_ateenv_v1alpha_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_proto_ateenv_v1alpha_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_ateenv_v1alpha_guest_proto_goTypes = []any{
+	(ProcessStatus)(0),                  // 0: ateenv.v1alpha.ProcessStatus
+	(OutputSource)(0),                   // 1: ateenv.v1alpha.OutputSource
+	(*Process)(nil),                     // 2: ateenv.v1alpha.Process
+	(*StartProcessRequest)(nil),         // 3: ateenv.v1alpha.StartProcessRequest
+	(*StartProcessResponse)(nil),        // 4: ateenv.v1alpha.StartProcessResponse
+	(*GetProcessRequest)(nil),           // 5: ateenv.v1alpha.GetProcessRequest
+	(*StreamProcessOutputsRequest)(nil), // 6: ateenv.v1alpha.StreamProcessOutputsRequest
+	(*OutputChunk)(nil),                 // 7: ateenv.v1alpha.OutputChunk
+	(*KillProcessRequest)(nil),          // 8: ateenv.v1alpha.KillProcessRequest
+	(*KillProcessResponse)(nil),         // 9: ateenv.v1alpha.KillProcessResponse
+	(*ReadFileRequest)(nil),             // 10: ateenv.v1alpha.ReadFileRequest
+	(*FileChunk)(nil),                   // 11: ateenv.v1alpha.FileChunk
+	(*WriteFileRequest)(nil),            // 12: ateenv.v1alpha.WriteFileRequest
+	(*WriteFileResponse)(nil),           // 13: ateenv.v1alpha.WriteFileResponse
+	nil,                                 // 14: ateenv.v1alpha.StartProcessRequest.EnvEntry
 	(*timestamppb.Timestamp)(nil),       // 15: google.protobuf.Timestamp
 }
-var file_proto_ateenv_v1_guest_proto_depIdxs = []int32{
-	0,  // 0: ateenv.v1.Process.status:type_name -> ateenv.v1.ProcessStatus
-	15, // 1: ateenv.v1.Process.started_at:type_name -> google.protobuf.Timestamp
-	15, // 2: ateenv.v1.Process.finished_at:type_name -> google.protobuf.Timestamp
-	14, // 3: ateenv.v1.StartProcessRequest.env:type_name -> ateenv.v1.StartProcessRequest.EnvEntry
-	1,  // 4: ateenv.v1.OutputChunk.source:type_name -> ateenv.v1.OutputSource
-	3,  // 5: ateenv.v1.ProcessService.StartProcess:input_type -> ateenv.v1.StartProcessRequest
-	5,  // 6: ateenv.v1.ProcessService.GetProcess:input_type -> ateenv.v1.GetProcessRequest
-	6,  // 7: ateenv.v1.ProcessService.StreamProcessOutputs:input_type -> ateenv.v1.StreamProcessOutputsRequest
-	8,  // 8: ateenv.v1.ProcessService.KillProcess:input_type -> ateenv.v1.KillProcessRequest
-	10, // 9: ateenv.v1.FileSystemService.ReadFile:input_type -> ateenv.v1.ReadFileRequest
-	12, // 10: ateenv.v1.FileSystemService.WriteFile:input_type -> ateenv.v1.WriteFileRequest
-	4,  // 11: ateenv.v1.ProcessService.StartProcess:output_type -> ateenv.v1.StartProcessResponse
-	2,  // 12: ateenv.v1.ProcessService.GetProcess:output_type -> ateenv.v1.Process
-	7,  // 13: ateenv.v1.ProcessService.StreamProcessOutputs:output_type -> ateenv.v1.OutputChunk
-	9,  // 14: ateenv.v1.ProcessService.KillProcess:output_type -> ateenv.v1.KillProcessResponse
-	11, // 15: ateenv.v1.FileSystemService.ReadFile:output_type -> ateenv.v1.FileChunk
-	13, // 16: ateenv.v1.FileSystemService.WriteFile:output_type -> ateenv.v1.WriteFileResponse
+var file_proto_ateenv_v1alpha_guest_proto_depIdxs = []int32{
+	0,  // 0: ateenv.v1alpha.Process.status:type_name -> ateenv.v1alpha.ProcessStatus
+	15, // 1: ateenv.v1alpha.Process.started_at:type_name -> google.protobuf.Timestamp
+	15, // 2: ateenv.v1alpha.Process.finished_at:type_name -> google.protobuf.Timestamp
+	14, // 3: ateenv.v1alpha.StartProcessRequest.env:type_name -> ateenv.v1alpha.StartProcessRequest.EnvEntry
+	1,  // 4: ateenv.v1alpha.OutputChunk.source:type_name -> ateenv.v1alpha.OutputSource
+	3,  // 5: ateenv.v1alpha.ProcessService.StartProcess:input_type -> ateenv.v1alpha.StartProcessRequest
+	5,  // 6: ateenv.v1alpha.ProcessService.GetProcess:input_type -> ateenv.v1alpha.GetProcessRequest
+	6,  // 7: ateenv.v1alpha.ProcessService.StreamProcessOutputs:input_type -> ateenv.v1alpha.StreamProcessOutputsRequest
+	8,  // 8: ateenv.v1alpha.ProcessService.KillProcess:input_type -> ateenv.v1alpha.KillProcessRequest
+	10, // 9: ateenv.v1alpha.FileSystemService.ReadFile:input_type -> ateenv.v1alpha.ReadFileRequest
+	12, // 10: ateenv.v1alpha.FileSystemService.WriteFile:input_type -> ateenv.v1alpha.WriteFileRequest
+	4,  // 11: ateenv.v1alpha.ProcessService.StartProcess:output_type -> ateenv.v1alpha.StartProcessResponse
+	2,  // 12: ateenv.v1alpha.ProcessService.GetProcess:output_type -> ateenv.v1alpha.Process
+	7,  // 13: ateenv.v1alpha.ProcessService.StreamProcessOutputs:output_type -> ateenv.v1alpha.OutputChunk
+	9,  // 14: ateenv.v1alpha.ProcessService.KillProcess:output_type -> ateenv.v1alpha.KillProcessResponse
+	11, // 15: ateenv.v1alpha.FileSystemService.ReadFile:output_type -> ateenv.v1alpha.FileChunk
+	13, // 16: ateenv.v1alpha.FileSystemService.WriteFile:output_type -> ateenv.v1alpha.WriteFileResponse
 	11, // [11:17] is the sub-list for method output_type
 	5,  // [5:11] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
@@ -927,27 +927,27 @@ var file_proto_ateenv_v1_guest_proto_depIdxs = []int32{
 	0,  // [0:5] is the sub-list for field type_name
 }
 
-func init() { file_proto_ateenv_v1_guest_proto_init() }
-func file_proto_ateenv_v1_guest_proto_init() {
-	if File_proto_ateenv_v1_guest_proto != nil {
+func init() { file_proto_ateenv_v1alpha_guest_proto_init() }
+func file_proto_ateenv_v1alpha_guest_proto_init() {
+	if File_proto_ateenv_v1alpha_guest_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1_guest_proto_rawDesc), len(file_proto_ateenv_v1_guest_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1alpha_guest_proto_rawDesc), len(file_proto_ateenv_v1alpha_guest_proto_rawDesc)),
 			NumEnums:      2,
 			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
-		GoTypes:           file_proto_ateenv_v1_guest_proto_goTypes,
-		DependencyIndexes: file_proto_ateenv_v1_guest_proto_depIdxs,
-		EnumInfos:         file_proto_ateenv_v1_guest_proto_enumTypes,
-		MessageInfos:      file_proto_ateenv_v1_guest_proto_msgTypes,
+		GoTypes:           file_proto_ateenv_v1alpha_guest_proto_goTypes,
+		DependencyIndexes: file_proto_ateenv_v1alpha_guest_proto_depIdxs,
+		EnumInfos:         file_proto_ateenv_v1alpha_guest_proto_enumTypes,
+		MessageInfos:      file_proto_ateenv_v1alpha_guest_proto_msgTypes,
 	}.Build()
-	File_proto_ateenv_v1_guest_proto = out.File
-	file_proto_ateenv_v1_guest_proto_goTypes = nil
-	file_proto_ateenv_v1_guest_proto_depIdxs = nil
+	File_proto_ateenv_v1alpha_guest_proto = out.File
+	file_proto_ateenv_v1alpha_guest_proto_goTypes = nil
+	file_proto_ateenv_v1alpha_guest_proto_depIdxs = nil
 }

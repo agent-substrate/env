@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/env/clients/go"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/spf13/cobra"
 )
 
@@ -120,7 +120,7 @@ func newCreateCommand() *cobra.Command {
 			}
 			defer client.Close()
 
-			req := &ateenvv1.CreateEnvironmentRequest{
+			req := &ateenvv1alpha.CreateEnvironmentRequest{
 				Id:       args[0],
 				Atespace: atespace,
 			}
@@ -129,7 +129,7 @@ func newCreateCommand() *cobra.Command {
 				if tmplAtespace == "" {
 					tmplAtespace = atespace
 				}
-				req.Template = &ateenvv1.Template{
+				req.Template = &ateenvv1alpha.Template{
 					Name:     createTemplate,
 					Atespace: tmplAtespace,
 				}

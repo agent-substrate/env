@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -84,7 +84,7 @@ type ProcessState struct {
 	ProcessID  string
 	Command    []string
 	Cmd        *exec.Cmd
-	Status     ateenvv1.ProcessStatus
+	Status     ateenvv1alpha.ProcessStatus
 	ExitCode   int32
 	StartedAt  time.Time
 	FinishedAt time.Time
@@ -248,7 +248,7 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 		ProcessID:  processID,
 		Command:    command,
 		Cmd:        cmd,
-		Status:     ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING,
+		Status:     ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING,
 		StartedAt:  startedAt,
 		StdoutPath: stdoutPath,
 		StderrPath: stderrPath,
@@ -281,7 +281,7 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 		_ = stdoutFile.Close()
 		_ = stderrFile.Close()
 
-		if state.Status == ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED {
+		if state.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
 			// Already marked as terminated; preserve or refine exit code from wait status if signaled
 			var exitErr *exec.ExitError
 			if errors.As(waitErr, &exitErr) {
@@ -290,23 +290,23 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 				}
 			}
 		} else if waitErr == nil {
-			state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_COMPLETED
+			state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED
 			state.ExitCode = 0
 		} else {
 			var exitErr *exec.ExitError
 			if errors.As(waitErr, &exitErr) {
 				if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-					state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED
+					state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED
 					state.ExitCode = 128 + int32(ws.Signal())
 				} else if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Exited() {
-					state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
+					state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED
 					state.ExitCode = int32(ws.ExitStatus())
 				} else {
-					state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
+					state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED
 					state.ExitCode = int32(exitErr.ExitCode())
 				}
 			} else {
-				state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_FAILED
+				state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED
 				state.ExitCode = -1
 			}
 		}
@@ -346,13 +346,13 @@ func (t *Tracker) Kill(processID string) (int32, error) {
 	}
 
 	state.mu.Lock()
-	if state.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING {
+	if state.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING {
 		exitCode := state.ExitCode
 		state.mu.Unlock()
 		return exitCode, nil
 	}
 
-	state.Status = ateenvv1.ProcessStatus_PROCESS_STATUS_TERMINATED
+	state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED
 	state.ExitCode = 128 + int32(syscall.SIGKILL) // 137
 	if state.timer != nil {
 		state.timer.Stop()
@@ -399,7 +399,7 @@ func (t *Tracker) pruneExpired() {
 	now := time.Now()
 	for id, state := range t.processes {
 		state.mu.RLock()
-		isDone := state.Status != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING
+		isDone := state.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING
 		finishedAt := state.FinishedAt
 		state.mu.RUnlock()
 
@@ -414,11 +414,11 @@ func (t *Tracker) pruneExpired() {
 }
 
 // ToProto converts a ProcessState to the protobuf Process message.
-func (p *ProcessState) ToProto() *ateenvv1.Process {
+func (p *ProcessState) ToProto() *ateenvv1alpha.Process {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	proto := &ateenvv1.Process{
+	proto := &ateenvv1alpha.Process{
 		ProcessId: p.ProcessID,
 		Status:    p.Status,
 		ExitCode:  p.ExitCode,

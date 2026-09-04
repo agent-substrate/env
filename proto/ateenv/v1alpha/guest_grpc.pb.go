@@ -7,9 +7,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v5.28.2
-// source: proto/ateenv/v1/guest.proto
+// source: proto/ateenv/v1alpha/guest.proto
 
-package ateenvv1
+package ateenvv1alpha
 
 import (
 	context "context"
@@ -24,10 +24,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ProcessService_StartProcess_FullMethodName         = "/ateenv.v1.ProcessService/StartProcess"
-	ProcessService_GetProcess_FullMethodName           = "/ateenv.v1.ProcessService/GetProcess"
-	ProcessService_StreamProcessOutputs_FullMethodName = "/ateenv.v1.ProcessService/StreamProcessOutputs"
-	ProcessService_KillProcess_FullMethodName          = "/ateenv.v1.ProcessService/KillProcess"
+	ProcessService_StartProcess_FullMethodName         = "/ateenv.v1alpha.ProcessService/StartProcess"
+	ProcessService_GetProcess_FullMethodName           = "/ateenv.v1alpha.ProcessService/GetProcess"
+	ProcessService_StreamProcessOutputs_FullMethodName = "/ateenv.v1alpha.ProcessService/StreamProcessOutputs"
+	ProcessService_KillProcess_FullMethodName          = "/ateenv.v1alpha.ProcessService/KillProcess"
 )
 
 // ProcessServiceClient is the client API for ProcessService service.
@@ -233,7 +233,7 @@ func _ProcessService_KillProcess_Handler(srv interface{}, ctx context.Context, d
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ProcessService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "ateenv.v1.ProcessService",
+	ServiceName: "ateenv.v1alpha.ProcessService",
 	HandlerType: (*ProcessServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -256,12 +256,12 @@ var ProcessService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/ateenv/v1/guest.proto",
+	Metadata: "proto/ateenv/v1alpha/guest.proto",
 }
 
 const (
-	FileSystemService_ReadFile_FullMethodName  = "/ateenv.v1.FileSystemService/ReadFile"
-	FileSystemService_WriteFile_FullMethodName = "/ateenv.v1.FileSystemService/WriteFile"
+	FileSystemService_ReadFile_FullMethodName  = "/ateenv.v1alpha.FileSystemService/ReadFile"
+	FileSystemService_WriteFile_FullMethodName = "/ateenv.v1alpha.FileSystemService/WriteFile"
 )
 
 // FileSystemServiceClient is the client API for FileSystemService service.
@@ -387,7 +387,7 @@ type FileSystemService_WriteFileServer = grpc.ClientStreamingServer[WriteFileReq
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var FileSystemService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "ateenv.v1.FileSystemService",
+	ServiceName: "ateenv.v1alpha.FileSystemService",
 	HandlerType: (*FileSystemServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
@@ -402,5 +402,5 @@ var FileSystemService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "proto/ateenv/v1/guest.proto",
+	Metadata: "proto/ateenv/v1alpha/guest.proto",
 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/tool"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -39,7 +39,7 @@ func NewServer(reg *tool.Registry) *Server {
 
 // NewServerForClients creates an MCP server configured with tools backed by
 // the provided FileSystemService and ProcessService gRPC clients.
-func NewServerForClients(fsClient ateenvv1.FileSystemServiceClient, procClient ateenvv1.ProcessServiceClient) *Server {
+func NewServerForClients(fsClient ateenvv1alpha.FileSystemServiceClient, procClient ateenvv1alpha.ProcessServiceClient) *Server {
 	tools := NewTools(fsClient, procClient)
 	reg := tool.NewRegistry()
 	_ = reg.Register(tools...)
@@ -70,8 +70,8 @@ func NewHandler(client *ate.Client) http.Handler {
 		if err != nil {
 			return nil, err
 		}
-		fsClient := ateenvv1.NewFileSystemServiceClient(conn)
-		procClient := ateenvv1.NewProcessServiceClient(conn)
+		fsClient := ateenvv1alpha.NewFileSystemServiceClient(conn)
+		procClient := ateenvv1alpha.NewProcessServiceClient(conn)
 		srv := NewServerForClients(fsClient, procClient)
 		servers[key] = srv
 		return srv.mcpServer, nil

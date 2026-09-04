@@ -7,9 +7,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v5.28.2
-// source: proto/ateenv/v1/env.proto
+// source: proto/ateenv/v1alpha/env.proto
 
-package ateenvv1
+package ateenvv1alpha
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -86,11 +86,11 @@ func (x EnvironmentStatus) String() string {
 }
 
 func (EnvironmentStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_ateenv_v1_env_proto_enumTypes[0].Descriptor()
+	return file_proto_ateenv_v1alpha_env_proto_enumTypes[0].Descriptor()
 }
 
 func (EnvironmentStatus) Type() protoreflect.EnumType {
-	return &file_proto_ateenv_v1_env_proto_enumTypes[0]
+	return &file_proto_ateenv_v1alpha_env_proto_enumTypes[0]
 }
 
 func (x EnvironmentStatus) Number() protoreflect.EnumNumber {
@@ -99,7 +99,7 @@ func (x EnvironmentStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EnvironmentStatus.Descriptor instead.
 func (EnvironmentStatus) EnumDescriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{0}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{0}
 }
 
 // Template represents an ActorTemplate used to instantiate environments.
@@ -115,7 +115,7 @@ type Template struct {
 
 func (x *Template) Reset() {
 	*x = Template{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[0]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -127,7 +127,7 @@ func (x *Template) String() string {
 func (*Template) ProtoMessage() {}
 
 func (x *Template) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[0]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -140,7 +140,7 @@ func (x *Template) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Template.ProtoReflect.Descriptor instead.
 func (*Template) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{0}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Template) GetName() string {
@@ -167,14 +167,14 @@ type Environment struct {
 	// ActorTemplate configuration the environment is instantiated from.
 	Template *Template `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`
 	// Current lifecycle status of the environment.
-	Status        EnvironmentStatus `protobuf:"varint,4,opt,name=status,proto3,enum=ateenv.v1.EnvironmentStatus" json:"status,omitempty"`
+	Status        EnvironmentStatus `protobuf:"varint,4,opt,name=status,proto3,enum=ateenv.v1alpha.EnvironmentStatus" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Environment) Reset() {
 	*x = Environment{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[1]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -186,7 +186,7 @@ func (x *Environment) String() string {
 func (*Environment) ProtoMessage() {}
 
 func (x *Environment) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[1]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -199,7 +199,7 @@ func (x *Environment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Environment.ProtoReflect.Descriptor instead.
 func (*Environment) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{1}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Environment) GetId() string {
@@ -245,7 +245,7 @@ type CreateEnvironmentRequest struct {
 
 func (x *CreateEnvironmentRequest) Reset() {
 	*x = CreateEnvironmentRequest{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[2]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -257,7 +257,7 @@ func (x *CreateEnvironmentRequest) String() string {
 func (*CreateEnvironmentRequest) ProtoMessage() {}
 
 func (x *CreateEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[2]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -270,7 +270,7 @@ func (x *CreateEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*CreateEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{2}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateEnvironmentRequest) GetId() string {
@@ -305,7 +305,7 @@ type CreateEnvironmentResponse struct {
 
 func (x *CreateEnvironmentResponse) Reset() {
 	*x = CreateEnvironmentResponse{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[3]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -317,7 +317,7 @@ func (x *CreateEnvironmentResponse) String() string {
 func (*CreateEnvironmentResponse) ProtoMessage() {}
 
 func (x *CreateEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[3]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -330,7 +330,7 @@ func (x *CreateEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*CreateEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{3}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateEnvironmentResponse) GetEnvironment() *Environment {
@@ -353,7 +353,7 @@ type GetEnvironmentRequest struct {
 
 func (x *GetEnvironmentRequest) Reset() {
 	*x = GetEnvironmentRequest{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[4]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +365,7 @@ func (x *GetEnvironmentRequest) String() string {
 func (*GetEnvironmentRequest) ProtoMessage() {}
 
 func (x *GetEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[4]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -378,7 +378,7 @@ func (x *GetEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*GetEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{4}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetEnvironmentRequest) GetId() string {
@@ -406,7 +406,7 @@ type GetEnvironmentResponse struct {
 
 func (x *GetEnvironmentResponse) Reset() {
 	*x = GetEnvironmentResponse{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[5]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -418,7 +418,7 @@ func (x *GetEnvironmentResponse) String() string {
 func (*GetEnvironmentResponse) ProtoMessage() {}
 
 func (x *GetEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[5]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -431,7 +431,7 @@ func (x *GetEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*GetEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{5}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetEnvironmentResponse) GetEnvironment() *Environment {
@@ -454,7 +454,7 @@ type SuspendEnvironmentRequest struct {
 
 func (x *SuspendEnvironmentRequest) Reset() {
 	*x = SuspendEnvironmentRequest{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[6]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -466,7 +466,7 @@ func (x *SuspendEnvironmentRequest) String() string {
 func (*SuspendEnvironmentRequest) ProtoMessage() {}
 
 func (x *SuspendEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[6]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -479,7 +479,7 @@ func (x *SuspendEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuspendEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*SuspendEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{6}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SuspendEnvironmentRequest) GetId() string {
@@ -505,7 +505,7 @@ type SuspendEnvironmentResponse struct {
 
 func (x *SuspendEnvironmentResponse) Reset() {
 	*x = SuspendEnvironmentResponse{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[7]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -517,7 +517,7 @@ func (x *SuspendEnvironmentResponse) String() string {
 func (*SuspendEnvironmentResponse) ProtoMessage() {}
 
 func (x *SuspendEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[7]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -530,7 +530,7 @@ func (x *SuspendEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuspendEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*SuspendEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{7}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{7}
 }
 
 // Request to delete an environment.
@@ -546,7 +546,7 @@ type DeleteEnvironmentRequest struct {
 
 func (x *DeleteEnvironmentRequest) Reset() {
 	*x = DeleteEnvironmentRequest{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[8]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -558,7 +558,7 @@ func (x *DeleteEnvironmentRequest) String() string {
 func (*DeleteEnvironmentRequest) ProtoMessage() {}
 
 func (x *DeleteEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[8]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -571,7 +571,7 @@ func (x *DeleteEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*DeleteEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{8}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeleteEnvironmentRequest) GetId() string {
@@ -597,7 +597,7 @@ type DeleteEnvironmentResponse struct {
 
 func (x *DeleteEnvironmentResponse) Reset() {
 	*x = DeleteEnvironmentResponse{}
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[9]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -609,7 +609,7 @@ func (x *DeleteEnvironmentResponse) String() string {
 func (*DeleteEnvironmentResponse) ProtoMessage() {}
 
 func (x *DeleteEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1_env_proto_msgTypes[9]
+	mi := &file_proto_ateenv_v1alpha_env_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -622,33 +622,33 @@ func (x *DeleteEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*DeleteEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1_env_proto_rawDescGZIP(), []int{9}
+	return file_proto_ateenv_v1alpha_env_proto_rawDescGZIP(), []int{9}
 }
 
-var File_proto_ateenv_v1_env_proto protoreflect.FileDescriptor
+var File_proto_ateenv_v1alpha_env_proto protoreflect.FileDescriptor
 
-const file_proto_ateenv_v1_env_proto_rawDesc = "" +
+const file_proto_ateenv_v1alpha_env_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/ateenv/v1/env.proto\x12\tateenv.v1\":\n" +
+	"\x1eproto/ateenv/v1alpha/env.proto\x12\x0eateenv.v1alpha\":\n" +
 	"\bTemplate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\batespace\x18\x02 \x01(\tR\batespace\"\xa0\x01\n" +
+	"\batespace\x18\x02 \x01(\tR\batespace\"\xaa\x01\n" +
 	"\vEnvironment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\batespace\x18\x02 \x01(\tR\batespace\x12/\n" +
-	"\btemplate\x18\x03 \x01(\v2\x13.ateenv.v1.TemplateR\btemplate\x124\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1c.ateenv.v1.EnvironmentStatusR\x06status\"w\n" +
+	"\batespace\x18\x02 \x01(\tR\batespace\x124\n" +
+	"\btemplate\x18\x03 \x01(\v2\x18.ateenv.v1alpha.TemplateR\btemplate\x129\n" +
+	"\x06status\x18\x04 \x01(\x0e2!.ateenv.v1alpha.EnvironmentStatusR\x06status\"|\n" +
 	"\x18CreateEnvironmentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\batespace\x18\x02 \x01(\tR\batespace\x12/\n" +
-	"\btemplate\x18\x03 \x01(\v2\x13.ateenv.v1.TemplateR\btemplate\"U\n" +
-	"\x19CreateEnvironmentResponse\x128\n" +
-	"\venvironment\x18\x01 \x01(\v2\x16.ateenv.v1.EnvironmentR\venvironment\"C\n" +
+	"\batespace\x18\x02 \x01(\tR\batespace\x124\n" +
+	"\btemplate\x18\x03 \x01(\v2\x18.ateenv.v1alpha.TemplateR\btemplate\"Z\n" +
+	"\x19CreateEnvironmentResponse\x12=\n" +
+	"\venvironment\x18\x01 \x01(\v2\x1b.ateenv.v1alpha.EnvironmentR\venvironment\"C\n" +
 	"\x15GetEnvironmentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\batespace\x18\x02 \x01(\tR\batespace\"R\n" +
-	"\x16GetEnvironmentResponse\x128\n" +
-	"\venvironment\x18\x01 \x01(\v2\x16.ateenv.v1.EnvironmentR\venvironment\"G\n" +
+	"\batespace\x18\x02 \x01(\tR\batespace\"W\n" +
+	"\x16GetEnvironmentResponse\x12=\n" +
+	"\venvironment\x18\x01 \x01(\v2\x1b.ateenv.v1alpha.EnvironmentR\venvironment\"G\n" +
 	"\x19SuspendEnvironmentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\batespace\x18\x02 \x01(\tR\batespace\"\x1c\n" +
@@ -666,54 +666,54 @@ const file_proto_ateenv_v1_env_proto_rawDesc = "" +
 	"\x1aENVIRONMENT_STATUS_PAUSING\x10\x05\x12\x1d\n" +
 	"\x19ENVIRONMENT_STATUS_PAUSED\x10\x06\x12\x1e\n" +
 	"\x1aENVIRONMENT_STATUS_CRASHED\x10\a\x12\x1f\n" +
-	"\x1bENVIRONMENT_STATUS_DELETING\x10\b2\x8e\x03\n" +
-	"\x12EnvironmentService\x12^\n" +
-	"\x11CreateEnvironment\x12#.ateenv.v1.CreateEnvironmentRequest\x1a$.ateenv.v1.CreateEnvironmentResponse\x12U\n" +
-	"\x0eGetEnvironment\x12 .ateenv.v1.GetEnvironmentRequest\x1a!.ateenv.v1.GetEnvironmentResponse\x12a\n" +
-	"\x12SuspendEnvironment\x12$.ateenv.v1.SuspendEnvironmentRequest\x1a%.ateenv.v1.SuspendEnvironmentResponse\x12^\n" +
-	"\x11DeleteEnvironment\x12#.ateenv.v1.DeleteEnvironmentRequest\x1a$.ateenv.v1.DeleteEnvironmentResponseB9Z7github.com/agent-substrate/env/proto/ateenv/v1;ateenvv1b\x06proto3"
+	"\x1bENVIRONMENT_STATUS_DELETING\x10\b2\xb6\x03\n" +
+	"\x12EnvironmentService\x12h\n" +
+	"\x11CreateEnvironment\x12(.ateenv.v1alpha.CreateEnvironmentRequest\x1a).ateenv.v1alpha.CreateEnvironmentResponse\x12_\n" +
+	"\x0eGetEnvironment\x12%.ateenv.v1alpha.GetEnvironmentRequest\x1a&.ateenv.v1alpha.GetEnvironmentResponse\x12k\n" +
+	"\x12SuspendEnvironment\x12).ateenv.v1alpha.SuspendEnvironmentRequest\x1a*.ateenv.v1alpha.SuspendEnvironmentResponse\x12h\n" +
+	"\x11DeleteEnvironment\x12(.ateenv.v1alpha.DeleteEnvironmentRequest\x1a).ateenv.v1alpha.DeleteEnvironmentResponseBCZAgithub.com/agent-substrate/env/proto/ateenv/v1alpha;ateenvv1alphab\x06proto3"
 
 var (
-	file_proto_ateenv_v1_env_proto_rawDescOnce sync.Once
-	file_proto_ateenv_v1_env_proto_rawDescData []byte
+	file_proto_ateenv_v1alpha_env_proto_rawDescOnce sync.Once
+	file_proto_ateenv_v1alpha_env_proto_rawDescData []byte
 )
 
-func file_proto_ateenv_v1_env_proto_rawDescGZIP() []byte {
-	file_proto_ateenv_v1_env_proto_rawDescOnce.Do(func() {
-		file_proto_ateenv_v1_env_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1_env_proto_rawDesc), len(file_proto_ateenv_v1_env_proto_rawDesc)))
+func file_proto_ateenv_v1alpha_env_proto_rawDescGZIP() []byte {
+	file_proto_ateenv_v1alpha_env_proto_rawDescOnce.Do(func() {
+		file_proto_ateenv_v1alpha_env_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1alpha_env_proto_rawDesc), len(file_proto_ateenv_v1alpha_env_proto_rawDesc)))
 	})
-	return file_proto_ateenv_v1_env_proto_rawDescData
+	return file_proto_ateenv_v1alpha_env_proto_rawDescData
 }
 
-var file_proto_ateenv_v1_env_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_ateenv_v1_env_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
-var file_proto_ateenv_v1_env_proto_goTypes = []any{
-	(EnvironmentStatus)(0),             // 0: ateenv.v1.EnvironmentStatus
-	(*Template)(nil),                   // 1: ateenv.v1.Template
-	(*Environment)(nil),                // 2: ateenv.v1.Environment
-	(*CreateEnvironmentRequest)(nil),   // 3: ateenv.v1.CreateEnvironmentRequest
-	(*CreateEnvironmentResponse)(nil),  // 4: ateenv.v1.CreateEnvironmentResponse
-	(*GetEnvironmentRequest)(nil),      // 5: ateenv.v1.GetEnvironmentRequest
-	(*GetEnvironmentResponse)(nil),     // 6: ateenv.v1.GetEnvironmentResponse
-	(*SuspendEnvironmentRequest)(nil),  // 7: ateenv.v1.SuspendEnvironmentRequest
-	(*SuspendEnvironmentResponse)(nil), // 8: ateenv.v1.SuspendEnvironmentResponse
-	(*DeleteEnvironmentRequest)(nil),   // 9: ateenv.v1.DeleteEnvironmentRequest
-	(*DeleteEnvironmentResponse)(nil),  // 10: ateenv.v1.DeleteEnvironmentResponse
+var file_proto_ateenv_v1alpha_env_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_proto_ateenv_v1alpha_env_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_proto_ateenv_v1alpha_env_proto_goTypes = []any{
+	(EnvironmentStatus)(0),             // 0: ateenv.v1alpha.EnvironmentStatus
+	(*Template)(nil),                   // 1: ateenv.v1alpha.Template
+	(*Environment)(nil),                // 2: ateenv.v1alpha.Environment
+	(*CreateEnvironmentRequest)(nil),   // 3: ateenv.v1alpha.CreateEnvironmentRequest
+	(*CreateEnvironmentResponse)(nil),  // 4: ateenv.v1alpha.CreateEnvironmentResponse
+	(*GetEnvironmentRequest)(nil),      // 5: ateenv.v1alpha.GetEnvironmentRequest
+	(*GetEnvironmentResponse)(nil),     // 6: ateenv.v1alpha.GetEnvironmentResponse
+	(*SuspendEnvironmentRequest)(nil),  // 7: ateenv.v1alpha.SuspendEnvironmentRequest
+	(*SuspendEnvironmentResponse)(nil), // 8: ateenv.v1alpha.SuspendEnvironmentResponse
+	(*DeleteEnvironmentRequest)(nil),   // 9: ateenv.v1alpha.DeleteEnvironmentRequest
+	(*DeleteEnvironmentResponse)(nil),  // 10: ateenv.v1alpha.DeleteEnvironmentResponse
 }
-var file_proto_ateenv_v1_env_proto_depIdxs = []int32{
-	1,  // 0: ateenv.v1.Environment.template:type_name -> ateenv.v1.Template
-	0,  // 1: ateenv.v1.Environment.status:type_name -> ateenv.v1.EnvironmentStatus
-	1,  // 2: ateenv.v1.CreateEnvironmentRequest.template:type_name -> ateenv.v1.Template
-	2,  // 3: ateenv.v1.CreateEnvironmentResponse.environment:type_name -> ateenv.v1.Environment
-	2,  // 4: ateenv.v1.GetEnvironmentResponse.environment:type_name -> ateenv.v1.Environment
-	3,  // 5: ateenv.v1.EnvironmentService.CreateEnvironment:input_type -> ateenv.v1.CreateEnvironmentRequest
-	5,  // 6: ateenv.v1.EnvironmentService.GetEnvironment:input_type -> ateenv.v1.GetEnvironmentRequest
-	7,  // 7: ateenv.v1.EnvironmentService.SuspendEnvironment:input_type -> ateenv.v1.SuspendEnvironmentRequest
-	9,  // 8: ateenv.v1.EnvironmentService.DeleteEnvironment:input_type -> ateenv.v1.DeleteEnvironmentRequest
-	4,  // 9: ateenv.v1.EnvironmentService.CreateEnvironment:output_type -> ateenv.v1.CreateEnvironmentResponse
-	6,  // 10: ateenv.v1.EnvironmentService.GetEnvironment:output_type -> ateenv.v1.GetEnvironmentResponse
-	8,  // 11: ateenv.v1.EnvironmentService.SuspendEnvironment:output_type -> ateenv.v1.SuspendEnvironmentResponse
-	10, // 12: ateenv.v1.EnvironmentService.DeleteEnvironment:output_type -> ateenv.v1.DeleteEnvironmentResponse
+var file_proto_ateenv_v1alpha_env_proto_depIdxs = []int32{
+	1,  // 0: ateenv.v1alpha.Environment.template:type_name -> ateenv.v1alpha.Template
+	0,  // 1: ateenv.v1alpha.Environment.status:type_name -> ateenv.v1alpha.EnvironmentStatus
+	1,  // 2: ateenv.v1alpha.CreateEnvironmentRequest.template:type_name -> ateenv.v1alpha.Template
+	2,  // 3: ateenv.v1alpha.CreateEnvironmentResponse.environment:type_name -> ateenv.v1alpha.Environment
+	2,  // 4: ateenv.v1alpha.GetEnvironmentResponse.environment:type_name -> ateenv.v1alpha.Environment
+	3,  // 5: ateenv.v1alpha.EnvironmentService.CreateEnvironment:input_type -> ateenv.v1alpha.CreateEnvironmentRequest
+	5,  // 6: ateenv.v1alpha.EnvironmentService.GetEnvironment:input_type -> ateenv.v1alpha.GetEnvironmentRequest
+	7,  // 7: ateenv.v1alpha.EnvironmentService.SuspendEnvironment:input_type -> ateenv.v1alpha.SuspendEnvironmentRequest
+	9,  // 8: ateenv.v1alpha.EnvironmentService.DeleteEnvironment:input_type -> ateenv.v1alpha.DeleteEnvironmentRequest
+	4,  // 9: ateenv.v1alpha.EnvironmentService.CreateEnvironment:output_type -> ateenv.v1alpha.CreateEnvironmentResponse
+	6,  // 10: ateenv.v1alpha.EnvironmentService.GetEnvironment:output_type -> ateenv.v1alpha.GetEnvironmentResponse
+	8,  // 11: ateenv.v1alpha.EnvironmentService.SuspendEnvironment:output_type -> ateenv.v1alpha.SuspendEnvironmentResponse
+	10, // 12: ateenv.v1alpha.EnvironmentService.DeleteEnvironment:output_type -> ateenv.v1alpha.DeleteEnvironmentResponse
 	9,  // [9:13] is the sub-list for method output_type
 	5,  // [5:9] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
@@ -721,27 +721,27 @@ var file_proto_ateenv_v1_env_proto_depIdxs = []int32{
 	0,  // [0:5] is the sub-list for field type_name
 }
 
-func init() { file_proto_ateenv_v1_env_proto_init() }
-func file_proto_ateenv_v1_env_proto_init() {
-	if File_proto_ateenv_v1_env_proto != nil {
+func init() { file_proto_ateenv_v1alpha_env_proto_init() }
+func file_proto_ateenv_v1alpha_env_proto_init() {
+	if File_proto_ateenv_v1alpha_env_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1_env_proto_rawDesc), len(file_proto_ateenv_v1_env_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1alpha_env_proto_rawDesc), len(file_proto_ateenv_v1alpha_env_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_ateenv_v1_env_proto_goTypes,
-		DependencyIndexes: file_proto_ateenv_v1_env_proto_depIdxs,
-		EnumInfos:         file_proto_ateenv_v1_env_proto_enumTypes,
-		MessageInfos:      file_proto_ateenv_v1_env_proto_msgTypes,
+		GoTypes:           file_proto_ateenv_v1alpha_env_proto_goTypes,
+		DependencyIndexes: file_proto_ateenv_v1alpha_env_proto_depIdxs,
+		EnumInfos:         file_proto_ateenv_v1alpha_env_proto_enumTypes,
+		MessageInfos:      file_proto_ateenv_v1alpha_env_proto_msgTypes,
 	}.Build()
-	File_proto_ateenv_v1_env_proto = out.File
-	file_proto_ateenv_v1_env_proto_goTypes = nil
-	file_proto_ateenv_v1_env_proto_depIdxs = nil
+	File_proto_ateenv_v1alpha_env_proto = out.File
+	file_proto_ateenv_v1alpha_env_proto_goTypes = nil
+	file_proto_ateenv_v1alpha_env_proto_depIdxs = nil
 }

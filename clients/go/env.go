@@ -9,7 +9,7 @@ import (
 	"io/fs"
 	"time"
 
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -41,7 +41,7 @@ func (e *Env) Delete(ctx context.Context) error {
 // Shell runs a shell command line inside the environment using ProcessService.
 func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, error) {
 	ctx = e.withEnv(ctx)
-	startResp, err := e.client.process.StartProcess(ctx, &ateenvv1.StartProcessRequest{
+	startResp, err := e.client.process.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"sh", "-c", commandLine},
 	})
 	if err != nil {
@@ -49,7 +49,7 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 	}
 
 	pid := startResp.GetProcessId()
-	outStream, err := e.client.process.StreamProcessOutputs(ctx, &ateenvv1.StreamProcessOutputsRequest{
+	outStream, err := e.client.process.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
 		ProcessId: pid,
 		Follow:    true,
 	})
@@ -67,9 +67,9 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 			return nil, fromGRPCError(err)
 		}
 		switch chunk.GetSource() {
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDOUT:
+		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT:
 			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1.OutputSource_OUTPUT_SOURCE_STDERR:
+		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR:
 			stderrBuf.Write(chunk.GetData())
 		}
 	}
@@ -77,13 +77,13 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 	// Retrieve final process state / exit code
 	var exitCode int
 	for {
-		proc, err := e.client.process.GetProcess(ctx, &ateenvv1.GetProcessRequest{
+		proc, err := e.client.process.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
 			ProcessId: pid,
 		})
 		if err != nil {
 			return nil, fromGRPCError(err)
 		}
-		if proc.GetStatus() != ateenvv1.ProcessStatus_PROCESS_STATUS_RUNNING {
+		if proc.GetStatus() != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING {
 			exitCode = int(proc.GetExitCode())
 			break
 		}
@@ -105,7 +105,7 @@ func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, er
 // The caller must close the returned reader.
 func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
 	ctx = e.withEnv(ctx)
-	stream, err := e.client.filesystem.ReadFile(ctx, &ateenvv1.ReadFileRequest{
+	stream, err := e.client.filesystem.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{
 		Path: p,
 	})
 	if err != nil {
@@ -165,7 +165,7 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 		return fmt.Errorf("env: reading data for %q: %w", p, readErr)
 	}
 
-	firstReq := &ateenvv1.WriteFileRequest{
+	firstReq := &ateenvv1alpha.WriteFileRequest{
 		Path:  p,
 		Mode:  uint32(mode.Perm()),
 		Chunk: buf[:n],
@@ -178,7 +178,7 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 		for {
 			n, err := r.Read(buf)
 			if n > 0 {
-				if sendErr := stream.Send(&ateenvv1.WriteFileRequest{Chunk: buf[:n]}); sendErr != nil {
+				if sendErr := stream.Send(&ateenvv1alpha.WriteFileRequest{Chunk: buf[:n]}); sendErr != nil {
 					return fromGRPCError(sendErr)
 				}
 			}

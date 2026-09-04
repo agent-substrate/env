@@ -4,7 +4,7 @@ import grpc.aio
 import pytest
 
 from ate_env import Client, EnvironmentStatus, InvalidArgumentError, NotFoundError, RpcError
-from ate_env._gen.ateenv.v1 import env_pb2
+from ate_env._gen.ateenv.v1alpha import env_pb2
 from ate_env.client import _normalize_target
 
 

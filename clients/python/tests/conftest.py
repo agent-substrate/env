@@ -6,7 +6,7 @@ import grpc.aio
 import pytest
 
 from ate_env import Client
-from ate_env._gen.ateenv.v1 import env_pb2_grpc, guest_pb2_grpc
+from ate_env._gen.ateenv.v1alpha import env_pb2_grpc, guest_pb2_grpc
 
 from .fakes import FakeEnvironmentService, FakeFileSystemService, FakeProcessService
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/env/guest"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -84,13 +84,13 @@ func TestServerHealthzAndGRPC(t *testing.T) {
 	}
 	defer conn.Close()
 
-	fsClient := ateenvv1.NewFileSystemServiceClient(conn)
+	fsClient := ateenvv1alpha.NewFileSystemServiceClient(conn)
 	testFile := filepath.Join(tempDir, "hello.txt")
 	writeStream, err := fsClient.WriteFile(ctx)
 	if err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
-	if err := writeStream.Send(&ateenvv1.WriteFileRequest{
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
 		Path:  testFile,
 		Chunk: []byte("hello world"),
 	}); err != nil {

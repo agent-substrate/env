@@ -79,37 +79,37 @@ export PATH=$PATH:$(go env GOPATH)/bin
 ### Start a Background Command
 ```bash
 grpcurl -plaintext -d '{"command": ["echo", "Hello Substrate!"]}' \
-  localhost:8080 ateenv.v1.ProcessService/StartProcess
+  localhost:8080 ateenv.v1alpha.ProcessService/StartProcess
 ```
 
 ### Inspect Process Status
 ```bash
 grpcurl -plaintext -d '{"process_id": "<process-id-from-start>"}' \
-  localhost:8080 ateenv.v1.ProcessService/GetProcess
+  localhost:8080 ateenv.v1alpha.ProcessService/GetProcess
 ```
 
 ### Stream Real-Time Output
 ```bash
 grpcurl -plaintext -d '{"process_id": "<process-id>", "follow": true}' \
-  localhost:8080 ateenv.v1.ProcessService/StreamProcessOutputs
+  localhost:8080 ateenv.v1alpha.ProcessService/StreamProcessOutputs
 ```
 
 ### Terminate a Process
 ```bash
 grpcurl -plaintext -d '{"process_id": "<process-id>"}' \
-  localhost:8080 ateenv.v1.ProcessService/KillProcess
+  localhost:8080 ateenv.v1alpha.ProcessService/KillProcess
 ```
 
 ### Write a File (Streamed)
 ```bash
 echo '{"path": "hello.txt", "chunk": "SGVsbG8gU3Vic3RyYXRlIQo=", "mode": 420}' | \
-  grpcurl -plaintext -d @ localhost:8080 ateenv.v1.FileSystemService/WriteFile
+  grpcurl -plaintext -d @ localhost:8080 ateenv.v1alpha.FileSystemService/WriteFile
 ```
 
 ### Read a File (Streamed)
 ```bash
 grpcurl -plaintext -d '{"path": "hello.txt"}' \
-  localhost:8080 ateenv.v1.FileSystemService/ReadFile
+  localhost:8080 ateenv.v1alpha.FileSystemService/ReadFile
 ```
 
 ---

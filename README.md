@@ -146,38 +146,39 @@ stdout without touching the cluster; apply it with kubectl.
 
 ## API
 
-The `ate-env-api` service exposes gRPC APIs over HTTP/2 (h2c) for environment lifecycle and in-actor operations, as well as HTTP endpoints for health checks and MCP.
+The `ate-env-api` service exposes gRPC APIs for environment
+lifecycle and in-actor operations, as well as HTTP endpoints for MCP.
 
 ### EnvironmentService
 
-Manages the lifecycle of isolated execution environments. Requests are handled by `ate-env-api` and translated into Agent Substrate control plane operations:
+Manages the lifecycle of isolated execution environments (defined in [`proto/ateenv/v1alpha/env.proto`](proto/ateenv/v1alpha/env.proto)). Requests are handled by `ate-env-api` and translated into Agent Substrate control plane operations:
 
-| RPC | Type | Description |
-| --- | --- | ----------- |
-| `CreateEnvironment` | Unary | Creates and starts a new environment actor from an ActorTemplate |
-| `GetEnvironment` | Unary | Retrieves environment details and status |
-| `SuspendEnvironment` | Unary | Suspends and checkpoints the environment to snapshot storage |
-| `DeleteEnvironment` | Unary | Deletes the environment permanently |
+| RPC | Description |
+| --- | ----------- |
+| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate |
+| `GetEnvironment` | Retrieves environment details and status |
+| `SuspendEnvironment` | Suspends and checkpoints the environment to snapshot storage |
+| `DeleteEnvironment` | Deletes the environment permanently |
 
 ### ProcessService
 
-Manages asynchronous process execution and output streaming inside the environment container. Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
+Manages asynchronous process execution and output streaming inside the environment container (defined in [`proto/ateenv/v1alpha/guest.proto`](proto/ateenv/v1alpha/guest.proto)). Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
 
-| RPC | Type | Description |
-| --- | --- | ----------- |
-| `StartProcess` | Unary | Launches an asynchronous background process and returns a `process_id` |
-| `GetProcess` | Unary | Retrieves process metadata, lifecycle status, timestamps, and exit code |
-| `StreamProcessOutputs` | Server Streaming | Streams real-time `stdout` and `stderr` output chunks |
-| `KillProcess` | Unary | Terminates a running background process and its child process tree |
+| RPC | Description |
+| --- | ----------- |
+| `StartProcess` | Launches a process and returns a process ID. |
+| `GetProcess` | Retrieves process metadata and status |
+| `StreamProcessOutputs` | Streams stdout and stderr chunks |
+| `KillProcess` | Terminates a running background process |
 
 ### FileSystemService
 
-Provides chunked streaming file reading and writing within the environment container without unbounded memory usage. Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
+Provides chunked streaming file reading and writing within the environment container without unbounded memory usage (defined in [`proto/ateenv/v1alpha/guest.proto`](proto/ateenv/v1alpha/guest.proto)). Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
 
-| RPC | Type | Description |
-| --- | --- | ----------- |
-| `ReadFile` | Server Streaming | Streams raw binary or text file contents in chunks |
-| `WriteFile` | Client Streaming | Streams raw binary or text chunks directly to a target file |
+| RPC | Description |
+| --- | ----------- |
+| `ReadFile` | Streams raw binary or text file contents in chunks |
+| `WriteFile` | Streams raw binary or text chunks directly to a target file |
 
 
 ## Built-in MCP Server

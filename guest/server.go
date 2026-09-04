@@ -8,7 +8,7 @@ import (
 
 	"github.com/agent-substrate/env/guest/filesystem"
 	"github.com/agent-substrate/env/guest/process"
-	ateenvv1 "github.com/agent-substrate/env/proto/ateenv/v1"
+	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -75,12 +75,12 @@ func NewServer(cfg Config) (*grpc.Server, func(), error) {
 		cleanups = append(cleanups, func() {
 			tracker.Close()
 		})
-		ateenvv1.RegisterProcessServiceServer(grpcServer, process.NewService(tracker))
+		ateenvv1alpha.RegisterProcessServiceServer(grpcServer, process.NewService(tracker))
 	}
 
 	if cfg.EnableFileSystem {
 		fsSvc := filesystem.NewService(filesystem.Config{RootDirectory: cfg.Workspace})
-		ateenvv1.RegisterFileSystemServiceServer(grpcServer, fsSvc)
+		ateenvv1alpha.RegisterFileSystemServiceServer(grpcServer, fsSvc)
 	}
 
 	cleanup := func() {

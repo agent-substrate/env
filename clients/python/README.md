@@ -32,14 +32,14 @@ plain gRPC (h2c). Behind that endpoint there are two distinct paths:
 ```
 
 **Lifecycle path.** `Client.create/get/suspend/delete` call
-`EnvironmentService` (defined in [`proto/ateenv/v1/env.proto`](../../proto/ateenv/v1/env.proto)).
+`EnvironmentService` (defined in [`proto/ateenv/v1alpha/env.proto`](../../proto/ateenv/v1alpha/env.proto)).
 These RPCs terminate at `ate-env-api`, which translates them into Substrate
 control-plane operations: creating an actor from an ActorTemplate,
 reading its status, checkpointing it to a snapshot, deleting it.
 
 **Guest path.** Everything on an `Env` handle that executes *inside* the
 environment — processes and files — calls `ProcessService` and
-`FileSystemService` (defined in [`proto/ateenv/v1/guest.proto`](../../proto/ateenv/v1/guest.proto)).
+`FileSystemService` (defined in [`proto/ateenv/v1alpha/guest.proto`](../../proto/ateenv/v1alpha/guest.proto)).
 The client attaches `x-env-id` / `x-env-atespace` gRPC metadata to each of
 these calls; `ate-env-api` uses that metadata to dial the atenet router
 with the authority `<id>.<atespace>.<host-suffix>`, and the router carries
@@ -305,7 +305,7 @@ python3 -m venv .venv
 ### Regenerating gRPC stubs
 
 Generated code under `src/ate_env/_gen/` is committed. After changing
-`proto/ateenv/v1/*.proto`, regenerate from the repo root:
+`proto/ateenv/v1alpha/*.proto`, regenerate from the repo root:
 
 ```bash
 ./clients/python/scripts/gen-protos.sh      # or: make python-protos

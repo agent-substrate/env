@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from . import guest_pb2 as ateenv_dot_v1_dot_guest__pb2
+from . import guest_pb2 as ateenv_dot_v1alpha_dot_guest__pb2
 
 
 class ProcessServiceStub(object):
@@ -21,24 +21,24 @@ class ProcessServiceStub(object):
             channel: A grpc.Channel.
         """
         self.StartProcess = channel.unary_unary(
-                '/ateenv.v1.ProcessService/StartProcess',
-                request_serializer=ateenv_dot_v1_dot_guest__pb2.StartProcessRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_guest__pb2.StartProcessResponse.FromString,
+                '/ateenv.v1alpha.ProcessService/StartProcess',
+                request_serializer=ateenv_dot_v1alpha_dot_guest__pb2.StartProcessRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.StartProcessResponse.FromString,
                 )
         self.GetProcess = channel.unary_unary(
-                '/ateenv.v1.ProcessService/GetProcess',
-                request_serializer=ateenv_dot_v1_dot_guest__pb2.GetProcessRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_guest__pb2.Process.FromString,
+                '/ateenv.v1alpha.ProcessService/GetProcess',
+                request_serializer=ateenv_dot_v1alpha_dot_guest__pb2.GetProcessRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.Process.FromString,
                 )
         self.StreamProcessOutputs = channel.unary_stream(
-                '/ateenv.v1.ProcessService/StreamProcessOutputs',
-                request_serializer=ateenv_dot_v1_dot_guest__pb2.StreamProcessOutputsRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_guest__pb2.OutputChunk.FromString,
+                '/ateenv.v1alpha.ProcessService/StreamProcessOutputs',
+                request_serializer=ateenv_dot_v1alpha_dot_guest__pb2.StreamProcessOutputsRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.OutputChunk.FromString,
                 )
         self.KillProcess = channel.unary_unary(
-                '/ateenv.v1.ProcessService/KillProcess',
-                request_serializer=ateenv_dot_v1_dot_guest__pb2.KillProcessRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_guest__pb2.KillProcessResponse.FromString,
+                '/ateenv.v1alpha.ProcessService/KillProcess',
+                request_serializer=ateenv_dot_v1alpha_dot_guest__pb2.KillProcessRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.KillProcessResponse.FromString,
                 )
 
 
@@ -85,27 +85,27 @@ def add_ProcessServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'StartProcess': grpc.unary_unary_rpc_method_handler(
                     servicer.StartProcess,
-                    request_deserializer=ateenv_dot_v1_dot_guest__pb2.StartProcessRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_guest__pb2.StartProcessResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.StartProcessRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_guest__pb2.StartProcessResponse.SerializeToString,
             ),
             'GetProcess': grpc.unary_unary_rpc_method_handler(
                     servicer.GetProcess,
-                    request_deserializer=ateenv_dot_v1_dot_guest__pb2.GetProcessRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_guest__pb2.Process.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.GetProcessRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_guest__pb2.Process.SerializeToString,
             ),
             'StreamProcessOutputs': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamProcessOutputs,
-                    request_deserializer=ateenv_dot_v1_dot_guest__pb2.StreamProcessOutputsRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_guest__pb2.OutputChunk.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.StreamProcessOutputsRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_guest__pb2.OutputChunk.SerializeToString,
             ),
             'KillProcess': grpc.unary_unary_rpc_method_handler(
                     servicer.KillProcess,
-                    request_deserializer=ateenv_dot_v1_dot_guest__pb2.KillProcessRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_guest__pb2.KillProcessResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.KillProcessRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_guest__pb2.KillProcessResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'ateenv.v1.ProcessService', rpc_method_handlers)
+            'ateenv.v1alpha.ProcessService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
 
 
@@ -130,9 +130,9 @@ class ProcessService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.ProcessService/StartProcess',
-            ateenv_dot_v1_dot_guest__pb2.StartProcessRequest.SerializeToString,
-            ateenv_dot_v1_dot_guest__pb2.StartProcessResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.ProcessService/StartProcess',
+            ateenv_dot_v1alpha_dot_guest__pb2.StartProcessRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_guest__pb2.StartProcessResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -147,9 +147,9 @@ class ProcessService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.ProcessService/GetProcess',
-            ateenv_dot_v1_dot_guest__pb2.GetProcessRequest.SerializeToString,
-            ateenv_dot_v1_dot_guest__pb2.Process.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.ProcessService/GetProcess',
+            ateenv_dot_v1alpha_dot_guest__pb2.GetProcessRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_guest__pb2.Process.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -164,9 +164,9 @@ class ProcessService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(request, target, '/ateenv.v1.ProcessService/StreamProcessOutputs',
-            ateenv_dot_v1_dot_guest__pb2.StreamProcessOutputsRequest.SerializeToString,
-            ateenv_dot_v1_dot_guest__pb2.OutputChunk.FromString,
+        return grpc.experimental.unary_stream(request, target, '/ateenv.v1alpha.ProcessService/StreamProcessOutputs',
+            ateenv_dot_v1alpha_dot_guest__pb2.StreamProcessOutputsRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_guest__pb2.OutputChunk.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -181,9 +181,9 @@ class ProcessService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/ateenv.v1.ProcessService/KillProcess',
-            ateenv_dot_v1_dot_guest__pb2.KillProcessRequest.SerializeToString,
-            ateenv_dot_v1_dot_guest__pb2.KillProcessResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/ateenv.v1alpha.ProcessService/KillProcess',
+            ateenv_dot_v1alpha_dot_guest__pb2.KillProcessRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_guest__pb2.KillProcessResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -200,14 +200,14 @@ class FileSystemServiceStub(object):
             channel: A grpc.Channel.
         """
         self.ReadFile = channel.unary_stream(
-                '/ateenv.v1.FileSystemService/ReadFile',
-                request_serializer=ateenv_dot_v1_dot_guest__pb2.ReadFileRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_guest__pb2.FileChunk.FromString,
+                '/ateenv.v1alpha.FileSystemService/ReadFile',
+                request_serializer=ateenv_dot_v1alpha_dot_guest__pb2.ReadFileRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.FileChunk.FromString,
                 )
         self.WriteFile = channel.stream_unary(
-                '/ateenv.v1.FileSystemService/WriteFile',
-                request_serializer=ateenv_dot_v1_dot_guest__pb2.WriteFileRequest.SerializeToString,
-                response_deserializer=ateenv_dot_v1_dot_guest__pb2.WriteFileResponse.FromString,
+                '/ateenv.v1alpha.FileSystemService/WriteFile',
+                request_serializer=ateenv_dot_v1alpha_dot_guest__pb2.WriteFileRequest.SerializeToString,
+                response_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.WriteFileResponse.FromString,
                 )
 
 
@@ -235,17 +235,17 @@ def add_FileSystemServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'ReadFile': grpc.unary_stream_rpc_method_handler(
                     servicer.ReadFile,
-                    request_deserializer=ateenv_dot_v1_dot_guest__pb2.ReadFileRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_guest__pb2.FileChunk.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.ReadFileRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_guest__pb2.FileChunk.SerializeToString,
             ),
             'WriteFile': grpc.stream_unary_rpc_method_handler(
                     servicer.WriteFile,
-                    request_deserializer=ateenv_dot_v1_dot_guest__pb2.WriteFileRequest.FromString,
-                    response_serializer=ateenv_dot_v1_dot_guest__pb2.WriteFileResponse.SerializeToString,
+                    request_deserializer=ateenv_dot_v1alpha_dot_guest__pb2.WriteFileRequest.FromString,
+                    response_serializer=ateenv_dot_v1alpha_dot_guest__pb2.WriteFileResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'ateenv.v1.FileSystemService', rpc_method_handlers)
+            'ateenv.v1alpha.FileSystemService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
 
 
@@ -266,9 +266,9 @@ class FileSystemService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(request, target, '/ateenv.v1.FileSystemService/ReadFile',
-            ateenv_dot_v1_dot_guest__pb2.ReadFileRequest.SerializeToString,
-            ateenv_dot_v1_dot_guest__pb2.FileChunk.FromString,
+        return grpc.experimental.unary_stream(request, target, '/ateenv.v1alpha.FileSystemService/ReadFile',
+            ateenv_dot_v1alpha_dot_guest__pb2.ReadFileRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_guest__pb2.FileChunk.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -283,8 +283,8 @@ class FileSystemService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.stream_unary(request_iterator, target, '/ateenv.v1.FileSystemService/WriteFile',
-            ateenv_dot_v1_dot_guest__pb2.WriteFileRequest.SerializeToString,
-            ateenv_dot_v1_dot_guest__pb2.WriteFileResponse.FromString,
+        return grpc.experimental.stream_unary(request_iterator, target, '/ateenv.v1alpha.FileSystemService/WriteFile',
+            ateenv_dot_v1alpha_dot_guest__pb2.WriteFileRequest.SerializeToString,
+            ateenv_dot_v1alpha_dot_guest__pb2.WriteFileResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
