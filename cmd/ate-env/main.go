@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/env/clients/go"
+	"github.com/agent-substrate/env/internal/apiservice"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/spf13/cobra"
 )
@@ -48,7 +49,7 @@ func newGuestCommand(id string) *cobra.Command {
 		},
 	}
 	guestCmd.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
-	guestCmd.PersistentFlags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	guestCmd.PersistentFlags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
 
 	guestCmd.AddCommand(&cobra.Command{
 		Use:   "read <path>",
@@ -139,7 +140,7 @@ func newCreateCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
-	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
 	cmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
 	cmd.Flags().StringVar(&createTemplateAtespace, "template-atespace", "", "Substrate atespace of the ActorTemplate (defaults to environment atespace)")
 	return cmd
@@ -167,7 +168,7 @@ func newSuspendCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
-	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
 	return cmd
 }
 
@@ -193,7 +194,7 @@ func newDeleteCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
-	cmd.Flags().StringVar(&atespace, "atespace", "default", "Substrate atespace")
+	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
 	return cmd
 }
 

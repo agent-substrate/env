@@ -48,10 +48,8 @@ Deploy the namespace, worker pool, and API service:
 ```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ate-env manifest \
-  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:4f5678b9304a9047551fc95458e7b948c77d6fce5337de1897888daa7e0e4900 \
-  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:8579e1eebdd652cd2bfc7a130d4ebc2ce0d7a1a9d2efcb9d04b9eedf597a027d \
-  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:7a5f89e9c8ca875eee611b05fdf003b63b260b631362c83c1099073d003e0372 \
-  --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl apply -f -
+  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:e9c4481903d6ca2c8affbf4323f3cc2925d9eaac6513521535b3c905cdab236b \
+  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:7a5f89e9c8ca875eee611b05fdf003b63b260b631362c83c1099073d003e0372 | kubectl apply -f -
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env
@@ -59,11 +57,11 @@ kubectl get pods -n ate-env
 
 ### 2. Register the ActorTemplate in Substrate
 
-Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest --template-only` to generate the Substrate ActorTemplate manifest:
+Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest template` to generate the Substrate ActorTemplate manifest:
 
 ```bash
-ate-env manifest --template-only \
-  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:4f5678b9304a9047551fc95458e7b948c77d6fce5337de1897888daa7e0e4900 \
+ate-env manifest template \
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:0b37ad8f0d6ae0bfdd01b97dfccd0139b59aedac6ec0f6d351333f0776acd3dd \
   --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
 ```
 
@@ -139,9 +137,8 @@ Use "ate-env [command] --help" for more information about a command.
 $ ate-env manifest --help
 Manifest generates Kubernetes manifests for everything environments need on
 a cluster that already runs the Agent Substrate system: the target
-namespace, a WorkerPool of pre-warmed workers, the ActorTemplate that
-environments are created from, and the ate-env-api service. It prints YAML to
-stdout without touching the cluster; apply it with kubectl.
+namespace, a WorkerPool of pre-warmed workers, and the ate-env-api service.
+It prints YAML to stdout without touching the cluster; apply it with kubectl.
 ```
 
 ## API

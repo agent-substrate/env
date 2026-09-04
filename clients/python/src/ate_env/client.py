@@ -12,7 +12,7 @@ from .types import EnvironmentInfo, _environment_info_from_pb
 
 __all__ = ["Client", "DEFAULT_ATESPACE"]
 
-DEFAULT_ATESPACE = "default"
+DEFAULT_ATESPACE = "ate-env"
 
 
 def _normalize_target(endpoint: str) -> str:
@@ -77,8 +77,8 @@ class Client:
     ) -> Env:
         """Register and start a new environment; returns a handle to it.
 
-        The server fills defaults for the template (name "default-env" in
-        atespace "default") when none is given.
+        The server fills defaults for the template (name "default-template" in
+        atespace "ate-env") when none is given.
         """
         req = env_pb2.CreateEnvironmentRequest(id=id, atespace=atespace)
         if template_name or template_atespace:

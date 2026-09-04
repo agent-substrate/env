@@ -23,10 +23,10 @@ async def test_create_uses_server_defaults(fake_stack):
     client, fakes = fake_stack
     env = await client.create("dev1")
     assert env.id == "dev1"
-    assert env.atespace == "default"
-    stored = fakes.environments.environments[("default", "dev1")]
-    assert stored.template.name == "default-env"
-    assert stored.template.atespace == "default"
+    assert env.atespace == "ate-env"
+    stored = fakes.environments.environments[("ate-env", "dev1")]
+    assert stored.template.name == "default-template"
+    assert stored.template.atespace == "ate-env"
 
 
 async def test_create_omits_template_when_not_given(fake_stack):

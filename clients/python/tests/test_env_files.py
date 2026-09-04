@@ -16,7 +16,7 @@ async def test_read_file_multi_chunk(fake_stack):
     chunks = [chunk async for chunk in env.read_file("/data.bin")]
     assert len(chunks) >= 3
     assert b"".join(chunks) == content
-    assert fakes.filesystem.last_env == ("dev1", "default")
+    assert fakes.filesystem.last_env == ("dev1", "ate-env")
 
 
 async def test_read_file_bytes(fake_stack):

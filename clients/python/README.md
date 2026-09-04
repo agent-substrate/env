@@ -133,8 +133,8 @@ channel yourself (e.g. custom gRPC options), pass
 env = await client.create("dev1")
 ```
 
-The server instantiates the environment from the `default-env`
-ActorTemplate in the `default` atespace unless you override it:
+The server instantiates the environment from the `default-template`
+ActorTemplate in the `ate-env` atespace unless you override it:
 
 ```python
 env = await client.create("dev1", template_name="my-template",
@@ -144,7 +144,7 @@ env = await client.create("dev1", template_name="my-template",
 To get a handle to an environment that already exists (no RPC is made):
 
 ```python
-env = client.env("dev1")            # atespace defaults to "default"
+env = client.env("dev1")            # atespace defaults to "ate-env"
 ```
 
 A freshly created (or suspended) environment starts serving on first

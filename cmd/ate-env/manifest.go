@@ -22,25 +22,50 @@ import (
 // apiName is the name of the API service Deployment and Service.
 const apiName = "ate-env-api"
 
+// manifestConfig holds configuration for generating Kubernetes deployment manifests.
 type manifestConfig struct {
-	namespace       string
+	namespace   string
+	template    string
+	workerPool  string
+	workerImage string
+	replicas    int32
+	apiImage    string
+	apiReplicas int32
+	apiPort     int32
+	poolLabels  map[string]string
+}
+
+func (c *manifestConfig) resolveImages() error {
+	if c.workerImage == "" || c.apiImage == "" {
+		return errors.New(`--api-image and --worker-image (or --ateom-image) are required; use the
+digest-pinned images published by the latest release (the README
+quickstart records them), or build and push your own.`)
+	}
+	return nil
+}
+
+// templateConfig holds configuration for generating a Substrate ActorTemplate manifest.
+type templateConfig struct {
 	template        string
-	workerPool      string
-	guestImage      string
-	workerImage     string
-	snapshotsBucket string
-	replicas        int32
-	apiImage        string
-	apiReplicas     int32
-	apiPort         int32
-	guestCommand    []string
-	poolLabels      map[string]string
 	atespace        string
-	templateOnly    bool
+	guestImage      string
+	guestCommand    []string
+	snapshotsBucket string
+	poolLabels      map[string]string
+}
+
+func (c *templateConfig) resolveImages() error {
+	if c.guestImage == "" {
+		return errors.New("--guest-image is required; use the digest-pinned ate-env-guest image")
+	}
+	if c.snapshotsBucket == "" {
+		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
+	}
+	return nil
 }
 
 func newManifestCommand() *cobra.Command {
-	cfg := manifestConfig{}
+	mCfg := manifestConfig{}
 
 	cmd := &cobra.Command{
 		Use:   "manifest",
@@ -51,61 +76,66 @@ namespace, a WorkerPool of pre-warmed workers, and the ate-env-api service.
 It prints YAML to stdout without touching the cluster; apply it with kubectl.
 
 To generate the Substrate ActorTemplate manifest (for kubectl-ate), use
-the --template-only flag.`,
+the "template" subcommand: ate-env manifest template`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := cfg.resolveImages(); err != nil {
+			if mCfg.template == "" {
+				mCfg.template = apiservice.DefaultTemplate
+			}
+			if mCfg.workerPool == "" {
+				mCfg.workerPool = mCfg.template + "-workerpool"
+			}
+			mCfg.poolLabels = map[string]string{"workload": mCfg.template}
+			if err := mCfg.resolveImages(); err != nil {
 				return err
 			}
-			if cfg.template == "" {
-				cfg.template = apiservice.DefaultTemplate
-			}
-			if cfg.workerPool == "" {
-				cfg.workerPool = cfg.template + "-workerpool"
-			}
-			cfg.poolLabels = map[string]string{"workload": cfg.template}
-
-			if cfg.templateOnly {
-				return writeActorTemplate(cmd.OutOrStdout(), buildActorTemplate(cfg))
-			}
-			return writeManifests(cmd.OutOrStdout(), buildManifests(cfg))
+			return writeManifests(cmd.OutOrStdout(), buildManifests(mCfg))
 		},
 	}
 
-	cmd.Flags().StringVar(&cfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
-	cmd.Flags().StringVar(&cfg.atespace, "atespace", "default", "Substrate atespace for the ActorTemplate")
-	cmd.Flags().StringVar(&cfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
-	cmd.Flags().StringVar(&cfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
-	cmd.Flags().StringVar(&cfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
-	cmd.Flags().StringVar(&cfg.workerImage, "ateom-image", "", "alias for --worker-image")
-	cmd.Flags().StringVar(&cfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
-	cmd.Flags().StringVar(&cfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
-	cmd.Flags().Int32Var(&cfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
-	cmd.Flags().Int32Var(&cfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
-	cmd.Flags().StringVar(&cfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
-	cmd.Flags().Int32Var(&cfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
-	cmd.Flags().StringSliceVar(&cfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
-	cmd.Flags().BoolVar(&cfg.templateOnly, "template-only", false, "generate only the Substrate ActorTemplate manifest (for kubectl-ate create actor-template -f -)")
-	cmd.MarkFlagRequired("snapshots-bucket")
+	cmd.Flags().StringVar(&mCfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
+	cmd.Flags().StringVar(&mCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name used for WorkerPool workload labels")
+	cmd.Flags().StringVar(&mCfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
+	cmd.Flags().StringVar(&mCfg.workerImage, "ateom-image", "", "alias for --worker-image")
+	cmd.Flags().StringVar(&mCfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
+	cmd.Flags().Int32Var(&mCfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
+	cmd.Flags().Int32Var(&mCfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
+	cmd.Flags().StringVar(&mCfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
+	cmd.Flags().Int32Var(&mCfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
+
+	cmd.AddCommand(newManifestTemplateCommand())
 
 	return cmd
 }
 
-// resolveImages verifies that all deployment images are set, either baked
-// in at release time or passed as flags.
-func (c *manifestConfig) resolveImages() error {
-	if c.templateOnly {
-		if c.guestImage == "" {
-			return errors.New("--guest-image is required; use the digest-pinned ate-env-guest image")
-		}
-		return nil
+func newManifestTemplateCommand() *cobra.Command {
+	tCfg := templateConfig{}
+
+	cmd := &cobra.Command{
+		Use:   "template",
+		Short: "Generate Substrate ActorTemplate manifest",
+		Long: `Generate Substrate ActorTemplate manifest to register with kubectl-ate.
+It prints YAML to stdout without touching the cluster.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if tCfg.template == "" {
+				tCfg.template = apiservice.DefaultTemplate
+			}
+			tCfg.poolLabels = map[string]string{"workload": tCfg.template}
+			if err := tCfg.resolveImages(); err != nil {
+				return err
+			}
+			return writeActorTemplate(cmd.OutOrStdout(), buildActorTemplate(tCfg))
+		},
 	}
-	if c.guestImage != "" && c.workerImage != "" && c.apiImage != "" {
-		return nil
-	}
-	return errors.New(`--guest-image, --api-image, and --worker-image (or --ateom-image) are required; use the
-digest-pinned images published by the latest release (the README
-quickstart records them), or build and push your own.`)
+
+	cmd.Flags().StringVar(&tCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
+	cmd.Flags().StringVar(&tCfg.atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace for the ActorTemplate")
+	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
+	cmd.Flags().StringSliceVar(&tCfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
+	cmd.Flags().StringVar(&tCfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
+
+	return cmd
 }
 
 // buildManifests returns the Kubernetes objects that make up a deployment,
@@ -231,10 +261,10 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 	}
 }
 
-func buildActorTemplate(cfg manifestConfig) *ateapipb.ActorTemplate {
+func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 	atespace := cfg.atespace
 	if atespace == "" {
-		atespace = "default"
+		atespace = apiservice.DefaultAtespace
 	}
 	return &ateapipb.ActorTemplate{
 		Metadata: &ateapipb.ResourceMetadata{
