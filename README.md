@@ -146,14 +146,40 @@ stdout without touching the cluster; apply it with kubectl.
 
 ## API
 
-Environment lifecycle is defined in [`proto/ateenv/v1alpha/env.proto`](proto/ateenv/v1alpha/env.proto):
+The `ate-env-api` service exposes gRPC APIs for environment
+lifecycle and in-actor operations, as well as HTTP endpoints for MCP.
 
-| Operation | Description |
+### EnvironmentService
+
+Manages the lifecycle of isolated execution environments (defined in [`proto/ateenv/v1alpha/env.proto`](proto/ateenv/v1alpha/env.proto)). Requests are handled by `ate-env-api` and translated into Agent Substrate control plane operations:
+
+| RPC | Description |
 | --- | ----------- |
-| `CreateEnvironment` | Creates and starts a new environment actor |
+| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate |
 | `GetEnvironment` | Retrieves environment details and status |
-| `SuspendEnvironment` | Suspends and checkpoints the environment |
+| `SuspendEnvironment` | Suspends and checkpoints the environment to snapshot storage |
 | `DeleteEnvironment` | Deletes the environment permanently |
+
+### ProcessService
+
+Manages asynchronous process execution and output streaming inside the environment container (defined in [`proto/ateenv/v1alpha/guest.proto`](proto/ateenv/v1alpha/guest.proto)). Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
+
+| RPC | Description |
+| --- | ----------- |
+| `StartProcess` | Launches a process and returns a process ID. |
+| `GetProcess` | Retrieves process metadata and status |
+| `StreamProcessOutputs` | Streams stdout and stderr chunks |
+| `KillProcess` | Terminates a running background process |
+
+### FileSystemService
+
+Provides chunked streaming file reading and writing within the environment container without unbounded memory usage (defined in [`proto/ateenv/v1alpha/guest.proto`](proto/ateenv/v1alpha/guest.proto)). Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
+
+| RPC | Description |
+| --- | ----------- |
+| `ReadFile` | Streams raw binary or text file contents in chunks |
+| `WriteFile` | Streams raw binary or text chunks directly to a target file |
+
 
 ## Built-in MCP Server
 
