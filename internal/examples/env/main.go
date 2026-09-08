@@ -26,8 +26,8 @@ func main() {
 		template string
 	)
 	flag.StringVar(&addr, "addr", "localhost:7777", "address of the ate-env-api gRPC service")
-	flag.StringVar(&atespace, "atespace", "default", "Substrate atespace")
-	flag.StringVar(&template, "template", "default-env", "ActorTemplate name")
+	flag.StringVar(&atespace, "atespace", "ate-env", "Substrate atespace")
+	flag.StringVar(&template, "template", "default-template", "ActorTemplate name")
 	flag.Parse()
 
 	id := "env-" + uuid.NewString()

@@ -22,7 +22,7 @@ import (
 
 // DefaultTemplate is the ActorTemplate name used when a create request
 // does not specify one.
-const DefaultTemplate = "default-env"
+const DefaultTemplate = "default-template"
 
 // DefaultNamespace is the default Kubernetes namespace used when deploying
 // ate-env manifests.
@@ -30,7 +30,7 @@ const DefaultNamespace = "ate-env"
 
 // DefaultAtespace is the Substrate atespace used when a request does not
 // specify one.
-const DefaultAtespace = "default"
+const DefaultAtespace = "ate-env"
 
 // Server implements ateenvv1alpha.EnvironmentServiceServer, ateenvv1alpha.ProcessServiceServer,
 // and ateenvv1alpha.FileSystemServiceServer.

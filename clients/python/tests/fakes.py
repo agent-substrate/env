@@ -22,7 +22,7 @@ async def _require_env(context: grpc.aio.ServicerContext) -> tuple[str, str]:
     env_id = md.get("x-env-id", "")
     if not env_id:
         await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "x-env-id header is required")
-    return env_id, md.get("x-env-atespace", "default")
+    return env_id, md.get("x-env-atespace", "ate-env")
 
 
 class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
@@ -32,7 +32,7 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
 
     async def CreateEnvironment(self, request, context):
         self.last_create_request = request
-        atespace = request.atespace or "default"
+        atespace = request.atespace or "ate-env"
         key = (atespace, request.id)
         if not request.id:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "id is required")
@@ -41,7 +41,7 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
                 grpc.StatusCode.ALREADY_EXISTS,
                 f'environment "{request.id}" already exists',
             )
-        template = env_pb2.Template(name="default-env", atespace="default")
+        template = env_pb2.Template(name="default-template", atespace="ate-env")
         if request.HasField("template"):
             if request.template.name:
                 template.name = request.template.name
@@ -67,11 +67,11 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
 
     async def DeleteEnvironment(self, request, context):
         await self._lookup(request, context)
-        del self.environments[(request.atespace or "default", request.id)]
+        del self.environments[(request.atespace or "ate-env", request.id)]
         return env_pb2.DeleteEnvironmentResponse()
 
     async def _lookup(self, request, context):
-        key = (request.atespace or "default", request.id)
+        key = (request.atespace or "ate-env", request.id)
         environment = self.environments.get(key)
         if environment is None:
             await context.abort(

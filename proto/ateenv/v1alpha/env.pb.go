@@ -105,7 +105,7 @@ func (EnvironmentStatus) EnumDescriptor() ([]byte, []int) {
 // Template represents an ActorTemplate used to instantiate environments.
 type Template struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Name of the ActorTemplate (e.g. "default-env").
+	// Name of the ActorTemplate (e.g. "default-template").
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Substrate atespace where the ActorTemplate is located.
 	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
@@ -235,9 +235,9 @@ type CreateEnvironmentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique environment identifier (DNS-1123 label). Required.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Substrate atespace for the environment (defaults to "default").
+	// Substrate atespace for the environment (defaults to "ate-env").
 	Atespace string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
-	// ActorTemplate configuration to instantiate (defaults to name "default-env" in atespace "default").
+	// ActorTemplate configuration to instantiate (defaults to name "default-template" in atespace "ate-env").
 	Template      *Template `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -345,7 +345,7 @@ type GetEnvironmentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique identifier of the environment to retrieve. Required.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Substrate atespace of the environment (defaults to "default").
+	// Substrate atespace of the environment (defaults to "ate-env").
 	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -446,7 +446,7 @@ type SuspendEnvironmentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique identifier of the environment to suspend. Required.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Substrate atespace of the environment (defaults to "default").
+	// Substrate atespace of the environment (defaults to "ate-env").
 	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -538,7 +538,7 @@ type DeleteEnvironmentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unique identifier of the environment to delete. Required.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Substrate atespace of the environment (defaults to "default").
+	// Substrate atespace of the environment (defaults to "ate-env").
 	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

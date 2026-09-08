@@ -33,7 +33,7 @@ from ate_env import (
 
 TARGET = os.environ.get("ATE_ENV_API_TARGET")
 READY_TIMEOUT = float(os.environ.get("ATE_ENV_READY_TIMEOUT", "180"))
-# Optional ActorTemplate override; the server default is "default-env".
+# Optional ActorTemplate override; the server default is "default-template".
 TEMPLATE = os.environ.get("ATE_ENV_TEMPLATE")
 
 pytestmark = pytest.mark.skipif(
@@ -90,7 +90,7 @@ async def test_full_lifecycle(client):
     env_id = f"pye2e-{uuid.uuid4().hex[:8]}"
     env = await client.create(env_id, template_name=TEMPLATE)
     assert env.id == env_id
-    assert env.atespace == "default"
+    assert env.atespace == "ate-env"
 
     try:
         info = await env.info()

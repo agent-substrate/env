@@ -43,7 +43,7 @@ const (
 )
 
 // DefaultAtespace is the Substrate atespace every environment actor lives in.
-const DefaultAtespace = "default"
+const DefaultAtespace = "ate-env"
 
 // ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")

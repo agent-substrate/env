@@ -13,22 +13,30 @@ import (
 
 func testManifestConfig() manifestConfig {
 	return manifestConfig{
-		namespace:       "ate-env",
-		template:        "default-env",
-		workerPool:      "default-env-workerpool",
-		guestImage:      "example.com/guest@sha256:aaaa",
-		workerImage:     "example.com/ateom@sha256:bbbb",
-		apiImage:        "example.com/api@sha256:cccc",
-		snapshotsBucket: "gs://bucket/ate-env/",
-		replicas:        3,
-		apiReplicas:     1,
-		apiPort:         7777,
-		guestCommand:    []string{"/ko-app/ate-env-guest"},
-		poolLabels:      map[string]string{"workload": "default-env"},
+		namespace:   "ate-env",
+		template:    "default-template",
+		workerPool:  "default-template-workerpool",
+		workerImage: "example.com/ateom@sha256:bbbb",
+		apiImage:    "example.com/api@sha256:cccc",
+		replicas:    3,
+		apiReplicas: 1,
+		apiPort:     7777,
+		poolLabels:  map[string]string{"workload": "default-template"},
 	}
 }
 
-func TestResolveImages(t *testing.T) {
+func testTemplateConfig() templateConfig {
+	return templateConfig{
+		template:        "default-template",
+		atespace:        "ate-env",
+		guestImage:      "example.com/guest@sha256:aaaa",
+		snapshotsBucket: "gs://bucket/ate-env/",
+		guestCommand:    []string{"/ko-app/ate-env-guest"},
+		poolLabels:      map[string]string{"workload": "default-template"},
+	}
+}
+
+func TestManifestConfigResolveImages(t *testing.T) {
 	cfg := testManifestConfig()
 	if err := cfg.resolveImages(); err != nil {
 		t.Errorf("resolveImages with images set: %v", err)
@@ -38,21 +46,25 @@ func TestResolveImages(t *testing.T) {
 		t.Error("resolveImages with a missing api image: want error, got nil")
 	}
 	cfg = testManifestConfig()
+	cfg.workerImage = ""
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("resolveImages with a missing worker image: want error, got nil")
+	}
+}
+
+func TestTemplateConfigResolveImages(t *testing.T) {
+	cfg := testTemplateConfig()
+	if err := cfg.resolveImages(); err != nil {
+		t.Errorf("resolveImages with template images and bucket set: %v", err)
+	}
 	cfg.guestImage = ""
 	if err := cfg.resolveImages(); err == nil {
 		t.Error("resolveImages with a missing guest image: want error, got nil")
 	}
-
-	cfg = testManifestConfig()
-	cfg.templateOnly = true
-	cfg.apiImage = ""
-	cfg.workerImage = ""
-	if err := cfg.resolveImages(); err != nil {
-		t.Errorf("resolveImages templateOnly with guest image: %v", err)
-	}
-	cfg.guestImage = ""
+	cfg = testTemplateConfig()
+	cfg.snapshotsBucket = ""
 	if err := cfg.resolveImages(); err == nil {
-		t.Error("resolveImages templateOnly without guest image: want error, got nil")
+		t.Error("resolveImages with a missing snapshots bucket: want error, got nil")
 	}
 }
 
@@ -69,14 +81,14 @@ func TestBuildManifests(t *testing.T) {
 	}
 
 	pool := objs[1].(*atev1alpha1.WorkerPool)
-	if pool.Namespace != cfg.namespace || pool.Name != "default-env-workerpool" {
-		t.Errorf("workerpool = %s/%s, want %s/default-env-workerpool", pool.Namespace, pool.Name, cfg.namespace)
+	if pool.Namespace != cfg.namespace || pool.Name != "default-template-workerpool" {
+		t.Errorf("workerpool = %s/%s, want %s/default-template-workerpool", pool.Namespace, pool.Name, cfg.namespace)
 	}
 	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.workerImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and worker image %q", pool.Spec, cfg.workerImage)
 	}
-	if pool.Labels["workload"] != "default-env" {
-		t.Errorf("workerpool labels = %v, want workload=default-env", pool.Labels)
+	if pool.Labels["workload"] != "default-template" {
+		t.Errorf("workerpool labels = %v, want workload=default-template", pool.Labels)
 	}
 
 	deployment := objs[2].(*appsv1.Deployment)
@@ -98,14 +110,14 @@ func TestBuildManifests(t *testing.T) {
 }
 
 func TestBuildActorTemplate(t *testing.T) {
-	cfg := testManifestConfig()
+	cfg := testTemplateConfig()
 	var template *ateapipb.ActorTemplate = buildActorTemplate(cfg)
 
-	if template.GetMetadata().GetName() != "default-env" {
-		t.Errorf("template name = %q, want default-env", template.GetMetadata().GetName())
+	if template.GetMetadata().GetName() != "default-template" {
+		t.Errorf("template name = %q, want default-template", template.GetMetadata().GetName())
 	}
-	if template.GetMetadata().GetAtespace() != "default" {
-		t.Errorf("template atespace = %q, want default", template.GetMetadata().GetAtespace())
+	if template.GetMetadata().GetAtespace() != "ate-env" {
+		t.Errorf("template atespace = %q, want ate-env", template.GetMetadata().GetAtespace())
 	}
 	if len(template.Containers) != 1 || template.Containers[0].Image != cfg.guestImage {
 		t.Errorf("template containers = %+v, want one guest container with image %q",
@@ -114,8 +126,8 @@ func TestBuildActorTemplate(t *testing.T) {
 	if template.GetSnapshotsConfig().GetStorageLocation() != cfg.snapshotsBucket {
 		t.Errorf("snapshots location = %q, want %q", template.GetSnapshotsConfig().GetStorageLocation(), cfg.snapshotsBucket)
 	}
-	if got := template.GetWorkerSelector().GetMatchLabels()["workload"]; got != "default-env" {
-		t.Errorf("worker selector = %v, want workload=default-env", template.WorkerSelector)
+	if got := template.GetWorkerSelector().GetMatchLabels()["workload"]; got != "default-template" {
+		t.Errorf("worker selector = %v, want workload=default-template", template.WorkerSelector)
 	}
 	readyz := template.Containers[0].Readyz
 	if readyz == nil || readyz.GetHttpGet() == nil || readyz.GetHttpGet().Path != "/readyz" {
@@ -176,13 +188,13 @@ func TestWriteManifests(t *testing.T) {
 
 func TestWriteActorTemplate(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeActorTemplate(&buf, buildActorTemplate(testManifestConfig())); err != nil {
+	if err := writeActorTemplate(&buf, buildActorTemplate(testTemplateConfig())); err != nil {
 		t.Fatalf("writeActorTemplate: %v", err)
 	}
 	out := buf.String()
 
 	for _, want := range []string{
-		"name: default-env",
+		"name: default-template",
 		"image: example.com/guest@sha256:aaaa",
 		"storageLocation: gs://bucket/ate-env/",
 	} {
@@ -201,5 +213,40 @@ func TestWriteActorTemplate(t *testing.T) {
 	}
 	if strings.Contains(out, "{}") {
 		t.Errorf("output should not contain empty map literals ({}):\n%s", out)
+	}
+}
+
+func TestManifestCommandExecution(t *testing.T) {
+	cmd := newManifestCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{
+		"--api-image=example.com/api@sha256:cccc",
+		"--worker-image=example.com/worker@sha256:bbbb",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute manifest: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "kind: Deployment") || !strings.Contains(out, "kind: WorkerPool") {
+		t.Errorf("expected deployment and workerpool in output:\n%s", out)
+	}
+}
+
+func TestManifestTemplateCommandExecution(t *testing.T) {
+	cmd := newManifestCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{
+		"template",
+		"--guest-image=example.com/guest@sha256:aaaa",
+		"--snapshots-bucket=gs://bucket/prefix/",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute manifest template: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "image: example.com/guest@sha256:aaaa") || !strings.Contains(out, "storageLocation: gs://bucket/prefix/") {
+		t.Errorf("expected guest image and storage location in output:\n%s", out)
 	}
 }
