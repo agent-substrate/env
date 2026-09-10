@@ -1,10 +1,12 @@
+#!/usr/bin/env bash
+
 # Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,22 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Multi-stage Dockerfile for the Agent Substrate Guest Daemon binary
-FROM golang:1.26-alpine AS builder
+set -o errexit -o nounset -o pipefail
 
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
+ROOT="$(git rev-parse --show-toplevel)"
+cd "${ROOT}"
 
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /guest-daemon ./examples/guest-daemon
-
-# Minimal runtime containing only the compiled guest daemon binary
-FROM gcr.io/distroless/static-debian12
-
-COPY --from=builder /guest-daemon /guest-daemon
-
-EXPOSE 8080
-
-ENTRYPOINT ["/guest-daemon"]
-
+hack/util/verify-boilerplate.py
