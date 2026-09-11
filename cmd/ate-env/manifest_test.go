@@ -35,7 +35,6 @@ func testManifestConfig() manifestConfig {
 		replicas:    3,
 		apiReplicas: 1,
 		apiPort:     7777,
-		poolLabels:  map[string]string{"workload": "default-template"},
 	}
 }
 
@@ -46,7 +45,6 @@ func testTemplateConfig() templateConfig {
 		guestImage:      "example.com/guest@sha256:aaaa",
 		snapshotsBucket: "gs://bucket/ate-env/",
 		guestCommand:    []string{"/ko-app/ate-env-guest"},
-		poolLabels:      map[string]string{"workload": "default-template"},
 	}
 }
 
@@ -101,8 +99,11 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.workerImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and worker image %q", pool.Spec, cfg.workerImage)
 	}
-	if pool.Labels["workload"] != "default-template" {
-		t.Errorf("workerpool labels = %v, want workload=default-template", pool.Labels)
+	if len(pool.Labels) != 0 {
+		t.Errorf("workerpool labels = %v, want empty", pool.Labels)
+	}
+	if pool.Spec.Template != nil {
+		t.Errorf("workerpool template = %v, want nil", pool.Spec.Template)
 	}
 
 	deployment := objs[2].(*appsv1.Deployment)
@@ -140,8 +141,8 @@ func TestBuildActorTemplate(t *testing.T) {
 	if template.GetSnapshotsConfig().GetStorageLocation() != cfg.snapshotsBucket {
 		t.Errorf("snapshots location = %q, want %q", template.GetSnapshotsConfig().GetStorageLocation(), cfg.snapshotsBucket)
 	}
-	if got := template.GetWorkerSelector().GetMatchLabels()["workload"]; got != "default-template" {
-		t.Errorf("worker selector = %v, want workload=default-template", template.WorkerSelector)
+	if template.GetWorkerSelector() != nil {
+		t.Errorf("worker selector = %v, want nil", template.WorkerSelector)
 	}
 	readyz := template.Containers[0].Readyz
 	if readyz == nil || readyz.GetHttpGet() == nil || readyz.GetHttpGet().Path != "/readyz" {

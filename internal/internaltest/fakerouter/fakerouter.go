@@ -51,9 +51,9 @@ func (r *Router) Register(id string, h http.Handler) {
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	id, _, ok := strings.Cut(req.Host, ".")
-	if !ok || !strings.HasSuffix(req.Host, "."+ate.DefaultHostSuffix) {
-		http.Error(w, "unroutable host "+req.Host, http.StatusNotFound)
+	id, ok := actorID(req)
+	if !ok {
+		http.Error(w, "invalid actor reference", http.StatusNotFound)
 		return
 	}
 	r.mu.Lock()
@@ -68,6 +68,18 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	guest.ServeHTTP(w, req)
+}
+
+func actorID(req *http.Request) (string, bool) {
+	if targetActor := req.Header.Get(ate.TargetActorHeader); targetActor != "" {
+		_, actor, ok := strings.Cut(targetActor, "/")
+		return actor, ok && actor != ""
+	}
+	if !strings.HasSuffix(req.Host, "."+ate.DefaultHostSuffix) {
+		return "", false
+	}
+	id, _, ok := strings.Cut(req.Host, ".")
+	return id, ok && id != ""
 }
 
 // Serve starts the router on a random localhost port and returns its

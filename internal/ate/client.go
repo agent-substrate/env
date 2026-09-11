@@ -40,8 +40,14 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// TargetActorHeader identifies the actor selected for ingress routing as
+// "<atespace>/<actor>". HTTP field names are case-insensitive; this uses its
+// HTTP/2 wire form so dataplane configuration and metadata are native.
+const TargetActorHeader = "ate-target-actor"
 
 // DefaultHostSuffix is the DNS suffix the atenet router uses to identify
 // actors: requests with Host "<id>.<suffix>" are routed to actor <id>.
@@ -171,11 +177,18 @@ func (c *Client) DialGuest(atespace, id string) (*grpc.ClientConn, error) {
 		return conn, nil
 	}
 
-	authority := id + "." + atespace + "." + c.opts.HostSuffix
+	targetActor := atespace + "/" + id
 	conn, err := grpc.NewClient(
 		c.opts.RouterAddr,
-		grpc.WithAuthority(authority),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			ctx = metadata.AppendToOutgoingContext(ctx, TargetActorHeader, targetActor)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+		grpc.WithChainStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+			ctx = metadata.AppendToOutgoingContext(ctx, TargetActorHeader, targetActor)
+			return streamer(ctx, desc, cc, method, opts...)
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ate: dialing guest %s: %w", key, err)

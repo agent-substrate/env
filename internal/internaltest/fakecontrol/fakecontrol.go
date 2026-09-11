@@ -194,9 +194,8 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 func (s *Server) suspend(a *ateapipb.Actor) {
 	a.Status = &ateapipb.ActorStatus{
 		State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-		LatestSnapshot: &ateapipb.ObjectRef{
-			Atespace: a.GetMetadata().GetAtespace(),
-			Name:     fmt.Sprintf("snapshot-%s", a.GetMetadata().GetName()),
+		ExternalSnapshot: &ateapipb.ExternalSnapshot{
+			SnapshotUri: fmt.Sprintf("gs://bucket/snapshot-%s", a.GetMetadata().GetName()),
 		},
 	}
 }

@@ -3,14 +3,14 @@ module github.com/agent-substrate/env
 go 1.27.0
 
 require (
-	github.com/agent-substrate/substrate v0.0.0-20260903002803-2cd494384fc6
+	github.com/agent-substrate/substrate v0.0.0-20260909202336-0b3d2d078f64
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/grpc v1.83.2
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
-	k8s.io/api v0.37.0-rc.0
-	k8s.io/apimachinery v0.37.0-rc.0
+	google.golang.org/protobuf v1.36.12
+	k8s.io/api v0.37.0
+	k8s.io/apimachinery v0.37.0
 	sigs.k8s.io/yaml v1.6.0
 )
 
