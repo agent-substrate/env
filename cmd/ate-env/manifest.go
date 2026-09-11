@@ -244,6 +244,10 @@ func buildNamespace(cfg manifestConfig) *corev1.Namespace {
 }
 
 func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
+	templateLabels := make(map[string]atev1alpha1.WorkerPoolLabelValue, len(cfg.poolLabels))
+	for k, v := range cfg.poolLabels {
+		templateLabels[k] = atev1alpha1.WorkerPoolLabelValue(v)
+	}
 	return &atev1alpha1.WorkerPool{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: atev1alpha1.GroupVersion.String(),
@@ -257,6 +261,9 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 		Spec: atev1alpha1.WorkerPoolSpec{
 			Replicas:    cfg.replicas,
 			WorkerImage: cfg.workerImage,
+			Template: &atev1alpha1.WorkerPoolPodTemplate{
+				Labels: templateLabels,
+			},
 		},
 	}
 }

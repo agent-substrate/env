@@ -37,9 +37,23 @@ func (r *Router) Register(id string, h http.Handler) {
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	id, _, ok := strings.Cut(req.Host, ".")
-	if !ok || !strings.HasSuffix(req.Host, "."+ate.DefaultHostSuffix) {
-		http.Error(w, "unroutable host "+req.Host, http.StatusNotFound)
+	var id string
+	if targetActor := req.Header.Get(ate.TargetActorHeader); targetActor != "" {
+		_, actor, ok := strings.Cut(targetActor, "/")
+		if !ok || actor == "" {
+			http.Error(w, "invalid actor reference", http.StatusNotFound)
+			return
+		}
+		id = actor
+	} else if strings.Contains(req.Host, ".") {
+		var ok bool
+		id, _, ok = strings.Cut(req.Host, ".")
+		if !ok || !strings.HasSuffix(req.Host, "."+ate.DefaultHostSuffix) {
+			http.Error(w, "invalid actor reference", http.StatusNotFound)
+			return
+		}
+	} else {
+		http.Error(w, "invalid actor reference", http.StatusNotFound)
 		return
 	}
 	r.mu.Lock()

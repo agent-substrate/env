@@ -90,6 +90,9 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Labels["workload"] != "default-template" {
 		t.Errorf("workerpool labels = %v, want workload=default-template", pool.Labels)
 	}
+	if pool.Spec.Template == nil || pool.Spec.Template.Labels["workload"] != "default-template" {
+		t.Errorf("workerpool template labels = %v, want workload=default-template", pool.Spec.Template)
+	}
 
 	deployment := objs[2].(*appsv1.Deployment)
 	containers := deployment.Spec.Template.Spec.Containers

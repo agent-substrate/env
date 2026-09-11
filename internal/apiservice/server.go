@@ -6,7 +6,6 @@ package apiservice
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 
@@ -175,7 +174,7 @@ func (s *Server) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProce
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx)
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
 	return ateenvv1alpha.NewProcessServiceClient(conn).StartProcess(outCtx, req)
 }
 
@@ -191,7 +190,7 @@ func (s *Server) GetProcess(ctx context.Context, req *ateenvv1alpha.GetProcessRe
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx)
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
 	return ateenvv1alpha.NewProcessServiceClient(conn).GetProcess(outCtx, req)
 }
 
@@ -208,7 +207,7 @@ func (s *Server) StreamProcessOutputs(req *ateenvv1alpha.StreamProcessOutputsReq
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx)
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
 	clientStream, err := ateenvv1alpha.NewProcessServiceClient(conn).StreamProcessOutputs(outCtx, req)
 	if err != nil {
 		return err
@@ -240,7 +239,7 @@ func (s *Server) KillProcess(ctx context.Context, req *ateenvv1alpha.KillProcess
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx)
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
 	return ateenvv1alpha.NewProcessServiceClient(conn).KillProcess(outCtx, req)
 }
 
@@ -261,7 +260,7 @@ func (s *Server) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream grpc.Server
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx)
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
 	clientStream, err := ateenvv1alpha.NewFileSystemServiceClient(conn).ReadFile(outCtx, req)
 	if err != nil {
 		return err
@@ -294,7 +293,7 @@ func (s *Server) WriteFile(stream grpc.ClientStreamingServer[ateenvv1alpha.Write
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx)
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
 	clientStream, err := ateenvv1alpha.NewFileSystemServiceClient(conn).WriteFile(outCtx)
 	if err != nil {
 		return err
@@ -341,12 +340,16 @@ func envFromContext(ctx context.Context) (string, string, error) {
 	return ids[0], atespace, nil
 }
 
-func forwardOutgoingContext(ctx context.Context) context.Context {
+func forwardOutgoingContext(ctx context.Context, atespace, envID string) context.Context {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return ctx
+		md = metadata.MD{}
+	} else {
+		md = md.Copy()
 	}
-	return metadata.NewOutgoingContext(ctx, md.Copy())
+	targetActor := atespace + "/" + envID
+	md.Set(ate.TargetActorHeader, targetActor)
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 func (s *Server) guestConn(atespace, id string) (*grpc.ClientConn, error) {
@@ -356,11 +359,18 @@ func (s *Server) guestConn(atespace, id string) (*grpc.ClientConn, error) {
 	if atespace == "" {
 		atespace = DefaultAtespace
 	}
-	authority := fmt.Sprintf("%s.%s.%s", id, atespace, s.hostSuffix)
+	targetActor := atespace + "/" + id
 	conn, err := grpc.NewClient(
 		s.routerAddr,
-		grpc.WithAuthority(authority),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			ctx = metadata.AppendToOutgoingContext(ctx, ate.TargetActorHeader, targetActor)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+		grpc.WithChainStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+			ctx = metadata.AppendToOutgoingContext(ctx, ate.TargetActorHeader, targetActor)
+			return streamer(ctx, desc, cc, method, opts...)
+		}),
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "dialing guest router for %s/%s: %v", atespace, id, err)
