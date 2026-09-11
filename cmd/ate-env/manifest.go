@@ -46,7 +46,6 @@ type manifestConfig struct {
 	apiImage    string
 	apiReplicas int32
 	apiPort     int32
-	poolLabels  map[string]string
 }
 
 func (c *manifestConfig) resolveImages() error {
@@ -65,7 +64,6 @@ type templateConfig struct {
 	guestImage      string
 	guestCommand    []string
 	snapshotsBucket string
-	poolLabels      map[string]string
 }
 
 func (c *templateConfig) resolveImages() error {
@@ -99,7 +97,6 @@ the "template" subcommand: ate-env manifest template`,
 			if mCfg.workerPool == "" {
 				mCfg.workerPool = mCfg.template + "-workerpool"
 			}
-			mCfg.poolLabels = map[string]string{"workload": mCfg.template}
 			if err := mCfg.resolveImages(); err != nil {
 				return err
 			}
@@ -108,7 +105,7 @@ the "template" subcommand: ate-env manifest template`,
 	}
 
 	cmd.Flags().StringVar(&mCfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
-	cmd.Flags().StringVar(&mCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name used for WorkerPool workload labels")
+	cmd.Flags().StringVar(&mCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&mCfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
 	cmd.Flags().StringVar(&mCfg.workerImage, "ateom-image", "", "alias for --worker-image")
 	cmd.Flags().StringVar(&mCfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
@@ -135,7 +132,6 @@ It prints YAML to stdout without touching the cluster.`,
 			if tCfg.template == "" {
 				tCfg.template = apiservice.DefaultTemplate
 			}
-			tCfg.poolLabels = map[string]string{"workload": tCfg.template}
 			if err := tCfg.resolveImages(); err != nil {
 				return err
 			}
@@ -258,10 +254,6 @@ func buildNamespace(cfg manifestConfig) *corev1.Namespace {
 }
 
 func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
-	templateLabels := make(map[string]atev1alpha1.WorkerPoolLabelValue, len(cfg.poolLabels))
-	for k, v := range cfg.poolLabels {
-		templateLabels[k] = atev1alpha1.WorkerPoolLabelValue(v)
-	}
 	return &atev1alpha1.WorkerPool{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: atev1alpha1.GroupVersion.String(),
@@ -270,14 +262,10 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cfg.workerPool,
 			Namespace: cfg.namespace,
-			Labels:    cfg.poolLabels,
 		},
 		Spec: atev1alpha1.WorkerPoolSpec{
 			Replicas:    cfg.replicas,
 			WorkerImage: cfg.workerImage,
-			Template: &atev1alpha1.WorkerPoolPodTemplate{
-				Labels: templateLabels,
-			},
 		},
 	}
 }
@@ -291,9 +279,6 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 		Metadata: &ateapipb.ResourceMetadata{
 			Name:     cfg.template,
 			Atespace: atespace,
-		},
-		WorkerSelector: &ateapipb.Selector{
-			MatchLabels: cfg.poolLabels,
 		},
 		Containers: []*ateapipb.Container{{
 			Name:    "guest",
