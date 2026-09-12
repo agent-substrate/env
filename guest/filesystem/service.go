@@ -119,7 +119,18 @@ func (s *Service) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream ateenvv1al
 		return err
 	}
 
-	f, err := os.Open(filePath)
+	// With a mode, a missing file is created empty instead of being an error.
+	flags := os.O_RDONLY
+	if req.GetMode() != 0 {
+		flags |= os.O_CREATE
+		if dir := filepath.Dir(filePath); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return status.Errorf(codes.Internal, "failed to create parent directories for %q: %v", req.GetPath(), err)
+			}
+		}
+	}
+
+	f, err := os.OpenFile(filePath, flags, os.FileMode(req.GetMode()))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return status.Errorf(codes.NotFound, "file %q not found", req.GetPath())
@@ -135,8 +146,8 @@ func (s *Service) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream ateenvv1al
 	for {
 		n, readErr := f.Read(buf)
 		if n > 0 {
-			if err := stream.Send(&ateenvv1alpha.FileChunk{
-				Data: buf[:n],
+			if err := stream.Send(&ateenvv1alpha.ReadFileResponse{
+				Chunk: buf[:n],
 			}); err != nil {
 				return err
 			}
@@ -207,12 +218,27 @@ func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServ
 				mode = os.FileMode(req.GetMode())
 			}
 
-			f, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			// Without a seek offset the file is replaced; with one, existing
+			// content is preserved and writing starts at the offset.
+			if req.GetSeekOffset() < 0 {
+				return status.Error(codes.InvalidArgument, "seek_offset cannot be negative")
+			}
+			flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+			if req.GetSeekOffset() > 0 {
+				flags = os.O_CREATE | os.O_WRONLY
+			}
+
+			f, err = os.OpenFile(filePath, flags, mode)
 			if err != nil {
 				if errors.Is(err, os.ErrPermission) {
 					return status.Errorf(codes.PermissionDenied, "permission denied opening %q: %v", reqPath, err)
 				}
 				return status.Errorf(codes.Internal, "failed to create file %q: %v", reqPath, err)
+			}
+			if req.GetSeekOffset() > 0 {
+				if _, err := f.Seek(req.GetSeekOffset(), io.SeekStart); err != nil {
+					return status.Errorf(codes.Internal, "failed to seek in file %q: %v", reqPath, err)
+				}
 			}
 		}
 

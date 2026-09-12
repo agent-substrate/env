@@ -104,29 +104,32 @@ sys.stderr.write("Job stderr log\n")
 		t.Fatalf("StartProcess failed: %v", err)
 	}
 
-	// 3. Stream real-time output
-	outStream, err := procClient.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
-		ProcessId: startRes.ProcessId,
+	// 3. Stream real-time output; the stream ends with the exit message.
+	outStream, err := procClient.StreamProcessOutput(ctx, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: startRes.GetProcessId(),
 		Follow:    true,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessOutputs failed: %v", err)
+		t.Fatalf("StreamProcessOutput failed: %v", err)
 	}
 
-	var stdout strings.Builder
-	var stderr strings.Builder
+	var stdout, stderr strings.Builder
+	var exit *ateenvv1alpha.Process
 	for {
-		chunk, err := outStream.Recv()
+		msg, err := outStream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			t.Fatalf("error reading output chunk: %v", err)
+			t.Fatalf("error reading output: %v", err)
 		}
-		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
-			stdout.Write(chunk.Data)
-		} else if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR {
-			stderr.Write(chunk.Data)
+		switch out := msg.GetOutput().(type) {
+		case *ateenvv1alpha.ProcessOutput_Stdout:
+			stdout.Write(out.Stdout)
+		case *ateenvv1alpha.ProcessOutput_Stderr:
+			stderr.Write(out.Stderr)
+		case *ateenvv1alpha.ProcessOutput_Exit:
+			exit = out.Exit
 		}
 	}
 
@@ -137,17 +140,14 @@ sys.stderr.write("Job stderr log\n")
 		t.Fatalf("expected stderr to contain 'Job stderr log', got %q", stderr.String())
 	}
 
-	// 4. Verify Process metadata
-	proc, err := procClient.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-		ProcessId: startRes.ProcessId,
-	})
-	if err != nil {
-		t.Fatalf("GetProcess failed: %v", err)
+	// 4. Verify the final Process state
+	if exit == nil {
+		t.Fatalf("expected an exit message at the end of the stream")
 	}
-	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED {
-		t.Fatalf("expected status COMPLETED, got %v", proc.Status)
+	if exit.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED {
+		t.Fatalf("expected state EXITED, got %v", exit.GetState())
 	}
-	if proc.ExitCode != 0 {
-		t.Fatalf("expected exit code 0, got %d", proc.ExitCode)
+	if exit.GetExitCode() != 0 {
+		t.Fatalf("expected exit code 0, got %d", exit.GetExitCode())
 	}
 }

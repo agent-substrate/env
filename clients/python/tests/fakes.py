@@ -21,6 +21,7 @@ exercised against realistic behavior without a cluster.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 import grpc
@@ -98,20 +99,30 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
 class FakeProc:
     """Scripted behavior for one process started against the fake.
 
-    running_polls is the number of GetProcess calls that still report
-    RUNNING before the final status is returned — this exercises the
-    client's wait()/shell() poll loop, analogous to the sibling SDK's
-    "resuming" counter.
+    chunks are (field, data) pairs where field is "stdout" or "stderr";
+    they are replayed by StreamProcessOutput. exit_code/signal describe the
+    final state. running_polls is the number of GetProcess calls that still
+    report RUNNING before the process is considered exited; a follow stream
+    exits it immediately once the chunks are replayed. echo_stdin appends
+    written input as stdout, like cat.
     """
 
-    chunks: list[tuple[int, bytes]] = field(default_factory=list)  # (OutputSource, data)
+    chunks: list[tuple[str, bytes]] = field(default_factory=list)
     exit_code: int = 0
+    signal: int = 0
     running_polls: int = 0
-    killed: bool = False
-    # request capture, filled by StartProcess:
+    echo_stdin: bool = False
+    hang_follow: bool = False  # a follow stream never ends (process never exits)
+    # request capture, filled by StartProcess / WriteProcessInput / SignalProcess:
     command: list[str] = field(default_factory=list)
     cwd: str = ""
     env: dict[str, str] = field(default_factory=dict)
+    stdin: bool = False
+    timeout_seconds: float | None = None
+    stdin_data: bytearray = field(default_factory=bytearray)
+    stdin_closed: bool = False
+    signals: list[int] = field(default_factory=list)
+    exited: bool = False
 
 
 class FakeProcessService(guest_pb2_grpc.ProcessServiceServicer):
@@ -121,61 +132,125 @@ class FakeProcessService(guest_pb2_grpc.ProcessServiceServicer):
         self.last_env: tuple[str, str] | None = None
         self._counter = 0
 
+    def _to_pb(self, process_id: str, proc: FakeProc, *, exited: bool) -> guest_pb2.Process:
+        pb = guest_pb2.Process(
+            process_id=process_id,
+            command=proc.command,
+            pid=1000 + int(process_id.rsplit("-", 1)[1]),
+            state=guest_pb2.PROCESS_STATE_EXITED if exited else guest_pb2.PROCESS_STATE_RUNNING,
+        )
+        pb.started_at.GetCurrentTime()
+        if exited:
+            pb.finished_at.GetCurrentTime()
+            pb.exit_code = 128 + proc.signal if proc.signal else proc.exit_code
+        return pb
+
     async def StartProcess(self, request, context):
         self.last_env = await _require_env(context)
+        if not request.command:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "command cannot be empty")
         proc = self.next_procs.pop(0) if self.next_procs else FakeProc()
         proc.command = list(request.command)
         proc.cwd = request.cwd
         proc.env = dict(request.env)
+        proc.stdin = request.stdin
+        if request.HasField("timeout"):
+            proc.timeout_seconds = request.timeout.ToTimedelta().total_seconds()
         self._counter += 1
         process_id = f"proc-{self._counter}"
         self.procs[process_id] = proc
-        return guest_pb2.StartProcessResponse(process_id=process_id)
+        return self._to_pb(process_id, proc, exited=False)
 
     async def GetProcess(self, request, context):
         self.last_env = await _require_env(context)
         proc = await self._lookup(request.process_id, context)
-        if proc.running_polls > 0:
+        if not proc.exited and proc.running_polls > 0:
             proc.running_polls -= 1
-            return guest_pb2.Process(
-                process_id=request.process_id,
-                status=guest_pb2.PROCESS_STATUS_RUNNING,
-            )
-        if proc.killed:
-            status = guest_pb2.PROCESS_STATUS_TERMINATED
-        elif proc.exit_code == 0:
-            status = guest_pb2.PROCESS_STATUS_COMPLETED
-        else:
-            status = guest_pb2.PROCESS_STATUS_FAILED
-        final = guest_pb2.Process(
-            process_id=request.process_id,
-            status=status,
-            exit_code=proc.exit_code,
-        )
-        final.started_at.GetCurrentTime()
-        final.finished_at.GetCurrentTime()
-        return final
+            return self._to_pb(request.process_id, proc, exited=False)
+        proc.exited = True
+        return self._to_pb(request.process_id, proc, exited=True)
 
-    async def StreamProcessOutputs(self, request, context):
+    async def StreamProcessOutput(self, request, context):
         self.last_env = await _require_env(context)
         proc = await self._lookup(request.process_id, context)
         stdout_skip = request.stdout_offset
         stderr_skip = request.stderr_offset
         for source, data in proc.chunks:
-            if source == guest_pb2.OUTPUT_SOURCE_STDOUT and stdout_skip:
+            if source == "stdout":
                 data, stdout_skip = data[stdout_skip:], max(0, stdout_skip - len(data))
-            elif source == guest_pb2.OUTPUT_SOURCE_STDERR and stderr_skip:
+                if data:
+                    yield guest_pb2.ProcessOutput(stdout=data)
+            else:
                 data, stderr_skip = data[stderr_skip:], max(0, stderr_skip - len(data))
-            if data:
-                yield guest_pb2.OutputChunk(source=source, data=data)
+                if data:
+                    yield guest_pb2.ProcessOutput(stderr=data)
+        if request.follow and proc.hang_follow:
+            await asyncio.Event().wait()
+        if request.follow:
+            # Simulate a live process: yield to the loop between chunks and exit.
+            for _ in range(proc.running_polls):
+                await asyncio.sleep(0)
+            proc.running_polls = 0
+            proc.exited = True
+        if proc.exited or proc.running_polls == 0:
+            proc.exited = True
+            yield guest_pb2.ProcessOutput(exit=self._to_pb(request.process_id, proc, exited=True))
 
-    async def KillProcess(self, request, context):
+    async def WriteProcessInput(self, request_iterator, context):
+        self.last_env = await _require_env(context)
+        proc = None
+        process_id = ""
+        written = 0
+        async for request in request_iterator:
+            if proc is None:
+                process_id = request.process_id
+                if not process_id:
+                    await context.abort(
+                        grpc.StatusCode.INVALID_ARGUMENT,
+                        "process_id is required on the first message",
+                    )
+                proc = await self._lookup(process_id, context)
+                if not proc.stdin:
+                    await context.abort(
+                        grpc.StatusCode.FAILED_PRECONDITION,
+                        f'process "{process_id}" was started without stdin',
+                    )
+            if proc.exited:
+                await context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION, f'process "{process_id}" has exited'
+                )
+            if request.data and proc.stdin_closed:
+                await context.abort(
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    f'stdin of process "{process_id}" is closed',
+                )
+            proc.stdin_data.extend(request.data)
+            written += len(request.data)
+            if request.data and proc.echo_stdin:
+                proc.chunks.append(("stdout", bytes(request.data)))
+            if request.close:
+                proc.stdin_closed = True
+        if proc is None:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "process_id is required on the first message"
+            )
+        return guest_pb2.WriteProcessInputResponse(bytes_written=written)
+
+    async def SignalProcess(self, request, context):
         self.last_env = await _require_env(context)
         proc = await self._lookup(request.process_id, context)
-        proc.killed = True
-        proc.exit_code = 137
-        proc.running_polls = 0
-        return guest_pb2.KillProcessResponse(exit_code=137)
+        if request.signal == guest_pb2.SIGNAL_UNSPECIFIED:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported signal")
+        if proc.exited:
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                f'process "{request.process_id}" has exited',
+            )
+        proc.signals.append(request.signal)
+        if request.signal in (guest_pb2.SIGNAL_KILL, guest_pb2.SIGNAL_TERM):
+            proc.signal = request.signal
+            proc.running_polls = 0
+        return self._to_pb(request.process_id, proc, exited=False)
 
     async def _lookup(self, process_id, context):
         proc = self.procs.get(process_id)
@@ -211,7 +286,7 @@ class FakeFileSystemService(guest_pb2_grpc.FileSystemServiceServicer):
                 f"open {request.path}: no such file or directory",
             )
         for i in range(0, len(data), CHUNK_SIZE):
-            yield guest_pb2.FileChunk(data=data[i : i + CHUNK_SIZE])
+            yield guest_pb2.ReadFileResponse(chunk=data[i : i + CHUNK_SIZE])
 
     async def WriteFile(self, request_iterator, context):
         self.last_env = await _require_env(context)
@@ -226,11 +301,23 @@ class FakeFileSystemService(guest_pb2_grpc.FileSystemServiceServicer):
                 await self._validate_path(request.path, context)
                 path = request.path
                 mode = request.mode
-            buf.extend(request.chunk)
+                if request.seek_offset < 0:
+                    await context.abort(
+                        grpc.StatusCode.INVALID_ARGUMENT, "seek_offset cannot be negative"
+                    )
+                if request.seek_offset > 0:
+                    # Keep existing content, zero-fill up to the offset.
+                    buf = bytearray(self.files.get(path, b""))
+                    buf.extend(b"\0" * max(0, request.seek_offset - len(buf)))
+                    pos = request.seek_offset
+                else:
+                    pos = 0
+            buf[pos : pos + len(request.chunk)] = request.chunk
+            pos += len(request.chunk)
             chunk_sizes.append(len(request.chunk))
         self.last_write_chunk_sizes = chunk_sizes
         if path is None:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "path is required")
         self.files[path] = bytes(buf)
-        self.modes[path] = mode
-        return guest_pb2.WriteFileResponse(bytes_written=len(buf))
+        self.modes.setdefault(path, mode)
+        return guest_pb2.WriteFileResponse(bytes_written=sum(chunk_sizes))

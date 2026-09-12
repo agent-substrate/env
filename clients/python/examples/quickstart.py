@@ -21,7 +21,7 @@ Port-forward the service first:
 
 import asyncio
 
-from ate_env import Client
+from ate_env import Client, Signal
 
 
 async def main():
@@ -36,11 +36,25 @@ async def main():
         await env.write_file("/workspace/notes.txt", b"hi\n", mode=0o644)
         print(await env.read_file_bytes("/workspace/notes.txt"))
 
-        pid = await env.start_process(
+        proc = await env.start_process(
             ["sh", "-c", "for i in 1 2 3; do echo $i; sleep 1; done"]
         )
-        async for chunk in env.stream_outputs(pid, follow=True):
-            print(chunk.source.name, chunk.data.decode())
+        async for out in proc.output(follow=True):
+            if out.stdout is not None:
+                print("stdout", out.stdout.decode(), end="")
+            elif out.stderr is not None:
+                print("stderr", out.stderr.decode(), end="")
+            else:
+                print("exited with", out.exit.exit_code)
+
+        # Interactive stdin and signals:
+        cat = await env.start_process(["cat"], stdin=True)
+        await cat.write_input(b"hello\n", close=True)
+        print(await cat.wait())
+
+        sleeper = await env.start_process(["sleep", "300"])
+        await sleeper.signal(Signal.TERM)
+        print((await sleeper.wait()).exit_code)  # 143 = 128 + SIGTERM
 
         await env.delete()
     finally:

@@ -30,10 +30,10 @@ sequenceDiagram
 
     Note over Client,Guest: 3. Process Execution (shell)
     Client->>+API: POST /v1alpha/envs/{id}/mcp (tools/call: shell)
-    API->>+Router: ProcessService.StartProcess & StreamProcessLogs (gRPC)
+    API->>+Router: ProcessService.StartProcess, WriteProcessInput & StreamProcessOutput (gRPC)
     Router->>+Guest: Execute command & stream stdout/stderr
-    Guest-->>-Router: Stream Log Chunks & Exit Code
-    Router-->>-API: Forward Log Chunks & Exit Code
+    Guest-->>-Router: Stream Output Chunks & Exit Message
+    Router-->>-API: Forward Output Chunks & Exit Message
     API-->>-Client: JSON-RPC Response (mcp.CallToolResult)
 ```
 

@@ -176,85 +176,112 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *ateenvv1alpha.Delet
 // --- PROCESS SERVICE ---
 // ============================================================================
 
+// processClient dials the guest of the environment named in ctx's metadata
+// and returns a ProcessService client plus the outgoing context to use with
+// it. The caller must invoke closeFn when done.
+func (s *Server) processClient(ctx context.Context) (ateenvv1alpha.ProcessServiceClient, context.Context, func(), error) {
+	envID, atespace, err := envFromContext(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	conn, err := s.guestConn(atespace, envID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	outCtx := forwardOutgoingContext(ctx, atespace, envID)
+	return ateenvv1alpha.NewProcessServiceClient(conn), outCtx, func() { _ = conn.Close() }, nil
+}
+
 // StartProcess launches a process inside the target environment container.
-func (s *Server) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProcessRequest) (*ateenvv1alpha.StartProcessResponse, error) {
-	envID, atespace, err := envFromContext(ctx)
+func (s *Server) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProcessRequest) (*ateenvv1alpha.Process, error) {
+	client, outCtx, closeFn, err := s.processClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	return ateenvv1alpha.NewProcessServiceClient(conn).StartProcess(outCtx, req)
+	defer closeFn()
+	return client.StartProcess(outCtx, req)
 }
 
-// GetProcess retrieves the status of a process running inside the environment.
+// GetProcess retrieves the state of a process inside the environment.
 func (s *Server) GetProcess(ctx context.Context, req *ateenvv1alpha.GetProcessRequest) (*ateenvv1alpha.Process, error) {
-	envID, atespace, err := envFromContext(ctx)
+	client, outCtx, closeFn, err := s.processClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	return ateenvv1alpha.NewProcessServiceClient(conn).GetProcess(outCtx, req)
+	defer closeFn()
+	return client.GetProcess(outCtx, req)
 }
 
-// StreamProcessOutputs streams real-time stdout and stderr from a process.
-func (s *Server) StreamProcessOutputs(req *ateenvv1alpha.StreamProcessOutputsRequest, stream grpc.ServerStreamingServer[ateenvv1alpha.OutputChunk]) error {
-	ctx := stream.Context()
-	envID, atespace, err := envFromContext(ctx)
+// SignalProcess delivers a signal to a process inside the environment.
+func (s *Server) SignalProcess(ctx context.Context, req *ateenvv1alpha.SignalProcessRequest) (*ateenvv1alpha.Process, error) {
+	client, outCtx, closeFn, err := s.processClient(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
+	defer closeFn()
+	return client.SignalProcess(outCtx, req)
+}
 
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	clientStream, err := ateenvv1alpha.NewProcessServiceClient(conn).StreamProcessOutputs(outCtx, req)
+// StreamProcessOutput streams stdout, stderr and the exit message from a process.
+func (s *Server) StreamProcessOutput(req *ateenvv1alpha.StreamProcessOutputRequest, stream grpc.ServerStreamingServer[ateenvv1alpha.ProcessOutput]) error {
+	client, outCtx, closeFn, err := s.processClient(stream.Context())
 	if err != nil {
 		return err
 	}
+	defer closeFn()
 
+	clientStream, err := client.StreamProcessOutput(outCtx, req)
+	if err != nil {
+		return err
+	}
 	for {
-		chunk, err := clientStream.Recv()
+		msg, err := clientStream.Recv()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(chunk); err != nil {
+		if err := stream.Send(msg); err != nil {
 			return err
 		}
 	}
 }
 
-// KillProcess terminates a running process inside the environment.
-func (s *Server) KillProcess(ctx context.Context, req *ateenvv1alpha.KillProcessRequest) (*ateenvv1alpha.KillProcessResponse, error) {
-	envID, atespace, err := envFromContext(ctx)
+// WriteProcessInput forwards stdin chunks to a process inside the environment.
+func (s *Server) WriteProcessInput(stream grpc.ClientStreamingServer[ateenvv1alpha.WriteProcessInputRequest, ateenvv1alpha.WriteProcessInputResponse]) error {
+	client, outCtx, closeFn, err := s.processClient(stream.Context())
 	if err != nil {
-		return nil, err
+		return err
 	}
-	conn, err := s.guestConn(atespace, envID)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
+	defer closeFn()
 
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	return ateenvv1alpha.NewProcessServiceClient(conn).KillProcess(outCtx, req)
+	clientStream, err := client.WriteProcessInput(outCtx)
+	if err != nil {
+		return err
+	}
+	for {
+		req, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if err := clientStream.Send(req); err != nil {
+			// The guest rejected the stream; surface its status instead of io.EOF.
+			if errors.Is(err, io.EOF) {
+				_, err = clientStream.CloseAndRecv()
+			}
+			return err
+		}
+	}
+
+	resp, err := clientStream.CloseAndRecv()
+	if err != nil {
+		return err
+	}
+	return stream.SendAndClose(resp)
 }
 
 // ============================================================================
@@ -262,7 +289,7 @@ func (s *Server) KillProcess(ctx context.Context, req *ateenvv1alpha.KillProcess
 // ============================================================================
 
 // ReadFile streams file contents from the target environment.
-func (s *Server) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream grpc.ServerStreamingServer[ateenvv1alpha.FileChunk]) error {
+func (s *Server) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream grpc.ServerStreamingServer[ateenvv1alpha.ReadFileResponse]) error {
 	ctx := stream.Context()
 	envID, atespace, err := envFromContext(ctx)
 	if err != nil {

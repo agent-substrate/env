@@ -17,16 +17,15 @@ package process
 import (
 	"context"
 	"errors"
-	"os"
-	"time"
+	"io"
 
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// Service implements ateenvv1alpha.ProcessServiceServer.
-// It provides in-actor asynchronous process execution and log streaming for cmd/ate-env-guest.
+// Service implements ateenvv1alpha.ProcessServiceServer on top of a Tracker.
 type Service struct {
 	ateenvv1alpha.UnimplementedProcessServiceServer
 	tracker *Tracker
@@ -34,141 +33,210 @@ type Service struct {
 
 // NewService creates a new ProcessServiceServer instance.
 func NewService(tracker *Tracker) *Service {
-	return &Service{
-		tracker: tracker,
-	}
+	return &Service{tracker: tracker}
 }
 
-// StartProcess launches a process asynchronously in the background.
-func (s *Service) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProcessRequest) (*ateenvv1alpha.StartProcessResponse, error) {
+// StartProcess launches a process in the background and returns its resource.
+func (s *Service) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProcessRequest) (*ateenvv1alpha.Process, error) {
 	if len(req.GetCommand()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "command cannot be empty")
 	}
+	if req.GetTimeout() != nil && !req.GetTimeout().IsValid() {
+		return nil, status.Error(codes.InvalidArgument, "timeout is invalid")
+	}
 
-	state, err := s.tracker.Start(req.GetCommand(), req.GetCwd(), req.GetEnv())
+	state, err := s.tracker.Start(StartOptions{
+		Command: req.GetCommand(),
+		Cwd:     req.GetCwd(),
+		Env:     req.GetEnv(),
+		Stdin:   req.GetStdin(),
+		Timeout: req.GetTimeout().AsDuration(),
+	})
 	if err != nil {
-		return nil, err
+		return nil, rpcError(err, "")
 	}
-
-	return &ateenvv1alpha.StartProcessResponse{
-		ProcessId: state.ProcessID,
-	}, nil
-}
-
-// GetProcess returns the metadata, status, and exit code of a process.
-func (s *Service) GetProcess(ctx context.Context, req *ateenvv1alpha.GetProcessRequest) (*ateenvv1alpha.Process, error) {
-	if req.GetProcessId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "process_id cannot be empty")
-	}
-
-	state, ok := s.tracker.Get(req.GetProcessId())
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "process %q not found", req.GetProcessId())
-	}
-
 	return state.ToProto(), nil
 }
 
-// StreamProcessOutputs streams stdout and stderr in real-time or as a snapshot.
-func (s *Service) StreamProcessOutputs(req *ateenvv1alpha.StreamProcessOutputsRequest, stream ateenvv1alpha.ProcessService_StreamProcessOutputsServer) error {
-	if req.GetProcessId() == "" {
-		return status.Error(codes.InvalidArgument, "process_id cannot be empty")
+// GetProcess returns the current state of a process.
+func (s *Service) GetProcess(ctx context.Context, req *ateenvv1alpha.GetProcessRequest) (*ateenvv1alpha.Process, error) {
+	state, err := s.lookup(req.GetProcessId())
+	if err != nil {
+		return nil, err
+	}
+	return state.ToProto(), nil
+}
+
+// StreamProcessOutput streams stdout and stderr, ending with an exit message
+// once the process has exited and its output has been fully delivered.
+func (s *Service) StreamProcessOutput(req *ateenvv1alpha.StreamProcessOutputRequest, stream grpc.ServerStreamingServer[ateenvv1alpha.ProcessOutput]) error {
+	state, err := s.lookup(req.GetProcessId())
+	if err != nil {
+		return err
+	}
+	if req.GetStdoutOffset() < 0 || req.GetStderrOffset() < 0 {
+		return status.Error(codes.InvalidArgument, "offsets cannot be negative")
 	}
 
-	state, ok := s.tracker.Get(req.GetProcessId())
-	if !ok {
-		return status.Errorf(codes.NotFound, "process %q not found", req.GetProcessId())
-	}
-
-	stdoutOffset := req.GetStdoutOffset()
-	stderrOffset := req.GetStderrOffset()
-	follow := req.GetFollow()
 	ctx := stream.Context()
+	cursor := &outputCursor{
+		state:  state,
+		stream: stream,
+		stdout: req.GetStdoutOffset(),
+		stderr: req.GetStderrOffset(),
+	}
 
 	for {
-		// Read stdout delta
-		stdoutBytes, newStdoutOffset, err := ReadLogs(state.StdoutPath, stdoutOffset)
-		if err != nil {
-			return status.Errorf(codes.Internal, "reading stdout: %v", err)
-		}
-		if len(stdoutBytes) > 0 {
-			if err := stream.Send(&ateenvv1alpha.OutputChunk{
-				Source: ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT,
-				Data:   stdoutBytes,
-			}); err != nil {
-				return err
-			}
-			stdoutOffset = newStdoutOffset
+		// Grab the change signal before reading so a write that lands between
+		// the read and the select still wakes us.
+		changed := state.OutputChanged()
+		if err := cursor.flush(); err != nil {
+			return err
 		}
 
-		// Read stderr delta
-		stderrBytes, newStderrOffset, err := ReadLogs(state.StderrPath, stderrOffset)
-		if err != nil {
-			return status.Errorf(codes.Internal, "reading stderr: %v", err)
-		}
-		if len(stderrBytes) > 0 {
-			if err := stream.Send(&ateenvv1alpha.OutputChunk{
-				Source: ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR,
-				Data:   stderrBytes,
-			}); err != nil {
+		if state.Exited() {
+			// The reaper flushed the spool before marking the process exited;
+			// pick up anything written after our last read, then finish.
+			if err := cursor.flush(); err != nil {
 				return err
 			}
-			stderrOffset = newStderrOffset
+			return stream.Send(&ateenvv1alpha.ProcessOutput{
+				Output: &ateenvv1alpha.ProcessOutput_Exit{Exit: state.ToProto()},
+			})
 		}
-
-		if !follow {
-			// Snapshot mode: finish after reading available output up to this point
+		if !req.GetFollow() {
 			return nil
 		}
 
-		// Check if process has finished and we consumed all output
-		state.mu.RLock()
-		isTerminated := state.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING
-		state.mu.RUnlock()
-
-		if isTerminated {
-			// Final check to see if there were any remaining bytes flushed on exit
-			finalStdout, _, _ := ReadLogs(state.StdoutPath, stdoutOffset)
-			if len(finalStdout) > 0 {
-				_ = stream.Send(&ateenvv1alpha.OutputChunk{
-					Source: ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT,
-					Data:   finalStdout,
-				})
-			}
-			finalStderr, _, _ := ReadLogs(state.StderrPath, stderrOffset)
-			if len(finalStderr) > 0 {
-				_ = stream.Send(&ateenvv1alpha.OutputChunk{
-					Source: ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR,
-					Data:   finalStderr,
-				})
-			}
-			return nil
-		}
-
-		// Sleep or wait for context cancellation
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+			return status.FromContextError(ctx.Err()).Err()
+		case <-changed:
+		case <-state.Done():
 		}
 	}
 }
 
-// KillProcess terminates a running process and returns its exit code.
-func (s *Service) KillProcess(ctx context.Context, req *ateenvv1alpha.KillProcessRequest) (*ateenvv1alpha.KillProcessResponse, error) {
-	if req.GetProcessId() == "" {
+// outputCursor tracks read offsets into a process's spool files and sends deltas.
+type outputCursor struct {
+	state  *ProcessState
+	stream grpc.ServerStreamingServer[ateenvv1alpha.ProcessOutput]
+	stdout int64
+	stderr int64
+}
+
+func (c *outputCursor) flush() error {
+	data, next, err := ReadSpool(c.state.StdoutPath, c.stdout)
+	if err != nil {
+		return status.Errorf(codes.Internal, "reading stdout: %v", err)
+	}
+	if len(data) > 0 {
+		if err := c.stream.Send(&ateenvv1alpha.ProcessOutput{Output: &ateenvv1alpha.ProcessOutput_Stdout{Stdout: data}}); err != nil {
+			return err
+		}
+	}
+	c.stdout = next
+
+	data, next, err = ReadSpool(c.state.StderrPath, c.stderr)
+	if err != nil {
+		return status.Errorf(codes.Internal, "reading stderr: %v", err)
+	}
+	if len(data) > 0 {
+		if err := c.stream.Send(&ateenvv1alpha.ProcessOutput{Output: &ateenvv1alpha.ProcessOutput_Stderr{Stderr: data}}); err != nil {
+			return err
+		}
+	}
+	c.stderr = next
+	return nil
+}
+
+// WriteProcessInput feeds stdin from a client stream. stdin stays open across
+// calls until a message sets close.
+func (s *Service) WriteProcessInput(stream grpc.ClientStreamingServer[ateenvv1alpha.WriteProcessInputRequest, ateenvv1alpha.WriteProcessInputResponse]) error {
+	var (
+		processID string
+		total     int64
+	)
+	for {
+		req, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if processID == "" {
+			processID = req.GetProcessId()
+			if processID == "" {
+				return status.Error(codes.InvalidArgument, "process_id is required on the first message")
+			}
+			if _, err := s.tracker.Get(processID); err != nil {
+				return rpcError(err, processID)
+			}
+		}
+		if len(req.GetData()) > 0 {
+			n, err := s.tracker.WriteInput(processID, req.GetData())
+			total += int64(n)
+			if err != nil {
+				return rpcError(err, processID)
+			}
+		}
+		if req.GetClose() {
+			if err := s.tracker.CloseInput(processID); err != nil {
+				return rpcError(err, processID)
+			}
+		}
+	}
+	if processID == "" {
+		return status.Error(codes.InvalidArgument, "process_id is required on the first message")
+	}
+	return stream.SendAndClose(&ateenvv1alpha.WriteProcessInputResponse{BytesWritten: total})
+}
+
+// SignalProcess delivers a signal to the process group and returns the
+// process state right after delivery.
+func (s *Service) SignalProcess(ctx context.Context, req *ateenvv1alpha.SignalProcessRequest) (*ateenvv1alpha.Process, error) {
+	state, err := s.lookup(req.GetProcessId())
+	if err != nil {
+		return nil, err
+	}
+	sig, ok := ToSyscallSignal(req.GetSignal())
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported signal %v", req.GetSignal())
+	}
+	if err := s.tracker.Signal(req.GetProcessId(), sig); err != nil {
+		return nil, rpcError(err, req.GetProcessId())
+	}
+	return state.ToProto(), nil
+}
+
+func (s *Service) lookup(processID string) (*ProcessState, error) {
+	if processID == "" {
 		return nil, status.Error(codes.InvalidArgument, "process_id cannot be empty")
 	}
-
-	exitCode, err := s.tracker.Kill(req.GetProcessId())
+	state, err := s.tracker.Get(processID)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, status.Errorf(codes.NotFound, "process %q not found", req.GetProcessId())
-		}
-		return nil, status.Errorf(codes.Internal, "killing process: %v", err)
+		return nil, rpcError(err, processID)
 	}
+	return state, nil
+}
 
-	return &ateenvv1alpha.KillProcessResponse{
-		ExitCode: exitCode,
-	}, nil
+// rpcError maps Tracker errors to gRPC statuses.
+func rpcError(err error, processID string) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrNotFound):
+		return status.Errorf(codes.NotFound, "process %q not found", processID)
+	case errors.Is(err, ErrExited):
+		return status.Errorf(codes.FailedPrecondition, "process %q has exited", processID)
+	case errors.Is(err, ErrNoStdin):
+		return status.Errorf(codes.FailedPrecondition, "process %q was started without stdin", processID)
+	case errors.Is(err, ErrStdinClosed):
+		return status.Errorf(codes.FailedPrecondition, "stdin of process %q is closed", processID)
+	case errors.Is(err, ErrTooManyProcesses):
+		return status.Errorf(codes.ResourceExhausted, "%v; wait for running processes to exit or signal them", err)
+	default:
+		return status.Errorf(codes.Internal, "%v", err)
+	}
 }
