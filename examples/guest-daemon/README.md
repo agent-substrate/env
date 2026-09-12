@@ -2,7 +2,7 @@
 
 This directory contains an example implementation and guide for running an in-container **Guest Daemon** for Agent Substrate environments.
 
-It demonstrates how to configure and run the gRPC guest services using the **`github.com/agent-substrate/env/guest`** package, exposing **`ProcessService`** (asynchronous process execution, output spooling, log streaming) and **`FileSystemService`** (chunked streaming file manipulation).
+It demonstrates how to configure and run the gRPC guest services using the **`github.com/agent-substrate/env/guest`** package, exposing **`ProcessService`** (asynchronous process execution, stdin/stdout/stderr streaming, signals) and **`FileSystemService`** (chunked streaming file manipulation).
 
 ---
 
@@ -82,7 +82,9 @@ grpcurl -plaintext -d '{"command": ["echo", "Hello Substrate!"]}' \
   localhost:8080 ateenv.v1alpha.ProcessService/StartProcess
 ```
 
-### Inspect Process Status
+Add `"stdin": true` to open a stdin pipe and `"timeout": "30s"` to bound the run time.
+
+### Inspect Process State
 ```bash
 grpcurl -plaintext -d '{"process_id": "<process-id-from-start>"}' \
   localhost:8080 ateenv.v1alpha.ProcessService/GetProcess
@@ -91,13 +93,21 @@ grpcurl -plaintext -d '{"process_id": "<process-id-from-start>"}' \
 ### Stream Real-Time Output
 ```bash
 grpcurl -plaintext -d '{"process_id": "<process-id>", "follow": true}' \
-  localhost:8080 ateenv.v1alpha.ProcessService/StreamProcessOutputs
+  localhost:8080 ateenv.v1alpha.ProcessService/StreamProcessOutput
 ```
 
-### Terminate a Process
+The stream ends with an `exit` message carrying the final `Process` once the command has exited.
+
+### Write to stdin (Streamed)
 ```bash
-grpcurl -plaintext -d '{"process_id": "<process-id>"}' \
-  localhost:8080 ateenv.v1alpha.ProcessService/KillProcess
+echo '{"process_id": "<process-id>", "data": "aGVsbG8K", "close": true}' | \
+  grpcurl -plaintext -d @ localhost:8080 ateenv.v1alpha.ProcessService/WriteProcessInput
+```
+
+### Signal a Process
+```bash
+grpcurl -plaintext -d '{"process_id": "<process-id>", "signal": "SIGNAL_TERM"}' \
+  localhost:8080 ateenv.v1alpha.ProcessService/SignalProcess
 ```
 
 ### Write a File (Streamed)
@@ -105,6 +115,8 @@ grpcurl -plaintext -d '{"process_id": "<process-id>"}' \
 echo '{"path": "hello.txt", "chunk": "SGVsbG8gU3Vic3RyYXRlIQo=", "mode": 420}' | \
   grpcurl -plaintext -d @ localhost:8080 ateenv.v1alpha.FileSystemService/WriteFile
 ```
+
+Add `"seek_offset": N` to keep the existing content and write starting at byte `N` instead of replacing the file.
 
 ### Read a File (Streamed)
 ```bash

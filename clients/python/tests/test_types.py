@@ -16,19 +16,30 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from ate_env import EnvironmentStatus, OutputSource, ProcessStatus
+import pytest
+
+from ate_env import EnvironmentStatus, ProcessOutput, ProcessState, Signal
 from ate_env._gen.ateenv.v1alpha import env_pb2, guest_pb2
-from ate_env.types import _environment_info_from_pb, _process_info_from_pb
+from ate_env.types import (
+    _environment_info_from_pb,
+    _process_info_from_pb,
+    _process_output_from_pb,
+)
 
 
-def test_process_status_values_match_proto():
-    for member in ProcessStatus:
-        assert guest_pb2.ProcessStatus.Value(f"PROCESS_STATUS_{member.name}") == member
+def test_process_state_values_match_proto():
+    for member in ProcessState:
+        assert guest_pb2.ProcessState.Value(f"PROCESS_STATE_{member.name}") == member
+    assert len(ProcessState) == len(guest_pb2.ProcessState.keys())
 
 
-def test_log_source_values_match_proto():
-    for member in OutputSource:
-        assert guest_pb2.OutputSource.Value(f"OUTPUT_SOURCE_{member.name}") == member
+def test_signal_values_match_proto():
+    for member in Signal:
+        assert guest_pb2.Signal.Value(f"SIGNAL_{member.name}") == member
+    # Every proto signal except UNSPECIFIED has a Python member.
+    assert {f"SIGNAL_{m.name}" for m in Signal} == set(guest_pb2.Signal.keys()) - {
+        "SIGNAL_UNSPECIFIED"
+    }
 
 
 def test_environment_info_without_template():
@@ -54,23 +65,44 @@ def test_environment_info_with_template():
     assert (info.template.name, info.template.atespace) == ("big-env", "ns1")
 
 
-def test_process_info_without_timestamps():
+def test_process_info_running():
     pb = guest_pb2.Process(
-        process_id="p1", status=guest_pb2.PROCESS_STATUS_RUNNING, exit_code=0
+        process_id="p1", command=["sleep", "1"], pid=42, state=guest_pb2.PROCESS_STATE_RUNNING
     )
     info = _process_info_from_pb(pb)
     assert info.process_id == "p1"
-    assert info.status == ProcessStatus.RUNNING
+    assert info.command == ("sleep", "1")
+    assert info.pid == 42
+    assert info.state == ProcessState.RUNNING and info.running
     assert info.started_at is None
     assert info.finished_at is None
+
+
+def test_process_info_exited():
+    pb = guest_pb2.Process(process_id="p1", state=guest_pb2.PROCESS_STATE_EXITED, exit_code=143)
+    info = _process_info_from_pb(pb)
+    assert not info.running
+    assert info.exit_code == 143
+
+
+def test_process_output_variants():
+    assert _process_output_from_pb(guest_pb2.ProcessOutput(stdout=b"a")) == ProcessOutput(stdout=b"a")
+    assert _process_output_from_pb(guest_pb2.ProcessOutput(stderr=b"b")) == ProcessOutput(stderr=b"b")
+    out = _process_output_from_pb(
+        guest_pb2.ProcessOutput(
+            exit=guest_pb2.Process(process_id="p", state=guest_pb2.PROCESS_STATE_EXITED, exit_code=9)
+        )
+    )
+    assert out.stdout is None and out.stderr is None
+    assert out.exit is not None and out.exit.exit_code == 9
+    with pytest.raises(ValueError):
+        _process_output_from_pb(guest_pb2.ProcessOutput())
 
 
 def test_process_info_timestamps_are_utc():
     started = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
     finished = datetime(2026, 8, 25, 12, 0, 5, 500_000, tzinfo=timezone.utc)
-    pb = guest_pb2.Process(
-        process_id="p1", status=guest_pb2.PROCESS_STATUS_COMPLETED, exit_code=0
-    )
+    pb = guest_pb2.Process(process_id="p1", state=guest_pb2.PROCESS_STATE_EXITED, exit_code=0)
     pb.started_at.FromDatetime(started)
     pb.finished_at.FromDatetime(finished)
     info = _process_info_from_pb(pb)

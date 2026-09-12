@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/agent-substrate/env/clients/go"
 	"github.com/agent-substrate/env/guest"
@@ -215,6 +216,31 @@ func TestShellStderrAndExitCode(t *testing.T) {
 	}
 }
 
+func TestWriteFileAt(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-seek")
+	ctx := t.Context()
+
+	if err := sb.WriteFile(ctx, "seek.txt", strings.NewReader("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sb.WriteFileAt(ctx, "seek.txt", 6, strings.NewReader("W"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rc, err := sb.ReadFile(ctx, "seek.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(data) != "hello World" {
+		t.Errorf("after WriteFileAt: %q, want %q", data, "hello World")
+	}
+	if err := sb.WriteFileAt(ctx, "seek.txt", -1, strings.NewReader("x"), 0o644); err == nil {
+		t.Error("negative offset should be rejected")
+	}
+}
+
 func TestReadFileMissing(t *testing.T) {
 	f := newFixture(t)
 	sb := f.create(t, "sb-missing")
@@ -254,5 +280,151 @@ func TestLargeFileStreaming(t *testing.T) {
 	}
 	if !bytes.Equal(readBack, largeData) {
 		t.Error("readBack content mismatch")
+	}
+}
+
+func TestRunWithStdin(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-stdin")
+	ctx := t.Context()
+
+	res, err := sb.Run(ctx, env.ShellRequest{Command: "tr a-z A-Z", Stdin: []byte("shout\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stdout != "SHOUT\n" || res.ExitCode != 0 {
+		t.Errorf("run result = %+v, want stdout %q", res, "SHOUT\n")
+	}
+}
+
+func TestProcessInteractiveStdinAndOutput(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-proc")
+	ctx := t.Context()
+
+	proc, err := sb.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"cat"}, Stdin: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := proc.Output(ctx, &ateenvv1alpha.StreamProcessOutputRequest{Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stdin, err := proc.Stdin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stdin.Write([]byte("first\n")); err != nil {
+		t.Fatal(err)
+	}
+	out, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out.GetStdout()) != "first\n" {
+		t.Fatalf("first output = %v", out)
+	}
+	if _, err := stdin.Write([]byte("second\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var rest string
+	var exit *ateenvv1alpha.Process
+	for {
+		out, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		rest += string(out.GetStdout())
+		if out.GetExit() != nil {
+			exit = out.GetExit()
+		}
+	}
+	if rest != "second\n" {
+		t.Errorf("remaining output = %q", rest)
+	}
+	if exit == nil || exit.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED || exit.GetExitCode() != 0 {
+		t.Errorf("exit = %v, want exited with 0", exit)
+	}
+
+	// The handle still resolves after exit; stdin is refused.
+	info, err := sb.FindProcess(ctx, proc.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED || info.GetPid() == 0 || len(info.GetCommand()) != 1 {
+		t.Errorf("info = %v", info)
+	}
+	w, err := proc.Stdin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("late"))
+	if err := w.Close(); !errors.Is(err, env.ErrProcessExited) {
+		t.Errorf("stdin after exit: err = %v, want ErrProcessExited", err)
+	}
+}
+
+func TestProcessSignalAndKill(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-sig")
+	ctx := t.Context()
+
+	proc, err := sb.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sleep", "60"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Signal(ctx, ateenvv1alpha.Signal_SIGNAL_TERM); err != nil {
+		t.Fatal(err)
+	}
+	info, err := proc.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED || info.GetExitCode() != 143 {
+		t.Errorf("after SIGTERM: %v", info)
+	}
+	if err := proc.Signal(ctx, ateenvv1alpha.Signal_SIGNAL_KILL); !errors.Is(err, env.ErrProcessExited) {
+		t.Errorf("signal after exit: err = %v, want ErrProcessExited", err)
+	}
+
+	sleeper, err := sb.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sleep", "60"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	killed, err := sleeper.Kill(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if killed.GetExitCode() != 137 {
+		t.Errorf("kill: %v", killed)
+	}
+	// Kill is idempotent.
+	if _, err := sleeper.Kill(ctx); err != nil {
+		t.Errorf("second kill: %v", err)
+	}
+
+	if _, err := sb.FindProcess(ctx, "bogus"); !errors.Is(err, env.ErrNotFound) {
+		t.Errorf("bogus process: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestShellKilledByTimeout(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-timeout")
+
+	res, err := sb.Run(t.Context(), env.ShellRequest{Command: "sleep 30", Timeout: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 137 {
+		t.Errorf("timed out run = %+v, want exit code 137", res)
 	}
 }

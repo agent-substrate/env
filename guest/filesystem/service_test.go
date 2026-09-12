@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -123,7 +124,7 @@ func TestWriteAndReadFileSmall(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadFile recv error: %v", err)
 		}
-		readBuffer.Write(chunk.Data)
+		readBuffer.Write(chunk.Chunk)
 	}
 
 	if !bytes.Equal(readBuffer.Bytes(), testData) {
@@ -206,7 +207,7 @@ func TestWriteAndReadFileMultiChunk(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read stream error: %v", err)
 		}
-		readBuffer.Write(chunk.Data)
+		readBuffer.Write(chunk.Chunk)
 	}
 
 	if !bytes.Equal(readBuffer.Bytes(), largeData) {
@@ -347,5 +348,132 @@ func TestWriteFileMissingPath(t *testing.T) {
 	_, err = writeStream.CloseAndRecv()
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("expected InvalidArgument for missing path, got %v", err)
+	}
+}
+
+func TestWriteFileSeekOffset(t *testing.T) {
+	tempDir := t.TempDir()
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir})
+	defer cleanup()
+	ctx := context.Background()
+	target := filepath.Join(tempDir, "seek.txt")
+
+	write := func(req *ateenvv1alpha.WriteFileRequest) (*ateenvv1alpha.WriteFileResponse, error) {
+		stream, err := client.WriteFile(ctx)
+		if err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if err := stream.Send(req); err != nil {
+			t.Fatalf("send: %v", err)
+		}
+		return stream.CloseAndRecv()
+	}
+	content := func() string {
+		data, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatalf("reading %s: %v", target, err)
+		}
+		return string(data)
+	}
+
+	if _, err := write(&ateenvv1alpha.WriteFileRequest{Path: target, Chunk: []byte("hello world")}); err != nil {
+		t.Fatalf("initial write: %v", err)
+	}
+
+	// Overwrite in the middle: bytes before and after the range are kept.
+	res, err := write(&ateenvv1alpha.WriteFileRequest{Path: target, Chunk: []byte("W"), SeekOffset: 6})
+	if err != nil {
+		t.Fatalf("seek write: %v", err)
+	}
+	if res.GetBytesWritten() != 1 || content() != "hello World" {
+		t.Fatalf("after seek write: bytes=%d content=%q", res.GetBytesWritten(), content())
+	}
+
+	// Past the end: the gap is zero-filled.
+	if _, err := write(&ateenvv1alpha.WriteFileRequest{Path: target, Chunk: []byte("!"), SeekOffset: 13}); err != nil {
+		t.Fatalf("seek past end: %v", err)
+	}
+	if content() != "hello World\x00\x00!" {
+		t.Fatalf("after seek past end: %q", content())
+	}
+
+	// Offset zero (the default) replaces the file.
+	if _, err := write(&ateenvv1alpha.WriteFileRequest{Path: target, Chunk: []byte("new")}); err != nil {
+		t.Fatalf("plain write: %v", err)
+	}
+	if content() != "new" {
+		t.Fatalf("after plain write: %q", content())
+	}
+
+	if _, err := write(&ateenvv1alpha.WriteFileRequest{Path: target, Chunk: []byte("x"), SeekOffset: -1}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("negative offset: expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestReadFileWithModeCreatesMissingFile(t *testing.T) {
+	tempDir := t.TempDir()
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir})
+	defer cleanup()
+	ctx := context.Background()
+
+	readAll := func(req *ateenvv1alpha.ReadFileRequest) ([]byte, error) {
+		stream, err := client.ReadFile(ctx, req)
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		var buf bytes.Buffer
+		for {
+			msg, err := stream.Recv()
+			if err == io.EOF {
+				return buf.Bytes(), nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			buf.Write(msg.GetChunk())
+		}
+	}
+
+	// Without a mode a missing file is NotFound and nothing is created.
+	target := filepath.Join(tempDir, "sub", "new.txt")
+	if _, err := readAll(&ateenvv1alpha.ReadFileRequest{Path: target}); status.Code(err) != codes.NotFound {
+		t.Fatalf("expected NotFound, got %v", err)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("file should not exist yet: %v", err)
+	}
+
+	// With a mode the file (and parent) is created empty with that mode.
+	data, err := readAll(&ateenvv1alpha.ReadFileRequest{Path: target, Mode: 0600})
+	if err != nil {
+		t.Fatalf("read with mode: %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("expected empty content, got %q", data)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat created file: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
+	}
+
+	// An existing file is returned unchanged, mode or not.
+	if err := os.WriteFile(target, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(target, 0644); err != nil {
+		t.Fatal(err)
+	}
+	data, err = readAll(&ateenvv1alpha.ReadFileRequest{Path: target, Mode: 0755})
+	if err != nil {
+		t.Fatalf("read existing with mode: %v", err)
+	}
+	if string(data) != "content" {
+		t.Fatalf("content = %q", data)
+	}
+	if info, _ := os.Stat(target); info.Mode().Perm() != 0644 {
+		t.Fatalf("existing file mode changed to %o", info.Mode().Perm())
 	}
 }

@@ -17,6 +17,7 @@ package apiservice_test
 import (
 	"context"
 	"io"
+	"math"
 	"net"
 	"testing"
 
@@ -371,7 +372,7 @@ func TestProxyGuestServices(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadFile recv: %v", err)
 		}
-		readBuf = append(readBuf, chunk.GetData()...)
+		readBuf = append(readBuf, chunk.GetChunk()...)
 	}
 	if string(readBuf) != "proxied content" {
 		t.Errorf("read %q, want %q", string(readBuf), "proxied content")
@@ -388,28 +389,35 @@ func TestProxyGuestServices(t *testing.T) {
 		t.Fatal("empty process ID")
 	}
 
-	logStream, err := te.procClient.StreamProcessOutputs(envCtx, &ateenvv1alpha.StreamProcessOutputsRequest{
+	outStream, err := te.procClient.StreamProcessOutput(envCtx, &ateenvv1alpha.StreamProcessOutputRequest{
 		ProcessId: startResp.GetProcessId(),
 		Follow:    true,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessOutputs: %v", err)
+		t.Fatalf("StreamProcessOutput: %v", err)
 	}
 	var stdout string
+	var exit *ateenvv1alpha.Process
 	for {
-		chunk, err := logStream.Recv()
+		msg, err := outStream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			t.Fatalf("StreamProcessOutputs recv: %v", err)
+			t.Fatalf("StreamProcessOutput recv: %v", err)
 		}
-		if chunk.GetSource() == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
-			stdout += string(chunk.GetData())
+		switch out := msg.GetOutput().(type) {
+		case *ateenvv1alpha.ProcessOutput_Stdout:
+			stdout += string(out.Stdout)
+		case *ateenvv1alpha.ProcessOutput_Exit:
+			exit = out.Exit
 		}
 	}
 	if stdout != "hello-from-proxy\n" {
 		t.Errorf("stdout = %q, want hello-from-proxy\\n", stdout)
+	}
+	if exit == nil || exit.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED || exit.GetExitCode() != 0 {
+		t.Errorf("exit message = %v, want EXITED with code 0", exit)
 	}
 
 	getProc, err := te.procClient.GetProcess(envCtx, &ateenvv1alpha.GetProcessRequest{
@@ -422,12 +430,79 @@ func TestProxyGuestServices(t *testing.T) {
 		t.Errorf("exit code = %d, want 0", getProc.GetExitCode())
 	}
 
+	// Stdin and signals proxy through the client stream and unary paths.
+	catProc, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"cat"},
+		Stdin:   true,
+	})
+	if err != nil {
+		t.Fatalf("StartProcess cat: %v", err)
+	}
+	inStream, err := te.procClient.WriteProcessInput(envCtx)
+	if err != nil {
+		t.Fatalf("WriteProcessInput: %v", err)
+	}
+	if err := inStream.Send(&ateenvv1alpha.WriteProcessInputRequest{
+		ProcessId: catProc.GetProcessId(),
+		Data:      []byte("proxied stdin\n"),
+		Close:     true,
+	}); err != nil {
+		t.Fatalf("WriteProcessInput send: %v", err)
+	}
+	inResp, err := inStream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("WriteProcessInput CloseAndRecv: %v", err)
+	}
+	if inResp.GetBytesWritten() != int64(len("proxied stdin\n")) {
+		t.Errorf("bytes written = %d", inResp.GetBytesWritten())
+	}
+	catDone := waitProcess(t, te.procClient, envCtx, catProc.GetProcessId())
+	if catDone.GetExitCode() != 0 {
+		t.Errorf("cat exit code = %d", catDone.GetExitCode())
+	}
+
+	sleeper, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sleep", "30"}})
+	if err != nil {
+		t.Fatalf("StartProcess sleep: %v", err)
+	}
+	if _, err := te.procClient.SignalProcess(envCtx, &ateenvv1alpha.SignalProcessRequest{
+		ProcessId: sleeper.GetProcessId(),
+		Signal:    ateenvv1alpha.Signal_SIGNAL_TERM,
+	}); err != nil {
+		t.Fatalf("SignalProcess: %v", err)
+	}
+	sleeperDone := waitProcess(t, te.procClient, envCtx, sleeper.GetProcessId())
+	if sleeperDone.GetExitCode() != 143 {
+		t.Errorf("sleeper exit code = %d, want 143 (128+SIGTERM)", sleeperDone.GetExitCode())
+	}
+
 	// 5. Test missing metadata error
 	_, err = te.procClient.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
 		Command: []string{"echo", "no-meta"},
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("got error code %v, want InvalidArgument", status.Code(err))
+	}
+}
+
+// waitProcess follows the output stream past the spool end and returns the exit message.
+func waitProcess(t *testing.T, client ateenvv1alpha.ProcessServiceClient, ctx context.Context, id string) *ateenvv1alpha.Process {
+	t.Helper()
+	stream, err := client.StreamProcessOutput(ctx, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: id, Follow: true, StdoutOffset: math.MaxInt64, StderrOffset: math.MaxInt64,
+	})
+	if err != nil {
+		t.Fatalf("StreamProcessOutput: %v", err)
+	}
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("waiting for %s: %v", id, err)
+		}
+		if exit := msg.GetExit(); exit != nil {
+			return exit
+		}
+		t.Fatalf("unexpected output while waiting: %v", msg)
 	}
 }
 

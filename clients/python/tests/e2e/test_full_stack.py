@@ -40,9 +40,9 @@ from ate_env import (
     Client,
     EnvError,
     EnvironmentStatus,
-    OutputSource,
     NotFoundError,
-    ProcessStatus,
+    ProcessState,
+    Signal,
 )
 
 TARGET = os.environ.get("ATE_ENV_API_TARGET")
@@ -127,24 +127,31 @@ async def test_full_lifecycle(client):
         with pytest.raises(NotFoundError):
             await env.read_file_bytes("/tmp/pye2e-does-not-exist")
 
-        # Processes: follow-stream, final state, kill.
-        pid = await env.start_process(["sh", "-c", "echo one; echo two >&2"])
+        # Processes: follow-stream with exit, stdin, signals.
+        proc = await env.start_process(["sh", "-c", "echo one; echo two >&2"])
         stdout = bytearray()
         stderr = bytearray()
-        async for chunk in env.stream_outputs(pid, follow=True):
-            if chunk.source == OutputSource.STDOUT:
-                stdout.extend(chunk.data)
+        exit_info = None
+        async for out in proc.output(follow=True):
+            if out.stdout is not None:
+                stdout.extend(out.stdout)
+            elif out.stderr is not None:
+                stderr.extend(out.stderr)
             else:
-                stderr.extend(chunk.data)
+                exit_info = out.exit
         assert stdout == b"one\n"
         assert stderr == b"two\n"
-        proc = await env.wait(pid, poll_interval=0.5)
-        assert proc.status == ProcessStatus.COMPLETED
+        assert exit_info is not None and exit_info.state == ProcessState.EXITED
+        assert exit_info.exit_code == 0
+
+        cat = await env.start_process(["cat"], stdin=True)
+        await cat.write_input(b"through the proxy\n", close=True)
+        assert (await cat.wait()).exit_code == 0
+        assert b"".join([o.stdout async for o in cat.output() if o.stdout]) == b"through the proxy\n"
 
         sleeper = await env.start_process(["sleep", "300"])
-        assert await env.kill_process(sleeper) >= 128
-        proc = await env.wait(sleeper, poll_interval=0.5)
-        assert proc.status == ProcessStatus.TERMINATED
+        await sleeper.signal(Signal.TERM)
+        assert (await sleeper.wait()).exit_code == 143  # 128 + SIGTERM
 
         # Lifecycle: suspend checkpoints the environment.
         await env.suspend()

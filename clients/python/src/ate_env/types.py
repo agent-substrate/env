@@ -28,12 +28,12 @@ from ._gen.ateenv.v1alpha import env_pb2, guest_pb2
 
 __all__ = [
     "EnvironmentStatus",
-    "ProcessStatus",
-    "OutputSource",
+    "ProcessState",
+    "Signal",
     "Template",
     "EnvironmentInfo",
     "ProcessInfo",
-    "OutputChunk",
+    "ProcessOutput",
     "ShellResult",
 ]
 
@@ -52,22 +52,46 @@ class EnvironmentStatus(enum.IntEnum):
     DELETING = 8
 
 
-class ProcessStatus(enum.IntEnum):
-    """Execution status of an asynchronous process (ateenv.v1alpha.ProcessStatus)."""
+class ProcessState(enum.IntEnum):
+    """Lifecycle state of a process (ateenv.v1alpha.ProcessState)."""
 
     UNSPECIFIED = 0
     RUNNING = 1
-    COMPLETED = 2
-    FAILED = 3
-    TERMINATED = 4
+    EXITED = 2
 
 
-class OutputSource(enum.IntEnum):
-    """Output log stream source (ateenv.v1alpha.OutputSource)."""
+class Signal(enum.IntEnum):
+    """POSIX signal deliverable with Process.signal(); values match Linux signal numbers."""
 
-    UNSPECIFIED = 0
-    STDOUT = 1
-    STDERR = 2
+    HUP = 1
+    INT = 2
+    QUIT = 3
+    ILL = 4
+    TRAP = 5
+    ABRT = 6
+    BUS = 7
+    FPE = 8
+    KILL = 9
+    USR1 = 10
+    SEGV = 11
+    USR2 = 12
+    PIPE = 13
+    ALRM = 14
+    TERM = 15
+    CHLD = 17
+    CONT = 18
+    STOP = 19
+    TSTP = 20
+    TTIN = 21
+    TTOU = 22
+    URG = 23
+    XCPU = 24
+    XFSZ = 25
+    VTALRM = 26
+    PROF = 27
+    WINCH = 28
+    IO = 29
+    SYS = 31
 
 
 @dataclass(frozen=True)
@@ -90,30 +114,42 @@ class EnvironmentInfo:
 
 @dataclass(frozen=True)
 class ProcessInfo:
-    """Execution state and metadata of a process."""
+    """Identity, lifecycle state, and exit status of a process."""
 
     process_id: str
-    status: ProcessStatus
-    exit_code: int  # valid once status is not RUNNING
+    command: tuple[str, ...]
+    pid: int
+    state: ProcessState
+    exit_code: int  # valid once EXITED; 128 + signal number if killed by a signal
     started_at: datetime | None
     finished_at: datetime | None
 
+    @property
+    def running(self) -> bool:
+        """True until the process has exited."""
+        return self.state == ProcessState.RUNNING
+
 
 @dataclass(frozen=True)
-class OutputChunk:
-    """A chunk of process output from stdout or stderr."""
+class ProcessOutput:
+    """One message from a process output stream; exactly one field is set.
 
-    source: OutputSource
-    data: bytes
+    exit is the final message: the process has exited and all output was
+    delivered. It is absent if the stream ends while the process runs.
+    """
+
+    stdout: bytes | None = None
+    stderr: bytes | None = None
+    exit: ProcessInfo | None = None
 
 
 @dataclass(frozen=True)
 class ShellResult:
-    """Captured output and exit code of a shell command."""
+    """Captured output and exit status of a shell command."""
 
     stdout: str
     stderr: str
-    exit_code: int
+    exit_code: int  # 128 + signal number if killed by a signal
 
 
 def _template_from_pb(pb: env_pb2.Template) -> Template:
@@ -139,8 +175,21 @@ def _process_info_from_pb(pb: guest_pb2.Process) -> ProcessInfo:
     )
     return ProcessInfo(
         process_id=pb.process_id,
-        status=ProcessStatus(pb.status),
+        command=tuple(pb.command),
+        pid=pb.pid,
+        state=ProcessState(pb.state),
         exit_code=pb.exit_code,
         started_at=started_at,
         finished_at=finished_at,
     )
+
+
+def _process_output_from_pb(pb: guest_pb2.ProcessOutput) -> ProcessOutput:
+    which = pb.WhichOneof("output")
+    if which == "stdout":
+        return ProcessOutput(stdout=pb.stdout)
+    if which == "stderr":
+        return ProcessOutput(stderr=pb.stderr)
+    if which == "exit":
+        return ProcessOutput(exit=_process_info_from_pb(pb.exit))
+    raise ValueError(f"ate_env: unexpected process output {pb!r}")
