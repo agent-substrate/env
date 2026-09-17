@@ -223,11 +223,20 @@ func TestWriteActorTemplate(t *testing.T) {
 	if strings.Contains(out, "pauseImage") {
 		t.Errorf("output should not contain pauseImage field:\n%s", out)
 	}
-	if strings.Contains(out, "onResume") {
-		t.Errorf("output should not contain empty onResume field:\n%s", out)
+	if !strings.Contains(out, "onResume") || !strings.Contains(out, "RESUME_SOURCE_GOLDEN") {
+		t.Errorf("output missing onResume with RESUME_SOURCE_GOLDEN:\n%s", out)
 	}
-	if strings.Contains(out, "{}") {
-		t.Errorf("output should not contain empty map literals ({}):\n%s", out)
+	if !strings.Contains(out, "onPause: SNAPSHOT_CONTENT_SCOPE_DATA") {
+		t.Errorf("output missing onPause: SNAPSHOT_CONTENT_SCOPE_DATA:\n%s", out)
+	}
+	if !strings.Contains(out, "onCommit: SNAPSHOT_CONTENT_SCOPE_DATA") {
+		t.Errorf("output missing onCommit: SNAPSHOT_CONTENT_SCOPE_DATA:\n%s", out)
+	}
+	if !strings.Contains(out, "mountPath: /workspace") {
+		t.Errorf("output missing mountPath: /workspace:\n%s", out)
+	}
+	if !strings.Contains(out, "durableDir: {}") && !strings.Contains(out, "durableDir:") {
+		t.Errorf("output missing durableDir:\n%s", out)
 	}
 }
 
