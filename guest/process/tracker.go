@@ -218,6 +218,8 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string, req
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	// ponytail: at most 1024 cancellation tombstones per owner; a new owner
+	// resets them only after the previous RPCs and processes have drained.
 	if len(t.cancelled) >= 1024 {
 		return nil, status.Error(codes.ResourceExhausted, "cancellation registry full")
 	}
@@ -466,6 +468,18 @@ func (t *Tracker) KillAll() error {
 	return nil
 }
 
+// ResetOwner drains the previous epoch before discarding its cancellation IDs.
+// The caller must first fence and finish every RPC from that epoch.
+func (t *Tracker) ResetOwner() error {
+	if err := t.KillAll(); err != nil {
+		return err
+	}
+	t.mu.Lock()
+	t.cancelled = make(map[string]bool)
+	t.mu.Unlock()
+	return nil
+}
+
 // prunerLoop periodically removes expired process states and log files.
 func (t *Tracker) prunerLoop() {
 	ticker := time.NewTicker(2 * time.Minute)
@@ -522,6 +536,9 @@ func (p *ProcessState) ToProto() *ateenvv1alpha.Process {
 
 // ReadLogs reads log bytes from a log file at a specific byte offset.
 func ReadLogs(filePath string, offset int64) ([]byte, int64, error) {
+	if offset < 0 {
+		return nil, 0, status.Error(codes.InvalidArgument, "output offset cannot be negative")
+	}
 	f, err := os.Open(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

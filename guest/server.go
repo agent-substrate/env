@@ -94,7 +94,7 @@ func NewServer(cfg Config) (*grpc.Server, func(), error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("initializing process tracker: %w", err)
 		}
-		fence.drain = tracker.KillAll
+		fence.drain = tracker.ResetOwner
 		cleanups = append(cleanups, func() {
 			tracker.Close()
 		})

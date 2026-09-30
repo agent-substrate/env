@@ -16,9 +16,12 @@ package process
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"io"
+	"math"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -570,5 +573,34 @@ func TestOutputBacklogIsChunkedAndComplete(t *testing.T) {
 	}
 	if total != 5242880 {
 		t.Fatalf("lost backlog tail: %d", total)
+	}
+}
+
+func TestNegativeOutputOffsetsAndOwnerCancellationReset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "log")
+	if err := os.WriteFile(path, []byte("output"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, offset := range []int64{-1, math.MinInt64} {
+		if _, _, err := ReadLogs(path, offset); status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("offset %d: %v", offset, err)
+		}
+	}
+	tracker, err := NewTracker(DefaultConfig(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tracker.Close()
+	for i := 0; i < 1024; i++ {
+		tracker.Kill(uuid.NewString())
+	}
+	if _, err := tracker.Start([]string{"sh", "-c", "true"}, "", nil); status.Code(err) != codes.ResourceExhausted {
+		t.Fatal("cancellation ceiling did not fail closed", err)
+	}
+	if err := tracker.ResetOwner(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tracker.Start([]string{"sh", "-c", "true"}, "", nil); err != nil {
+		t.Fatal("new owner inherited previous cancellation ceiling", err)
 	}
 }

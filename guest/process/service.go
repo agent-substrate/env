@@ -53,7 +53,9 @@ func (s *Service) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProc
 	}
 
 	if err := ctx.Err(); err != nil {
-		_, _ = s.tracker.Kill(state.ProcessID)
+		if _, killErr := s.tracker.Kill(state.ProcessID); killErr != nil {
+			return nil, killErr
+		}
 		return nil, status.FromContextError(err).Err()
 	}
 	return &ateenvv1alpha.StartProcessResponse{
@@ -77,6 +79,9 @@ func (s *Service) GetProcess(ctx context.Context, req *ateenvv1alpha.GetProcessR
 
 // StreamProcessOutputs streams stdout and stderr in real-time or as a snapshot.
 func (s *Service) StreamProcessOutputs(req *ateenvv1alpha.StreamProcessOutputsRequest, stream ateenvv1alpha.ProcessService_StreamProcessOutputsServer) error {
+	if req.GetStdoutOffset() < 0 || req.GetStderrOffset() < 0 {
+		return status.Error(codes.InvalidArgument, "output offset cannot be negative")
+	}
 	if req.GetProcessId() == "" {
 		return status.Error(codes.InvalidArgument, "process_id cannot be empty")
 	}

@@ -411,3 +411,27 @@ func TestRootedRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUnconfinedRelativePaths(t *testing.T) {
+	t.Chdir(t.TempDir())
+	client, cleanup := setupTestFileSystemServer(t, Config{})
+	defer cleanup()
+	stream, err := client.WriteFile(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&ateenvv1alpha.WriteFileRequest{Path: "relative.txt", Chunk: []byte("relative")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatal(err)
+	}
+	read, err := client.ReadFile(t.Context(), &ateenvv1alpha.ReadFileRequest{Path: "relative.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk, err := read.Recv()
+	if err != nil || string(chunk.GetData()) != "relative" {
+		t.Fatal(chunk, err)
+	}
+}

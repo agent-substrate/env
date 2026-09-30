@@ -99,7 +99,11 @@ func (s *Service) resolveAndValidatePath(reqPath string) (string, error) {
 	} else if s.rootDir != "" {
 		targetPath = filepath.Clean(filepath.Join(s.rootDir, reqPath))
 	} else {
-		targetPath = filepath.Clean(reqPath)
+		var err error
+		targetPath, err = filepath.Abs(reqPath)
+		if err != nil {
+			return "", status.Error(codes.Internal, "resolving working directory")
+		}
 	}
 
 	// Boundary check if rootDirectory confinement is enabled

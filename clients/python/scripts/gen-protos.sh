@@ -41,3 +41,9 @@ for f in "${OUT_DIR}"/ateenv/v1alpha/*_pb2_grpc.py; do
   sed -i.bak 's/^from ateenv\.v1alpha import \(.*\)$/from . import \1/' "${f}"
   rm -f "${f}.bak"
 done
+
+# Keep generated files subject to the repository's normal license gate.
+for f in "${OUT_DIR}"/ateenv/v1alpha/*_pb2.py "${OUT_DIR}"/ateenv/v1alpha/*_pb2.pyi "${OUT_DIR}"/ateenv/v1alpha/*_pb2_grpc.py; do
+  { cat hack/boilerplate/sh.txt; cat "$f"; } > "${f}.tmp"
+  mv "${f}.tmp" "$f"
+done
