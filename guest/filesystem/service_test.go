@@ -349,3 +349,65 @@ func TestWriteFileMissingPath(t *testing.T) {
 		t.Fatalf("expected InvalidArgument for missing path, got %v", err)
 	}
 }
+
+func TestRootedFilesRejectSymlinkEscape(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: root})
+	defer cleanup()
+	ctx := context.Background()
+	reader, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{Path: "escape/secret"})
+	if err == nil {
+		_, err = reader.Recv()
+	}
+	if err == nil {
+		t.Fatal("symlink read escaped root")
+	}
+	writer, err := client.WriteFile(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Send(&ateenvv1alpha.WriteFileRequest{Path: "escape/secret", Chunk: []byte("changed")})
+	if _, err = writer.CloseAndRecv(); err == nil {
+		t.Fatal("symlink write escaped root")
+	}
+	contents, err := os.ReadFile(filepath.Join(outside, "secret"))
+	if err != nil || string(contents) != "outside" {
+		t.Fatal("outside file was changed")
+	}
+}
+
+func TestRootedRemove(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: root})
+	defer cleanup()
+	if err := os.WriteFile(filepath.Join(outside, "keep"), []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.RemovePath(t.Context(), &ateenvv1alpha.RemovePathRequest{Path: "escape/keep", Recursive: true}); err == nil {
+		t.Fatal("removed outside path")
+	}
+	if _, err := client.RemovePath(t.Context(), &ateenvv1alpha.RemovePathRequest{Path: "escape", Recursive: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
+		t.Fatal("outside file changed", err)
+	}
+	if _, err := client.RemovePath(t.Context(), &ateenvv1alpha.RemovePathRequest{Path: ".", Recursive: true}); status.Code(err) != codes.PermissionDenied {
+		t.Fatal(err)
+	}
+	if _, err := client.RemovePath(t.Context(), &ateenvv1alpha.RemovePathRequest{Path: "missing"}); status.Code(err) != codes.NotFound {
+		t.Fatal(err)
+	}
+	if _, err := client.RemovePath(t.Context(), &ateenvv1alpha.RemovePathRequest{Path: "missing", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+}

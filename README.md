@@ -258,3 +258,25 @@ For complete runnable Go programs:
 kubectl delete ns ate-env
 kubectl ate delete actor-template --atespace ate-env default-template
 ```
+## Guest ownership for snapshot restores
+
+`ate-env-guest --require-owner --workspace=/workspace` opts into Linux
+controller fencing. Each gRPC call must carry `ate-owner-generation` (a
+positive, monotonically increasing int64 issued outside the guest) and
+`ate-owner-token`. A higher generation cancels and finishes the prior owner's
+RPCs, drains tracked process groups, and admits the new owner. Lower
+generations and a different token for the current generation are rejected.
+This is fencing, not authentication: use an authenticated router and a trusted
+controller; do not expose the guest directly to untrusted callers.
+
+`StartProcessRequest.process_id` accepts a caller-generated UUID. Killing an
+unknown UUID records cancellation before a delayed start arrives. Duplicate
+starts fail rather than replay a command. `KillAllProcesses` drains tracked
+process groups before suspension. Output RPCs transfer at most 64 KiB per
+message and drain the final output after the process reaper finishes.
+
+File reads, writes, and `RemovePath` use Go's rooted filesystem operations,
+including symlink and rename protection. Ownership mode also holds a rooted
+working-directory descriptor through Linux process startup. Processes are
+still arbitrary programs inside the actor sandbox; filesystem RPC confinement
+is not a substitute for the sandbox itself.

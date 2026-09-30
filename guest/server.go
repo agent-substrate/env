@@ -44,6 +44,8 @@ type Config struct {
 	EnableProcess bool
 	// EnableFileSystem indicates whether the FileSystemService gRPC service is enabled.
 	EnableFileSystem bool
+	// RequireOwner rejects calls without controller-issued ownership metadata.
+	RequireOwner bool
 }
 
 // DefaultConfig returns the default configuration with all services enabled.
@@ -74,11 +76,17 @@ func FormatEnabledServices(cfg Config) string {
 func NewServer(cfg Config) (*grpc.Server, func(), error) {
 	var cleanups []func()
 
-	grpcServer := grpc.NewServer()
+	fence := &ownerFence{drain: func() error { return nil }}
+	var opts []grpc.ServerOption
+	if cfg.RequireOwner {
+		opts = append(opts, grpc.UnaryInterceptor(fence.unary), grpc.StreamInterceptor(fence.stream))
+	}
+	grpcServer := grpc.NewServer(opts...)
 	reflection.Register(grpcServer)
 
 	if cfg.EnableProcess {
 		trackerCfg := process.DefaultConfig(cfg.LogDir)
+		trackerCfg.ConfineWorkingDirectory = cfg.RequireOwner
 		if cfg.Workspace != "" {
 			trackerCfg.Workspace = cfg.Workspace
 		}
@@ -86,6 +94,7 @@ func NewServer(cfg Config) (*grpc.Server, func(), error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("initializing process tracker: %w", err)
 		}
+		fence.drain = tracker.KillAll
 		cleanups = append(cleanups, func() {
 			tracker.Close()
 		})

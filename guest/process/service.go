@@ -16,13 +16,12 @@ package process
 
 import (
 	"context"
-	"errors"
-	"os"
 	"time"
 
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // Service implements ateenvv1alpha.ProcessServiceServer.
@@ -45,11 +44,18 @@ func (s *Service) StartProcess(ctx context.Context, req *ateenvv1alpha.StartProc
 		return nil, status.Error(codes.InvalidArgument, "command cannot be empty")
 	}
 
-	state, err := s.tracker.Start(req.GetCommand(), req.GetCwd(), req.GetEnv())
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	state, err := s.tracker.Start(req.GetCommand(), req.GetCwd(), req.GetEnv(), req.GetProcessId())
 	if err != nil {
 		return nil, err
 	}
 
+	if err := ctx.Err(); err != nil {
+		_, _ = s.tracker.Kill(state.ProcessID)
+		return nil, status.FromContextError(err).Err()
+	}
 	return &ateenvv1alpha.StartProcessResponse{
 		ProcessId: state.ProcessID,
 	}, nil
@@ -116,33 +122,21 @@ func (s *Service) StreamProcessOutputs(req *ateenvv1alpha.StreamProcessOutputsRe
 			stderrOffset = newStderrOffset
 		}
 
-		if !follow {
+		if !follow && len(stdoutBytes) == 0 && len(stderrBytes) == 0 {
 			// Snapshot mode: finish after reading available output up to this point
 			return nil
 		}
 
 		// Check if process has finished and we consumed all output
 		state.mu.RLock()
-		isTerminated := state.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING
+		isTerminated := !state.FinishedAt.IsZero()
 		state.mu.RUnlock()
 
 		if isTerminated {
-			// Final check to see if there were any remaining bytes flushed on exit
-			finalStdout, _, _ := ReadLogs(state.StdoutPath, stdoutOffset)
-			if len(finalStdout) > 0 {
-				_ = stream.Send(&ateenvv1alpha.OutputChunk{
-					Source: ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT,
-					Data:   finalStdout,
-				})
+			if len(stdoutBytes) == 0 && len(stderrBytes) == 0 {
+				return nil
 			}
-			finalStderr, _, _ := ReadLogs(state.StderrPath, stderrOffset)
-			if len(finalStderr) > 0 {
-				_ = stream.Send(&ateenvv1alpha.OutputChunk{
-					Source: ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR,
-					Data:   finalStderr,
-				})
-			}
-			return nil
+			continue
 		}
 
 		// Sleep or wait for context cancellation
@@ -162,13 +156,20 @@ func (s *Service) KillProcess(ctx context.Context, req *ateenvv1alpha.KillProces
 
 	exitCode, err := s.tracker.Kill(req.GetProcessId())
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, status.Errorf(codes.NotFound, "process %q not found", req.GetProcessId())
-		}
-		return nil, status.Errorf(codes.Internal, "killing process: %v", err)
+		return nil, err
 	}
 
 	return &ateenvv1alpha.KillProcessResponse{
 		ExitCode: exitCode,
 	}, nil
+}
+
+func (s *Service) KillAllProcesses(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	if err := s.tracker.KillAll(); err != nil {
+		return nil, err
+	}
+	return &emptypb.Empty{}, nil
 }

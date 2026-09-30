@@ -24,6 +24,7 @@ package ateenv.v1alpha;
 option go_package = "github.com/agent-substrate/env/proto/ateenv/v1alpha;ateenvv1alpha";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
 
 // ============================================================================
 // --- SERVICES ---
@@ -44,6 +45,9 @@ service ProcessService {
 
   // KillProcess terminates a running asynchronous process and its child process tree.
   rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
+
+  // Drain tracked processes before suspending an environment.
+  rpc KillAllProcesses(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
 // FileSystemService provides streaming file reading and writing capabilities inside
@@ -54,6 +58,9 @@ service FileSystemService {
 
   // WriteFile streams binary or text chunks directly to a target file.
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+
+  // Remove a file or directory within the configured filesystem root.
+  rpc RemovePath(RemovePathRequest) returns (google.protobuf.Empty);
 }
 
 // ============================================================================
@@ -104,6 +111,9 @@ message StartProcessRequest {
   string cwd = 2;
   // Environment variables to set for the background process.
   map<string, string> env = 3;
+  // Optional caller-generated UUID. Allows cancellation before the start reply
+  // arrives; a canceled ID cannot subsequently launch a process.
+  string process_id = 4;
 }
 
 // Response returned immediately after launching an asynchronous process.
@@ -180,4 +190,10 @@ message WriteFileRequest {
 message WriteFileResponse {
   // Total number of bytes written across all stream chunks.
   int64 bytes_written = 1;
+}
+
+message RemovePathRequest {
+  string path = 1;
+  bool recursive = 2;
+  bool force = 3;
 }

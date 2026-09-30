@@ -1,23 +1,13 @@
-// Copyright 2026 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+import datetime
 
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
+from google.protobuf import empty_pb2 as _empty_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -55,10 +45,10 @@ class Process(_message.Message):
     exit_code: int
     started_at: _timestamp_pb2.Timestamp
     finished_at: _timestamp_pb2.Timestamp
-    def __init__(self, process_id: _Optional[str] = ..., status: _Optional[_Union[ProcessStatus, str]] = ..., exit_code: _Optional[int] = ..., started_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., finished_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    def __init__(self, process_id: _Optional[str] = ..., status: _Optional[_Union[ProcessStatus, str]] = ..., exit_code: _Optional[int] = ..., started_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., finished_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class StartProcessRequest(_message.Message):
-    __slots__ = ("command", "cwd", "env")
+    __slots__ = ("command", "cwd", "env", "process_id")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -69,10 +59,12 @@ class StartProcessRequest(_message.Message):
     COMMAND_FIELD_NUMBER: _ClassVar[int]
     CWD_FIELD_NUMBER: _ClassVar[int]
     ENV_FIELD_NUMBER: _ClassVar[int]
+    PROCESS_ID_FIELD_NUMBER: _ClassVar[int]
     command: _containers.RepeatedScalarFieldContainer[str]
     cwd: str
     env: _containers.ScalarMap[str, str]
-    def __init__(self, command: _Optional[_Iterable[str]] = ..., cwd: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    process_id: str
+    def __init__(self, command: _Optional[_Iterable[str]] = ..., cwd: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., process_id: _Optional[str] = ...) -> None: ...
 
 class StartProcessResponse(_message.Message):
     __slots__ = ("process_id",)
@@ -96,7 +88,7 @@ class StreamProcessOutputsRequest(_message.Message):
     stdout_offset: int
     stderr_offset: int
     follow: bool
-    def __init__(self, process_id: _Optional[str] = ..., stdout_offset: _Optional[int] = ..., stderr_offset: _Optional[int] = ..., follow: bool = ...) -> None: ...
+    def __init__(self, process_id: _Optional[str] = ..., stdout_offset: _Optional[int] = ..., stderr_offset: _Optional[int] = ..., follow: _Optional[bool] = ...) -> None: ...
 
 class OutputChunk(_message.Message):
     __slots__ = ("source", "data")
@@ -145,3 +137,13 @@ class WriteFileResponse(_message.Message):
     BYTES_WRITTEN_FIELD_NUMBER: _ClassVar[int]
     bytes_written: int
     def __init__(self, bytes_written: _Optional[int] = ...) -> None: ...
+
+class RemovePathRequest(_message.Message):
+    __slots__ = ("path", "recursive", "force")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    RECURSIVE_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    recursive: bool
+    force: bool
+    def __init__(self, path: _Optional[str] = ..., recursive: _Optional[bool] = ..., force: _Optional[bool] = ...) -> None: ...

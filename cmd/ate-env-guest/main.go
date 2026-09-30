@@ -35,6 +35,7 @@ import (
 func main() {
 	listen := flag.String("listen", ":80", "address to serve the guest API on")
 	logDir := flag.String("log-dir", "", "directory for process logs (defaults to /var/log/ate-jobs or temporary dir)")
+	requireOwner := flag.Bool("require-owner", false, "require trusted controller ownership metadata on every guest RPC")
 	workspace := flag.String("workspace", "/", "workspace root directory")
 	flag.Parse()
 
@@ -47,6 +48,7 @@ func main() {
 		ListenAddr:       addr,
 		LogDir:           *logDir,
 		Workspace:        *workspace,
+		RequireOwner:     *requireOwner,
 		EnableProcess:    true,
 		EnableFileSystem: true,
 	}

@@ -15,15 +15,18 @@
 package filesystem
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -119,7 +122,19 @@ func (s *Service) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream ateenvv1al
 		return err
 	}
 
-	f, err := os.Open(filePath)
+	root, err := os.OpenRoot(s.rootDirectory())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return status.Error(codes.NotFound, "file not found")
+		}
+		return status.Error(codes.Internal, "opening filesystem root")
+	}
+	defer root.Close()
+	relative, err := filepath.Rel(s.rootDirectory(), filePath)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, "invalid file path")
+	}
+	f, err := root.OpenFile(relative, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return status.Errorf(codes.NotFound, "file %q not found", req.GetPath())
@@ -130,6 +145,9 @@ func (s *Service) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream ateenvv1al
 		return status.Errorf(codes.Internal, "failed to open file %q: %v", req.GetPath(), err)
 	}
 	defer f.Close()
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return status.Error(codes.InvalidArgument, "path is not a regular file")
+	}
 
 	buf := make([]byte, s.readBufferSize)
 	for {
@@ -158,10 +176,14 @@ func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServ
 	var totalBytes int64
 	var filePath string
 	var reqPath string
+	var root *os.Root
 
 	defer func() {
 		if f != nil {
 			_ = f.Close()
+		}
+		if root != nil {
+			_ = root.Close()
 		}
 	}()
 
@@ -195,9 +217,20 @@ func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServ
 			filePath = validatedPath
 
 			// Ensure parent directory exists
-			dir := filepath.Dir(filePath)
-			if dir != "" && dir != "." {
-				if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(s.rootDirectory(), 0755); err != nil {
+				return status.Error(codes.Internal, "creating filesystem root")
+			}
+			root, err = os.OpenRoot(s.rootDirectory())
+			if err != nil {
+				return status.Error(codes.Internal, "opening filesystem root")
+			}
+			relative, err := filepath.Rel(s.rootDirectory(), filePath)
+			if err != nil {
+				return status.Error(codes.InvalidArgument, "invalid file path")
+			}
+			dir := filepath.Dir(relative)
+			if dir != "." {
+				if err := root.MkdirAll(dir, 0755); err != nil {
 					return status.Errorf(codes.Internal, "failed to create parent directories for %q: %v", reqPath, err)
 				}
 			}
@@ -207,12 +240,18 @@ func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServ
 				mode = os.FileMode(req.GetMode())
 			}
 
-			f, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			f, err = root.OpenFile(relative, os.O_CREATE|os.O_WRONLY|syscall.O_NONBLOCK, mode)
 			if err != nil {
 				if errors.Is(err, os.ErrPermission) {
 					return status.Errorf(codes.PermissionDenied, "permission denied opening %q: %v", reqPath, err)
 				}
 				return status.Errorf(codes.Internal, "failed to create file %q: %v", reqPath, err)
+			}
+			if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+				return status.Error(codes.InvalidArgument, "path is not a regular file")
+			}
+			if err := f.Truncate(0); err != nil {
+				return status.Error(codes.Internal, "truncating file")
 			}
 		}
 
@@ -226,4 +265,49 @@ func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServ
 			totalBytes += int64(n)
 		}
 	}
+}
+
+func (s *Service) rootDirectory() string {
+	if s.rootDir != "" {
+		return s.rootDir
+	}
+	return "/"
+}
+
+func (s *Service) RemovePath(ctx context.Context, req *ateenvv1alpha.RemovePathRequest) (*emptypb.Empty, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	target, err := s.resolveAndValidatePath(req.GetPath())
+	if err != nil {
+		return nil, err
+	}
+	relative, err := filepath.Rel(s.rootDirectory(), target)
+	if err != nil || relative == "." {
+		return nil, status.Error(codes.PermissionDenied, "cannot remove filesystem root")
+	}
+	root, err := os.OpenRoot(s.rootDirectory())
+	if err != nil {
+		return nil, status.Error(codes.Internal, "opening filesystem root")
+	}
+	defer root.Close()
+	// RemoveAll treats a missing path as success; preserve the caller's force choice.
+	if _, err := root.Lstat(relative); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if req.GetForce() {
+				return &emptypb.Empty{}, nil
+			}
+			return nil, status.Error(codes.NotFound, "path not found")
+		}
+		return nil, status.Error(codes.PermissionDenied, "path unavailable within filesystem root")
+	}
+	if req.GetRecursive() {
+		err = root.RemoveAll(relative)
+	} else {
+		err = root.Remove(relative)
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "removing path: %v", err)
+	}
+	return &emptypb.Empty{}, nil
 }

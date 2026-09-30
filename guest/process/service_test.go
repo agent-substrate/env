@@ -512,3 +512,63 @@ func TestWatchdogTimeout(t *testing.T) {
 		t.Fatalf("expected exit code 137, got %d", proc.ExitCode)
 	}
 }
+
+func TestCallerProcessIDCanBeCanceledBeforeStart(t *testing.T) {
+	client, cleanup := setupTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	id := "b50b05c2-5c84-4d9b-bdcf-4016c35fc9d6"
+	_, err := client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{ProcessId: id})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("kill before start: %v", err)
+	}
+	_, err = client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{ProcessId: id, Command: []string{"sh", "-c", "exit 0"}})
+	if status.Code(err) != codes.Canceled {
+		t.Fatalf("canceled ID started: %v", err)
+	}
+}
+
+func TestOutputBacklogIsChunkedAndComplete(t *testing.T) {
+	client, cleanup := setupTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	started, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "head -c 5242880 /dev/zero"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		state, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: started.ProcessId})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.FinishedAt != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("command did not complete")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{ProcessId: started.ProcessId, Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chunk.Data) > 64*1024 {
+			t.Fatal("unbounded backlog chunk")
+		}
+		total += len(chunk.Data)
+	}
+	if total != 5242880 {
+		t.Fatalf("lost backlog tail: %d", total)
+	}
+}

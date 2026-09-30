@@ -23,11 +23,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
 
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -54,6 +56,8 @@ type TrackerConfig struct {
 	LogDir string
 	// Workspace is the working and confinement directory for process operations.
 	Workspace string
+	// ConfineWorkingDirectory holds a rooted directory descriptor through Linux startup.
+	ConfineWorkingDirectory bool
 	// MaxConcurrentProcesses limits simultaneous active running commands. 0 means unlimited.
 	MaxConcurrentProcesses int
 	// MaxLogBytes caps stdout and stderr logs per command. 0 means unlimited.
@@ -117,6 +121,7 @@ type Tracker struct {
 	processes       map[string]*ProcessState
 	activeProcesses int
 	stopPruner      chan struct{}
+	cancelled       map[string]bool
 }
 
 // NewTracker creates a new Process Tracker with Layer 1 resource controls.
@@ -131,6 +136,7 @@ func NewTracker(cfg TrackerConfig) (*Tracker, error) {
 	t := &Tracker{
 		config:     cfg,
 		processes:  make(map[string]*ProcessState),
+		cancelled:  make(map[string]bool),
 		stopPruner: make(chan struct{}),
 	}
 
@@ -198,38 +204,92 @@ func (cw *cappedWriter) Write(p []byte) (n int, err error) {
 }
 
 // Start launches a new background process, enforcing concurrency and resource limits.
-func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*ProcessState, error) {
+func (t *Tracker) Start(command []string, cwd string, env map[string]string, requestedID ...string) (*ProcessState, error) {
 	if len(command) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "command list cannot be empty")
 	}
 
+	processID := t.generateUniqueID()
+	if len(requestedID) > 0 && requestedID[0] != "" {
+		if _, err := uuid.Parse(requestedID[0]); err != nil {
+			return nil, status.Error(codes.InvalidArgument, "process_id must be a UUID")
+		}
+		processID = requestedID[0]
+	}
 	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.cancelled) >= 1024 {
+		return nil, status.Error(codes.ResourceExhausted, "cancellation registry full")
+	}
+	if t.cancelled[processID] {
+		return nil, status.Error(codes.Canceled, "process was canceled before start")
+	}
+	if _, exists := t.processes[processID]; exists {
+		return nil, status.Error(codes.AlreadyExists, "process ID already used")
+	}
 	if t.config.MaxConcurrentProcesses > 0 && t.activeProcesses >= t.config.MaxConcurrentProcesses {
-		t.mu.Unlock()
 		return nil, status.Errorf(codes.ResourceExhausted,
 			"maximum concurrent processes limit (%d) reached; please wait for running processes to complete or kill them",
 			t.config.MaxConcurrentProcesses)
 	}
 	t.activeProcesses++
-	t.mu.Unlock()
 
-	processID := t.generateUniqueID()
 	stdoutPath := filepath.Join(t.config.LogDir, fmt.Sprintf("%s.stdout", processID))
 	stderrPath := filepath.Join(t.config.LogDir, fmt.Sprintf("%s.stderr", processID))
 
 	stdoutFile, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		t.decrementActive()
+		t.activeProcesses--
 		return nil, status.Errorf(codes.Internal, "creating stdout log: %v", err)
 	}
 
 	stderrFile, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		stdoutFile.Close()
-		t.decrementActive()
+		t.activeProcesses--
 		return nil, status.Errorf(codes.Internal, "creating stderr log: %v", err)
 	}
 
+	launched := false
+	defer func() {
+		if !launched {
+			stdoutFile.Close()
+			stderrFile.Close()
+		}
+	}()
+	var directory *os.File
+	if t.config.ConfineWorkingDirectory && t.config.Workspace != "" && t.config.Workspace != "/" {
+		root, err := os.OpenRoot(t.config.Workspace)
+		if err != nil {
+			t.activeProcesses--
+			return nil, status.Error(codes.Internal, "opening process workspace")
+		}
+		defer root.Close()
+		if cwd == "" {
+			cwd = t.config.Workspace
+		}
+		if !filepath.IsAbs(cwd) {
+			cwd = filepath.Join(t.config.Workspace, cwd)
+		}
+		relative, err := filepath.Rel(t.config.Workspace, cwd)
+		if err == nil {
+			directory, err = root.Open(relative)
+		}
+		if err != nil {
+			t.activeProcesses--
+			return nil, status.Error(codes.PermissionDenied, "working directory outside workspace or unavailable")
+		}
+		defer directory.Close()
+		if info, err := directory.Stat(); err != nil || !info.IsDir() {
+			t.activeProcesses--
+			return nil, status.Error(codes.InvalidArgument, "working directory is not a directory")
+		}
+		if runtime.GOOS != "linux" {
+			t.activeProcesses--
+			return nil, status.Error(codes.Unimplemented, "confined process startup requires Linux")
+		}
+		cwd = fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), directory.Fd())
+	}
 	cmd := exec.Command(command[0], command[1:]...)
 	if cwd != "" {
 		cmd.Dir = cwd
@@ -254,10 +314,11 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 	if err := cmd.Start(); err != nil {
 		stdoutFile.Close()
 		stderrFile.Close()
-		t.decrementActive()
+		t.activeProcesses--
 		return nil, status.Errorf(codes.Internal, "starting process: %v", err)
 	}
 
+	launched = true
 	state := &ProcessState{
 		ProcessID:  processID,
 		Command:    command,
@@ -276,9 +337,7 @@ func (t *Tracker) Start(command []string, cwd string, env map[string]string) (*P
 		})
 	}
 
-	t.mu.Lock()
 	t.processes[processID] = state
-	t.mu.Unlock()
 
 	// Background reaper goroutine
 	go func() {
@@ -351,43 +410,60 @@ func (t *Tracker) Get(processID string) (*ProcessState, bool) {
 
 // Kill terminates a running process and its process tree.
 func (t *Tracker) Kill(processID string) (int32, error) {
-	t.mu.RLock()
+	t.mu.Lock()
 	state, ok := t.processes[processID]
-	t.mu.RUnlock()
-
 	if !ok {
+		if _, err := uuid.Parse(processID); err == nil {
+			if len(t.cancelled) >= 1024 && !t.cancelled[processID] {
+				t.mu.Unlock()
+				return 0, status.Error(codes.ResourceExhausted, "cancellation registry full")
+			}
+			t.cancelled[processID] = true
+		}
+		t.mu.Unlock()
 		return 0, status.Errorf(codes.NotFound, "process %q not found", processID)
 	}
-
+	t.mu.Unlock()
 	state.mu.Lock()
-	if state.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING {
-		exitCode := state.ExitCode
+	if !state.FinishedAt.IsZero() {
+		code := state.ExitCode
 		state.mu.Unlock()
-		return exitCode, nil
+		return code, nil
 	}
-
+	if err := syscall.Kill(-state.Cmd.Process.Pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		state.mu.Unlock()
+		return 0, status.Error(codes.Internal, "process group did not terminate")
+	}
 	state.Status = ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED
-	state.ExitCode = 128 + int32(syscall.SIGKILL) // 137
+	state.ExitCode = 137
 	if state.timer != nil {
 		state.timer.Stop()
 	}
-	pid := state.Cmd.Process.Pid
 	state.mu.Unlock()
-
-	// Send SIGKILL to the entire process group (-PID)
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
-
-	// Wait for reaper goroutine
 	select {
 	case <-state.doneChan:
 	case <-time.After(2 * time.Second):
+		return 0, status.Error(codes.DeadlineExceeded, "process termination unconfirmed")
 	}
-
 	state.mu.RLock()
-	exitCode := state.ExitCode
-	state.mu.RUnlock()
+	defer state.mu.RUnlock()
+	return state.ExitCode, nil
+}
 
-	return exitCode, nil
+// KillAll drains tracked commands before changing an environment's owner.
+func (t *Tracker) KillAll() error {
+	t.mu.RLock()
+	ids := make([]string, 0, len(t.processes))
+	for id := range t.processes {
+		ids = append(ids, id)
+	}
+	t.mu.RUnlock()
+	for _, id := range ids {
+		if _, err := t.Kill(id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // prunerLoop periodically removes expired process states and log files.
@@ -465,10 +541,13 @@ func ReadLogs(filePath string, offset int64) ([]byte, int64, error) {
 	}
 
 	length := size - offset
+	if length > 64*1024 {
+		length = 64 * 1024
+	}
 	buf := make([]byte, length)
 	n, err := f.ReadAt(buf, offset)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, 0, err
 	}
-	return buf[:n], size, nil
+	return buf[:n], offset + int64(n), nil
 }
