@@ -62,6 +62,13 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
                 template.name = request.template.name
             if request.template.atespace:
                 template.atespace = request.template.atespace
+        if request.image:
+            # Mirror ate-env-api: the template becomes the base of one derived
+            # per image, named after the digest.
+            if "@sha256:" not in request.image:
+                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "image is not pinned by digest")
+            digest = request.image.split("@sha256:", 1)[1]
+            template.name = f"{template.name}-{digest[:12]}"
         environment = env_pb2.Environment(
             id=request.id,
             atespace=atespace,

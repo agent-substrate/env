@@ -66,6 +66,21 @@ ate-env manifest template \
   --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
 ```
 
+That template's container is the guest image itself. To run another image unmodified, name
+it with `--task-image`: the guest is then mounted into it as a read-only OCI image volume at
+`/ate` and started from there, so the task image is never rebuilt.
+
+```bash
+ate-env manifest template --template py312 \
+  --task-image     docker.io/library/python@sha256:<digest> \
+  --guest-image    <registry>/ate-env-guest@sha256:<digest> \
+  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
+```
+
+See [docs/task-images/README.md](docs/task-images/README.md) for the full guide, including
+creating environments from an image on demand, and [docs/task-images/DESIGN.md](docs/task-images/DESIGN.md)
+for the design.
+
 Then create and use an environment:
 
 ```bash
@@ -74,6 +89,11 @@ kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 
 # Create an environment.
 ate-env create dev1
+
+# Or run any digest-pinned image unmodified. ate-env-api derives a template
+# from default-template on first use (guest mounted in as an image volume)
+# and reuses it for later environments on the same image.
+ate-env create py1 --image docker.io/library/python@sha256:<digest>
 
 # Execute a shell command inside the environment.
 ate-env dev1 shell 'echo hello > /note.txt'
@@ -156,7 +176,7 @@ Manages the lifecycle of isolated execution environments (defined in [`proto/ate
 
 | RPC | Description |
 | --- | ----------- |
-| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate |
+| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate, or from a digest-pinned `image` on top of one: the template becomes the base, the image the container, and the guest is mounted in as a read-only image volume |
 | `GetEnvironment` | Retrieves environment details and status |
 | `SuspendEnvironment` | Suspends and checkpoints the environment to snapshot storage |
 | `DeleteEnvironment` | Deletes the environment permanently |

@@ -49,6 +49,30 @@ async def test_create_omits_template_when_not_given(fake_stack):
     assert not fakes.environments.last_create_request.HasField("template")
 
 
+async def test_create_with_image_reports_derived_template(fake_stack):
+    client, fakes = fake_stack
+    image = "docker.io/library/python@sha256:" + "0123456789abcdef" * 4
+    env = await client.create("dev3", image=image)
+    assert fakes.environments.last_create_request.image == image
+    info = await env.info()
+    assert info.template is not None
+    assert info.template.name == "default-template-0123456789ab"
+
+
+async def test_create_with_image_and_base_template(fake_stack):
+    client, fakes = fake_stack
+    image = "docker.io/library/python@sha256:" + "0123456789abcdef" * 4
+    env = await client.create("dev4", template_name="py-base", image=image)
+    info = await env.info()
+    assert info.template.name == "py-base-0123456789ab"
+
+
+async def test_create_omits_image_when_not_given(fake_stack):
+    client, fakes = fake_stack
+    await client.create("dev5")
+    assert fakes.environments.last_create_request.image == ""
+
+
 async def test_create_duplicate_maps_to_rpc_error_with_code(fake_stack):
     client, _ = fake_stack
     await client.create("dev1")

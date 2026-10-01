@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/agent-substrate/env/internal/apiservice"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	appsv1 "k8s.io/api/apps/v1"
@@ -263,5 +264,68 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "image: example.com/guest@sha256:aaaa") || !strings.Contains(out, "storageLocation: gs://bucket/prefix/") {
 		t.Errorf("expected guest image and storage location in output:\n%s", out)
+	}
+}
+
+const testHex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestBuildTemplateTaskImage(t *testing.T) {
+	cfg := testTemplateConfig()
+	cfg.guestImage = "example.com/guest@sha256:" + testHex64
+	cfg.taskImage = "docker.io/library/python@sha256:" + testHex64
+	cfg.workspace = "/workspace"
+
+	tmpl, err := buildTemplate(cfg)
+	if err != nil {
+		t.Fatalf("buildTemplate: %v", err)
+	}
+	if tmpl.GetMetadata().GetName() != "default-template" {
+		t.Errorf("name = %q, want the configured template name unchanged", tmpl.GetMetadata().GetName())
+	}
+	c := tmpl.GetContainers()[0]
+	if c.GetImage() != cfg.taskImage {
+		t.Errorf("container image = %q, want the task image", c.GetImage())
+	}
+	if len(tmpl.GetVolumes()) != 1 || tmpl.GetVolumes()[0].GetImage().GetReference() != cfg.guestImage {
+		t.Errorf("volumes = %v, want the guest image volume", tmpl.GetVolumes())
+	}
+	if len(c.GetVolumeMounts()) != 1 || c.GetVolumeMounts()[0].GetMountPath() != apiservice.GuestMountPath {
+		t.Errorf("mounts = %v", c.GetVolumeMounts())
+	}
+	want := []string{"/ate/ko-app/ate-env-guest", "-workspace", "/workspace"}
+	if got := c.GetCommand(); len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Errorf("command = %v, want %v", got, want)
+	}
+}
+
+func TestBuildTemplateWorkspaceOnly(t *testing.T) {
+	cfg := testTemplateConfig()
+	cfg.workspace = "/w"
+	tmpl, err := buildTemplate(cfg)
+	if err != nil {
+		t.Fatalf("buildTemplate: %v", err)
+	}
+	c := tmpl.GetContainers()[0]
+	if c.GetImage() != cfg.guestImage || len(tmpl.GetVolumes()) != 0 {
+		t.Errorf("without --task-image the guest stays the container image and no volume is added: %v", tmpl)
+	}
+	if got := c.GetCommand(); len(got) != 3 || got[0] != "/ko-app/ate-env-guest" || got[2] != "/w" {
+		t.Errorf("command = %v", got)
+	}
+}
+
+func TestTemplateConfigResolveImagesTaskImage(t *testing.T) {
+	cfg := testTemplateConfig()
+	cfg.taskImage = "python:3.12"
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("unpinned --task-image accepted")
+	}
+	cfg.taskImage = "docker.io/library/python@sha256:" + testHex64
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("short guest digest accepted together with --task-image")
+	}
+	cfg.guestImage = "example.com/guest@sha256:" + testHex64
+	if err := cfg.resolveImages(); err != nil {
+		t.Errorf("pinned images rejected: %v", err)
 	}
 }

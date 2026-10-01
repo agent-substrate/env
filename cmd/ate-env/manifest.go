@@ -64,6 +64,12 @@ type templateConfig struct {
 	guestImage      string
 	guestCommand    []string
 	snapshotsBucket string
+	// taskImage, when set, is the digest-pinned image the actor runs; the
+	// guest is then mounted into it as an image volume instead of being the
+	// container image itself.
+	taskImage string
+	// workspace, when set, is passed to the guest as -workspace.
+	workspace string
 }
 
 func (c *templateConfig) resolveImages() error {
@@ -72,6 +78,14 @@ func (c *templateConfig) resolveImages() error {
 	}
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
+	}
+	if c.taskImage != "" {
+		if _, err := apiservice.ImageDigest(c.taskImage); err != nil {
+			return fmt.Errorf("--task-image: %w", err)
+		}
+		if _, err := apiservice.ImageDigest(c.guestImage); err != nil {
+			return fmt.Errorf("--guest-image must be digest-pinned to be mounted as an image volume: %w", err)
+		}
 	}
 	return nil
 }
@@ -135,7 +149,11 @@ It prints YAML to stdout without touching the cluster.`,
 			if err := tCfg.resolveImages(); err != nil {
 				return err
 			}
-			return writeActorTemplate(cmd.OutOrStdout(), buildActorTemplate(tCfg))
+			tmpl, err := buildTemplate(tCfg)
+			if err != nil {
+				return err
+			}
+			return writeActorTemplate(cmd.OutOrStdout(), tmpl)
 		},
 	}
 
@@ -144,6 +162,8 @@ It prints YAML to stdout without touching the cluster.`,
 	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringSliceVar(&tCfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
 	cmd.Flags().StringVar(&tCfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
+	cmd.Flags().StringVar(&tCfg.taskImage, "task-image", "", "digest-pinned image to run unmodified; the guest is mounted into it as a read-only image volume at "+apiservice.GuestMountPath)
+	cmd.Flags().StringVar(&tCfg.workspace, "workspace", "", "workspace root inside the actor, passed to the guest as -workspace (default: the guest's default)")
 
 	return cmd
 }
@@ -303,6 +323,21 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 			ConfigName:   "gvisor-default",
 		},
 	}
+}
+
+// buildTemplate returns the ActorTemplate for cfg: the guest template from
+// buildActorTemplate with the workspace flag applied and, when a task image is
+// set, that image as the container with the guest mounted into it.
+func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
+	tmpl := buildActorTemplate(cfg)
+	if cfg.workspace != "" {
+		c := tmpl.Containers[0]
+		c.Command = append(append([]string(nil), c.Command...), "-workspace", cfg.workspace)
+	}
+	if cfg.taskImage == "" {
+		return tmpl, nil
+	}
+	return apiservice.DeriveImageTemplate(tmpl, cfg.template, cfg.taskImage)
 }
 
 // buildAPIDeployment returns the ate-env-api Deployment, pointed at the
