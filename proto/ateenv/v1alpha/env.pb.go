@@ -252,7 +252,17 @@ type CreateEnvironmentRequest struct {
 	// Substrate atespace for the environment (defaults to "ate-env").
 	Atespace string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	// ActorTemplate configuration to instantiate (defaults to name "default-template" in atespace "ate-env").
-	Template      *Template `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`
+	Template *Template `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`
+	// OCI image to run, pinned by digest (repo@sha256:...). Optional. When set,
+	// the environment is created from an ActorTemplate derived from `template`,
+	// which acts as the base: its worker selector, snapshot, sandbox and
+	// resource settings are kept, its container image is replaced by this
+	// image, and the ate-env-guest from the base is mounted into it as a
+	// read-only image volume, so the task image runs unmodified. The derived
+	// template is named "<base>-<first 12 hex digits of the digest>" in the
+	// base's atespace; it is created on first use and reused afterwards, and
+	// the response reports it.
+	Image         string `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -306,6 +316,13 @@ func (x *CreateEnvironmentRequest) GetTemplate() *Template {
 		return x.Template
 	}
 	return nil
+}
+
+func (x *CreateEnvironmentRequest) GetImage() string {
+	if x != nil {
+		return x.Image
+	}
+	return ""
 }
 
 // Response returned after creating an environment.
@@ -651,11 +668,12 @@ const file_proto_ateenv_v1alpha_env_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\batespace\x18\x02 \x01(\tR\batespace\x124\n" +
 	"\btemplate\x18\x03 \x01(\v2\x18.ateenv.v1alpha.TemplateR\btemplate\x129\n" +
-	"\x06status\x18\x04 \x01(\x0e2!.ateenv.v1alpha.EnvironmentStatusR\x06status\"|\n" +
+	"\x06status\x18\x04 \x01(\x0e2!.ateenv.v1alpha.EnvironmentStatusR\x06status\"\x92\x01\n" +
 	"\x18CreateEnvironmentRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\batespace\x18\x02 \x01(\tR\batespace\x124\n" +
-	"\btemplate\x18\x03 \x01(\v2\x18.ateenv.v1alpha.TemplateR\btemplate\"Z\n" +
+	"\btemplate\x18\x03 \x01(\v2\x18.ateenv.v1alpha.TemplateR\btemplate\x12\x14\n" +
+	"\x05image\x18\x04 \x01(\tR\x05image\"Z\n" +
 	"\x19CreateEnvironmentResponse\x12=\n" +
 	"\venvironment\x18\x01 \x01(\v2\x1b.ateenv.v1alpha.EnvironmentR\venvironment\"C\n" +
 	"\x15GetEnvironmentRequest\x12\x0e\n" +

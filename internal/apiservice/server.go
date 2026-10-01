@@ -96,6 +96,14 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1alpha.Creat
 		atespace = DefaultAtespace
 	}
 
+	if image := req.GetImage(); image != "" {
+		name, err := s.ensureImageTemplate(ctx, atespace, templateName, image)
+		if err != nil {
+			return nil, err
+		}
+		templateName = name
+	}
+
 	opts := ate.CreateOptions{
 		ID:       req.GetId(),
 		Template: templateName,
@@ -116,6 +124,51 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1alpha.Creat
 			Status: ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_UNSPECIFIED,
 		},
 	}, nil
+}
+
+// ensureImageTemplate returns the name of the ActorTemplate that runs image
+// on top of base, creating it from base on first use. The derived template
+// lives in the environment's atespace, next to base.
+func (s *Server) ensureImageTemplate(ctx context.Context, atespace, base, image string) (string, error) {
+	name, err := ImageTemplateName(base, image)
+	if err != nil {
+		return "", status.Error(codes.InvalidArgument, err.Error())
+	}
+	existing, err := s.client.GetActorTemplate(ctx, atespace, name)
+	switch {
+	case err == nil:
+		if got := firstContainerImage(existing); got != image {
+			return "", status.Errorf(codes.FailedPrecondition,
+				"actor template %q exists but runs %q, not %q; delete it or use another base template", name, got, image)
+		}
+		return name, nil
+	case !errors.Is(err, ate.ErrNotFound):
+		return "", toGRPCError(err)
+	}
+	baseTmpl, err := s.client.GetActorTemplate(ctx, atespace, base)
+	if err != nil {
+		if errors.Is(err, ate.ErrNotFound) {
+			return "", status.Errorf(codes.FailedPrecondition,
+				"base actor template %q not found in atespace %q; register it first (ate-env manifest template)", base, atespace)
+		}
+		return "", toGRPCError(err)
+	}
+	derived, err := DeriveImageTemplate(baseTmpl, name, image)
+	if err != nil {
+		return "", status.Error(codes.InvalidArgument, err.Error())
+	}
+	// A concurrent create may have won the race; it built the same template.
+	if _, err := s.client.CreateActorTemplate(ctx, derived); err != nil && !errors.Is(err, ate.ErrAlreadyExists) {
+		return "", toGRPCError(err)
+	}
+	return name, nil
+}
+
+func firstContainerImage(t *ateapipb.ActorTemplate) string {
+	if len(t.GetContainers()) == 0 {
+		return ""
+	}
+	return t.GetContainers()[0].GetImage()
 }
 
 // GetEnvironment retrieves the status and configuration of an existing environment.
