@@ -1,0 +1,133 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes a release: the ate-env-api and ate-env-guest images to GitHub
+# Container Registry, pinned by digest and signed, and the ate-env CLI with
+# those digests baked in as its defaults, so a release binary deploys without
+# naming any image of this repo. Runs on a v* tag, or by hand for an existing
+# tag (to republish). See docs/release.md.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish images and assets for (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write # release assets and notes
+  packages: write # ghcr.io
+  id-token: write # cosign keyless signing
+
+env:
+  # ghcr.io/<org>/<repo>/<image>; the images are linked to this repository.
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+  KO_DEFAULTPLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag
+        id: tag
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: ko-build/setup-ko@v0.9
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Build and push the images
+        id: images
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          api=$(KO_DOCKER_REPO="${IMAGE_PREFIX}/ate-env-api" ko build --bare --tags "${TAG},latest" ./cmd/ate-env-api)
+          guest=$(KO_DOCKER_REPO="${IMAGE_PREFIX}/ate-env-guest" ko build --bare --tags "${TAG},latest" ./cmd/ate-env-guest)
+          echo "api=${api}" >> "$GITHUB_OUTPUT"
+          echo "guest=${guest}" >> "$GITHUB_OUTPUT"
+          echo "ate-env-api:   ${api}"
+          echo "ate-env-guest: ${guest}"
+
+      - name: Sign the images (keyless, bound to this workflow's identity)
+        run: cosign sign --yes "${{ steps.images.outputs.api }}" "${{ steps.images.outputs.guest }}"
+
+      - name: Build the CLI with the image digests as defaults
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          GUEST_IMAGE: ${{ steps.images.outputs.guest }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ldflags="-s -w -X main.version=${TAG} -X main.defaultAPIImage=${API_IMAGE} -X main.defaultGuestImage=${GUEST_IMAGE}"
+          for os in linux darwin; do
+            for arch in amd64 arm64; do
+              CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$ldflags" \
+                -o "dist/ate-env_${TAG}_${os}_${arch}" ./cmd/ate-env
+            done
+          done
+          {
+            echo "ate-env-api=${API_IMAGE}"
+            echo "ate-env-guest=${GUEST_IMAGE}"
+          } > "dist/images_${TAG}.txt"
+          (cd dist && sha256sum ./* > "SHA256SUMS_${TAG}.txt")
+          ls -l dist
+
+      - name: Publish the release assets and record the digests in the notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          GUEST_IMAGE: ${{ steps.images.outputs.guest }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          existing=$(gh release view "$TAG" --json body --jq .body)
+          # Replace a previous images block (republish) rather than append twice.
+          existing=$(printf '%s\n' "$existing" | awk '/^## Images$/{skip=1} skip&&/^## /&&!/^## Images$/{skip=0} !skip')
+          {
+            printf '%s\n\n' "$existing"
+            echo "## Images"
+            echo
+            echo "Pinned by digest and signed with cosign (keyless, GitHub Actions OIDC):"
+            echo
+            echo "- \`${API_IMAGE}\`"
+            echo "- \`${GUEST_IMAGE}\`"
+            echo
+            echo "The \`ate-env\` binaries attached to this release default \`manifest --api-image\` and \`manifest template --guest-image\` to these digests."
+            echo
+            echo '```bash'
+            echo "cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' ${GUEST_IMAGE}"
+            echo '```'
+          } > notes.md
+          gh release edit "$TAG" --notes-file notes.md

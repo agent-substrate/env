@@ -15,10 +15,23 @@
 GOOGLE_CLOUD_PROJECT ?= $(shell gcloud config get-value project 2>/dev/null)
 ATE_ENV_IMAGE_REPO ?= gcr.io/$(GOOGLE_CLOUD_PROJECT)
 
-.PHONY: build install test vet clean images python-protos python-test verify-boilerplate
+# Baked into the ate-env CLI by build-cli (release.yaml does the same with the
+# published digests): `ate-env --version`, and the defaults of manifest
+# --api-image and manifest template --guest-image.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+ATE_ENV_API_IMAGE ?=
+ATE_ENV_GUEST_IMAGE ?=
+CLI_LDFLAGS := -X main.version=$(VERSION) -X main.defaultAPIImage=$(ATE_ENV_API_IMAGE) -X main.defaultGuestImage=$(ATE_ENV_GUEST_IMAGE)
+
+.PHONY: build build-cli install test vet clean images python-protos python-test verify-boilerplate
 
 build:
 	go build ./...
+
+# Build bin/ate-env with the version and, if ATE_ENV_API_IMAGE /
+# ATE_ENV_GUEST_IMAGE are set, image defaults baked in.
+build-cli:
+	go build -trimpath -ldflags "$(CLI_LDFLAGS)" -o bin/ate-env ./cmd/ate-env
 
 # Install ate-env and ate-env-api to $GOBIN (or $GOPATH/bin).
 install:
