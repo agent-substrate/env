@@ -112,6 +112,13 @@ kubectl-ate get actor-template --atespace ate-env
 A fresh template shows `Failed` in that listing for a few seconds while its
 golden bakes, then `Ready`. Environments can be created in the meantime.
 
+## A second runtime
+
+The same mechanism carries more runtimes. `--layer` mounts another image,
+`--sidecar` has the guest start a process from it, and `--sidecar-readyz`
+folds its readiness into the actor's. See [RUNTIMES.md](RUNTIMES.md) and the
+runnable example in [`examples/runtime-layers`](../../examples/runtime-layers).
+
 ## Errors
 
 | Error | Meaning |

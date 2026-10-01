@@ -78,7 +78,8 @@ ate-env manifest template --template py312 \
 ```
 
 See [docs/task-images/README.md](docs/task-images/README.md) for the full guide, including
-creating environments from an image on demand, and [docs/task-images/DESIGN.md](docs/task-images/DESIGN.md)
+creating environments from an image on demand, [docs/task-images/RUNTIMES.md](docs/task-images/RUNTIMES.md)
+for injecting a second runtime as a layer, and [docs/task-images/DESIGN.md](docs/task-images/DESIGN.md)
 for the design.
 
 Then create and use an environment:

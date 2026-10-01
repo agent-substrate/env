@@ -164,9 +164,50 @@ func TestDeriveImageTemplateRejects(t *testing.T) {
 	if _, err := DeriveImageTemplate(modeABase(), "", testTaskImage); err == nil {
 		t.Error("empty name accepted")
 	}
-	wrapped := modeABase()
-	wrapped.Containers[0].Command = []string{"sh", "-c", "exec /ko-app/ate-env-guest"}
-	if _, err := DeriveImageTemplate(wrapped, "x", testTaskImage); err == nil || !strings.Contains(err.Error(), "re-root") {
-		t.Errorf("a shell-wrapped base command must be rejected, got %v", err)
+	for _, cmd := range [][]string{
+		{"sh", "-c", "exec /ko-app/ate-env-guest"},
+		{"/bin/sh", "-c", "exec /ko-app/ate-env-guest"},
+		{"/opt/other/daemon"},
+	} {
+		wrapped := modeABase()
+		wrapped.Containers[0].Command = cmd
+		if _, err := DeriveImageTemplate(wrapped, "x", testTaskImage); err == nil || !strings.Contains(err.Error(), "re-root") {
+			t.Errorf("command %v must be rejected (only the guest binary is re-rooted), got %v", cmd, err)
+		}
+	}
+}
+
+func TestDeriveImageTemplateKeepsRuntimeLayers(t *testing.T) {
+	// A guest-image base that also carries a second runtime as an image
+	// volume and starts it as a guest sidecar: the layer and the flags
+	// survive derivation, and the guest volume is still added.
+	layerImage := "example.com/execd@sha256:" + strings.Repeat("c", 64)
+	base := modeABase()
+	base.Volumes = []*ateapipb.Volume{{Name: "execd", Image: &ateapipb.ImageVolumeSource{Reference: layerImage}}}
+	base.Containers[0].VolumeMounts = []*ateapipb.VolumeMount{{Name: "execd", MountPath: "/opt/opensandbox"}}
+	base.Containers[0].Command = []string{"/ko-app/ate-env-guest", "-sidecar", "/opt/opensandbox/execd --port 44772", "-sidecar-readyz", "http://127.0.0.1:44772/ready"}
+
+	got, err := DeriveImageTemplate(base, "x", testTaskImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.GetVolumes()) != 2 || got.GetVolumes()[0].GetName() != "execd" || got.GetVolumes()[1].GetName() != GuestVolumeName {
+		t.Errorf("volumes = %v, want the layer followed by the guest volume", got.GetVolumes())
+	}
+	c := got.GetContainers()[0]
+	if len(c.GetVolumeMounts()) != 2 || c.GetVolumeMounts()[1].GetMountPath() != GuestMountPath {
+		t.Errorf("mounts = %v", c.GetVolumeMounts())
+	}
+	want := "/ate/ko-app/ate-env-guest -sidecar /opt/opensandbox/execd --port 44772 -sidecar-readyz http://127.0.0.1:44772/ready"
+	if got := strings.Join(c.GetCommand(), " "); got != want {
+		t.Errorf("command = %q, want %q", got, want)
+	}
+	// Deriving again from the result (an already-injected base) changes only the image.
+	again, err := DeriveImageTemplate(got, "y", "example.com/other@sha256:"+strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.GetVolumes()) != 2 || strings.Join(again.GetContainers()[0].GetCommand(), " ") != want {
+		t.Errorf("second derivation altered layers or command: %v", again)
 	}
 }

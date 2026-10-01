@@ -329,3 +329,61 @@ func TestTemplateConfigResolveImagesTaskImage(t *testing.T) {
 		t.Errorf("pinned images rejected: %v", err)
 	}
 }
+
+func TestBuildTemplateWithRuntimeLayer(t *testing.T) {
+	cfg := testTemplateConfig()
+	cfg.guestImage = "example.com/guest@sha256:" + testHex64
+	cfg.taskImage = "docker.io/library/python@sha256:" + testHex64
+	cfg.layers = []string{"execd=example.com/execd@sha256:" + testHex64 + "=/opt/opensandbox"}
+	cfg.sidecars = []string{"/opt/opensandbox/execd --port 44772"}
+	cfg.sidecarReadyz = []string{"http://127.0.0.1:44772/ready"}
+
+	tmpl, err := buildTemplate(cfg)
+	if err != nil {
+		t.Fatalf("buildTemplate: %v", err)
+	}
+	vols := tmpl.GetVolumes()
+	if len(vols) != 2 || vols[0].GetName() != "execd" || vols[0].GetImage().GetReference() != "example.com/execd@sha256:"+testHex64 || vols[1].GetName() != apiservice.GuestVolumeName {
+		t.Errorf("volumes = %v, want the execd layer then the guest volume", vols)
+	}
+	c := tmpl.GetContainers()[0]
+	if len(c.GetVolumeMounts()) != 2 || c.GetVolumeMounts()[0].GetMountPath() != "/opt/opensandbox" || c.GetVolumeMounts()[1].GetMountPath() != apiservice.GuestMountPath {
+		t.Errorf("mounts = %v", c.GetVolumeMounts())
+	}
+	want := "/ate/ko-app/ate-env-guest -sidecar /opt/opensandbox/execd --port 44772 -sidecar-readyz http://127.0.0.1:44772/ready"
+	if got := strings.Join(c.GetCommand(), " "); got != want {
+		t.Errorf("command = %q, want %q", got, want)
+	}
+	if c.GetImage() != cfg.taskImage {
+		t.Errorf("image = %q", c.GetImage())
+	}
+}
+
+func TestParseLayerRejects(t *testing.T) {
+	cases := map[string]string{
+		"missing parts":    "execd=example.com/execd@sha256:" + testHex64,
+		"unpinned image":   "execd=example.com/execd:latest=/opt/execd",
+		"relative mount":   "execd=example.com/execd@sha256:" + testHex64 + "=opt/execd",
+		"guest mount path": "execd=example.com/execd@sha256:" + testHex64 + "=/ate",
+		"reserved name":    "guest=example.com/execd@sha256:" + testHex64 + "=/opt/execd",
+	}
+	for name, v := range cases {
+		if _, err := parseLayer(v); err == nil {
+			t.Errorf("%s: %q accepted", name, v)
+		}
+	}
+	dup := "a=example.com/x@sha256:" + testHex64 + "=/opt/a"
+	if _, err := parseLayers([]string{dup, dup}); err == nil {
+		t.Error("duplicate layer accepted")
+	}
+	cfg := testTemplateConfig()
+	cfg.sidecars = []string{"execd --port 1"}
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("relative sidecar binary accepted")
+	}
+	cfg = testTemplateConfig()
+	cfg.sidecarReadyz = []string{"127.0.0.1:44772/ready"}
+	if err := cfg.resolveImages(); err == nil {
+		t.Error("sidecar-readyz without a scheme accepted")
+	}
+}
