@@ -36,6 +36,10 @@ const GuestVolumeName = "guest"
 // defaultGuestBinary is the guest's path inside its own image (ko layout).
 const defaultGuestBinary = "/ko-app/ate-env-guest"
 
+// guestBinaryName is what a re-rootable command must start with: only the
+// guest's own path moves under the mount, never a shell or another binary.
+const guestBinaryName = "ate-env-guest"
+
 // imageTemplateDigestLen is how many hex digits of the digest go into a
 // derived template's name: enough to make collisions a non-concern and short
 // enough to keep the name a valid k8s short name next to any base name.
@@ -85,9 +89,11 @@ func ImageTemplateName(base, image string) (string, error) {
 // base can be either kind of template: one whose container image is the
 // guest itself (the shape `ate-env manifest template` writes), in which case
 // that image becomes the guest volume and the command is re-rooted under the
-// mount; or one that already mounts the guest as an image volume, in which
-// case only the container image changes. Everything else (worker selector,
-// snapshots, sandbox config, resources, env, readiness) carries over.
+// mount; or one that already mounts the guest as an image volume (named
+// GuestVolumeName), in which case only the container image changes.
+// Everything else carries over: worker selector, snapshots, sandbox config,
+// resources, env, readiness, and any other volumes, such as extra runtime
+// layers, together with the command-line flags that start them.
 func DeriveImageTemplate(base *ateapipb.ActorTemplate, name, image string) (*ateapipb.ActorTemplate, error) {
 	if base == nil {
 		return nil, errors.New("base template is required")
@@ -135,10 +141,12 @@ func DeriveImageTemplate(base *ateapipb.ActorTemplate, name, image string) (*ate
 	return tmpl, nil
 }
 
-// guestVolume returns the template's image volume, or nil when it has none.
+// guestVolume returns the template's guest image volume, or nil when the
+// guest is the container image. Other image volumes (extra runtime layers)
+// do not count: they can be present in either kind of base.
 func guestVolume(tmpl *ateapipb.ActorTemplate) *ateapipb.Volume {
 	for _, v := range tmpl.GetVolumes() {
-		if v.GetImage() != nil {
+		if v.GetName() == GuestVolumeName && v.GetImage() != nil {
 			return v
 		}
 	}
@@ -154,9 +162,9 @@ func rerootCommand(command []string) ([]string, error) {
 	if len(command) == 0 {
 		return []string{path.Join(GuestMountPath, defaultGuestBinary)}, nil
 	}
-	if !strings.HasPrefix(command[0], "/") {
-		return nil, fmt.Errorf("cannot re-root command %q under %s: it must start with an absolute path to the guest binary",
-			strings.Join(command, " "), GuestMountPath)
+	if !strings.HasPrefix(command[0], "/") || path.Base(command[0]) != guestBinaryName {
+		return nil, fmt.Errorf("cannot re-root command %q under %s: it must start with the absolute path of the guest binary (.../%s)",
+			strings.Join(command, " "), GuestMountPath, guestBinaryName)
 	}
 	out := append([]string(nil), command...)
 	out[0] = path.Join(GuestMountPath, out[0])

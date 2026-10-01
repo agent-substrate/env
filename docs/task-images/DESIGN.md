@@ -110,6 +110,28 @@ also where `ate-env-api` already creates actors, so no new permissions are
 involved beyond template creation, which the API server's identity needs for
 this feature.
 
+### Runtime layers
+
+A second runtime is expressed with the same primitives rather than a new
+template concept: an extra image volume for its binary, and two guest flags.
+`-sidecar` makes the guest start and supervise a process (restart with
+backoff, output into the guest log), and `-sidecar-readyz` makes the guest's
+`/readyz`, which Substrate uses as the wakeup probe, wait for the runtime's own
+health endpoint once. The guest is the right supervisor because it is already
+the container's only process and the readiness authority.
+
+Derivation treats layers as part of what carries over. The guest volume is
+recognized by its name, not by being an image volume, so a base with a layer
+still gets the guest added or kept correctly, and `create --image` on a layered
+base yields environments with the second runtime present. Layers are
+documented in [RUNTIMES.md](RUNTIMES.md); the verified example uses busybox as
+a stand-in runtime.
+
+What this does not solve is reaching a second runtime from outside the actor.
+The router forwards to port 80 unless a CONNECT authority names another port,
+and `ate-env-api` proxies only the guest. Exposing a runtime's port is the next
+piece, and it belongs with the OpenSandbox backend that needs it.
+
 ## Failure semantics
 
 | Situation | Result |
@@ -164,10 +186,10 @@ one golden snapshot per image. Neither is reclaimed automatically.
 
 ## Future work
 
-- **Second injected runtime.** The derivation is runtime-agnostic apart from
-  the binary path. A runtime such as OpenSandbox's `execd` or E2B's `envd` is a
-  second image volume plus a command and readiness probe; the base template
-  describes which runtime it carries.
+- **Reaching a second runtime from outside.** Layers and sidecars put a
+  runtime such as OpenSandbox's `execd` inside the actor and gate readiness on
+  it; an endpoint lookup on `ate-env-api` that names the runtime's port
+  through the router is what an external SDK still needs.
 - **Per-create overrides** for resources and workspace, so one base can serve
   images with different needs.
 - **Derived-template garbage collection**, by age or by last use, with the
@@ -180,8 +202,10 @@ one golden snapshot per image. Neither is reclaimed automatically.
 
 ## Verification
 
-- Unit tests cover derivation from both base kinds, naming and its limits, and
-  every rejection.
+- Unit tests cover derivation from both base kinds, naming and its limits,
+  every rejection, and that runtime layers and sidecar flags survive
+  derivation. The guest's sidecar supervisor and readiness gate have their own
+  tests (restart with backoff, stop on shutdown, gate once per URL).
 - Server tests against the in-process fake control plane cover first create,
   reuse, a named base in another atespace, and the failure table.
 - `clients/python/tests/e2e/test_full_stack.py` has a create-from-image test
