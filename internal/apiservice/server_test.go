@@ -431,6 +431,88 @@ func TestProxyGuestServices(t *testing.T) {
 	}
 }
 
+// TestProxyAppendWrite verifies the WriteFileRequest append flag survives the
+// api proxy and appends at the guest.
+func TestProxyAppendWrite(t *testing.T) {
+	te := newFullTestEnv(t)
+	ctx := context.Background()
+
+	if _, err := te.envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
+		Id: "append-test",
+	}); err != nil {
+		t.Fatalf("CreateEnvironment: %v", err)
+	}
+	workDir := t.TempDir()
+	grpcGuestServer, cleanup, err := guest.NewServer(guest.Config{
+		Workspace:        workDir,
+		EnableProcess:    true,
+		EnableFileSystem: true,
+	})
+	if err != nil {
+		t.Fatalf("guest.NewServer: %v", err)
+	}
+	t.Cleanup(cleanup)
+	te.router.Register("append-test", grpcGuestServer)
+
+	envCtx := metadata.AppendToOutgoingContext(ctx, "x-env-id", "append-test", "x-env-atespace", "default")
+
+	// Default write seeds the file.
+	writeStream, err := te.fsClient.WriteFile(envCtx)
+	if err != nil {
+		t.Fatalf("WriteFile stream: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:  "append-file.txt",
+		Chunk: []byte("line-1\n"),
+	}); err != nil {
+		t.Fatalf("WriteFile send: %v", err)
+	}
+	if _, err := writeStream.CloseAndRecv(); err != nil {
+		t.Fatalf("WriteFile CloseAndRecv: %v", err)
+	}
+
+	// Append through the proxy with the flag set on the first message.
+	appendStream, err := te.fsClient.WriteFile(envCtx)
+	if err != nil {
+		t.Fatalf("append WriteFile stream: %v", err)
+	}
+	if err := appendStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:   "append-file.txt",
+		Chunk:  []byte("line-2\n"),
+		Append: true,
+	}); err != nil {
+		t.Fatalf("append WriteFile send: %v", err)
+	}
+	resp, err := appendStream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("append WriteFile CloseAndRecv: %v", err)
+	}
+	if resp.GetBytesWritten() != int64(len("line-2\n")) {
+		t.Errorf("append bytes written = %d, want %d", resp.GetBytesWritten(), len("line-2\n"))
+	}
+
+	readStream, err := te.fsClient.ReadFile(envCtx, &ateenvv1alpha.ReadFileRequest{
+		Path: "append-file.txt",
+	})
+	if err != nil {
+		t.Fatalf("ReadFile stream: %v", err)
+	}
+	var readBuf []byte
+	for {
+		chunk, err := readStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ReadFile recv: %v", err)
+		}
+		readBuf = append(readBuf, chunk.GetData()...)
+	}
+	if string(readBuf) != "line-1\nline-2\n" {
+		t.Errorf("read %q, want %q", string(readBuf), "line-1\nline-2\n")
+	}
+}
+
 func TestActorStatusToEnvStatus(t *testing.T) {
 	cases := []struct {
 		name string
