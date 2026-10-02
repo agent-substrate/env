@@ -26,6 +26,7 @@ license = "Apache-2.0"
 dependencies = [
     "grpcio>=1.83",
     "protobuf>=7.35",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,16 @@ dev = [
     "pytest-asyncio>=1.0",
     "grpcio-tools>=1.83",
 ]
+kubernetes = [
+    "kubernetes>=24.0",
+    "websockets>=11.0",
+]
+ray = [
+    "ray>=2.10",
+]
+
+[project.entry-points."nemo_gym.sandbox_providers"]
+unified_sandbox = "ate_env.providers.nemo_gym:UnifiedSandboxProvider"
 
 [project.urls]
 Homepage = "https://github.com/agent-substrate/env"
