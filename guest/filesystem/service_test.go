@@ -349,3 +349,165 @@ func TestWriteFileMissingPath(t *testing.T) {
 		t.Fatalf("expected InvalidArgument for missing path, got %v", err)
 	}
 }
+
+func TestAppendPreservesExistingContent(t *testing.T) {
+	tempDir := t.TempDir()
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ReadBufferSize: 4 * 1024})
+	defer cleanup()
+
+	ctx := context.Background()
+	targetPath := filepath.Join(tempDir, "transcript.jsonl")
+	initial := []byte("{\"seq\":0}\n")
+	second := []byte("{\"seq\":1}\n")
+	third := []byte("{\"seq\":2}\n")
+
+	// Seed the file with a default (truncating) write.
+	writeStream, err := client.WriteFile(ctx)
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:  targetPath,
+		Chunk: initial,
+	}); err != nil {
+		t.Fatalf("failed to send seed chunk: %v", err)
+	}
+	if _, err := writeStream.CloseAndRecv(); err != nil {
+		t.Fatalf("seed write CloseAndRecv failed: %v", err)
+	}
+
+	// Append two more chunks with append=true on the first message only.
+	appendStream, err := client.WriteFile(ctx)
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if err := appendStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:   targetPath,
+		Chunk:  second,
+		Append: true,
+	}); err != nil {
+		t.Fatalf("failed to send append chunk: %v", err)
+	}
+	if err := appendStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Chunk: third,
+	}); err != nil {
+		t.Fatalf("failed to send second append chunk: %v", err)
+	}
+	appendRes, err := appendStream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("append CloseAndRecv failed: %v", err)
+	}
+	if got, want := appendRes.BytesWritten, int64(len(second)+len(third)); got != want {
+		t.Fatalf("append bytes written = %d, want %d", got, want)
+	}
+
+	// Read back: original content preserved, appended chunks in order.
+	got := readFileContent(t, client, ctx, targetPath)
+	want := string(initial) + string(second) + string(third)
+	if got != want {
+		t.Fatalf("content after append = %q, want %q", got, want)
+	}
+}
+
+func TestAppendCreatesNewFile(t *testing.T) {
+	tempDir := t.TempDir()
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ReadBufferSize: 4 * 1024})
+	defer cleanup()
+
+	ctx := context.Background()
+	targetPath := filepath.Join(tempDir, "brand-new.log")
+	content := []byte("first line\n")
+
+	writeStream, err := client.WriteFile(ctx)
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:   targetPath,
+		Chunk:  content,
+		Mode:   0640,
+		Append: true,
+	}); err != nil {
+		t.Fatalf("failed to send chunk: %v", err)
+	}
+	res, err := writeStream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("append-to-new-file CloseAndRecv failed: %v", err)
+	}
+	if res.BytesWritten != int64(len(content)) {
+		t.Fatalf("bytes written = %d, want %d", res.BytesWritten, len(content))
+	}
+
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("failed to stat written file: %v", err)
+	}
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("expected permissions 0640, got %v", info.Mode().Perm())
+	}
+	if got := readFileContent(t, client, ctx, targetPath); got != string(content) {
+		t.Fatalf("content = %q, want %q", got, string(content))
+	}
+}
+
+func TestDefaultWriteStillTruncates(t *testing.T) {
+	tempDir := t.TempDir()
+	client, cleanup := setupTestFileSystemServer(t, Config{RootDirectory: tempDir, ReadBufferSize: 4 * 1024})
+	defer cleanup()
+
+	ctx := context.Background()
+	targetPath := filepath.Join(tempDir, "replaced.txt")
+
+	writeStream, err := client.WriteFile(ctx)
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:  targetPath,
+		Chunk: []byte("original content that must go away\n"),
+	}); err != nil {
+		t.Fatalf("failed to send seed chunk: %v", err)
+	}
+	if _, err := writeStream.CloseAndRecv(); err != nil {
+		t.Fatalf("seed write CloseAndRecv failed: %v", err)
+	}
+
+	writeStream, err = client.WriteFile(ctx)
+	if err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{
+		Path:  targetPath,
+		Chunk: []byte("new"),
+	}); err != nil {
+		t.Fatalf("failed to send chunk: %v", err)
+	}
+	if _, err := writeStream.CloseAndRecv(); err != nil {
+		t.Fatalf("default write CloseAndRecv failed: %v", err)
+	}
+
+	if got, want := readFileContent(t, client, ctx, targetPath), "new"; got != want {
+		t.Fatalf("content after default write = %q, want %q", got, want)
+	}
+}
+
+// readFileContent streams a file back and returns its full content.
+func readFileContent(t *testing.T, client ateenvv1alpha.FileSystemServiceClient, ctx context.Context, path string) string {
+	t.Helper()
+	readStream, err := client.ReadFile(ctx, &ateenvv1alpha.ReadFileRequest{Path: path})
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	var buf bytes.Buffer
+	for {
+		chunk, err := readStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ReadFile recv error: %v", err)
+		}
+		buf.Write(chunk.Data)
+	}
+	return buf.String()
+}

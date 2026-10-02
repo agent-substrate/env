@@ -207,7 +207,13 @@ func (s *Service) WriteFile(stream ateenvv1alpha.FileSystemService_WriteFileServ
 				mode = os.FileMode(req.GetMode())
 			}
 
-			f, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			// Append streams keep existing content; default streams truncate.
+			flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+			if req.GetAppend() {
+				flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+			}
+
+			f, err = os.OpenFile(filePath, flags, mode)
 			if err != nil {
 				if errors.Is(err, os.ErrPermission) {
 					return status.Errorf(codes.PermissionDenied, "permission denied opening %q: %v", reqPath, err)

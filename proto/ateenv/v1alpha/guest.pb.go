@@ -711,7 +711,10 @@ type WriteFileRequest struct {
 	// Raw binary or text chunk to write to the file.
 	Chunk []byte `protobuf:"bytes,2,opt,name=chunk,proto3" json:"chunk,omitempty"`
 	// Optional POSIX file mode permission (e.g. 0644 or 0755; processed on first message).
-	Mode          uint32 `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
+	Mode uint32 `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
+	// Append to the file instead of truncating it. The file is created if it
+	// does not exist. Only honored on the first message of the stream.
+	Append        bool `protobuf:"varint,4,opt,name=append,proto3" json:"append,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -765,6 +768,13 @@ func (x *WriteFileRequest) GetMode() uint32 {
 		return x.Mode
 	}
 	return 0
+}
+
+func (x *WriteFileRequest) GetAppend() bool {
+	if x != nil {
+		return x.Append
+	}
+	return false
 }
 
 // Response confirming the write operation.
@@ -857,11 +867,12 @@ const file_proto_ateenv_v1alpha_guest_proto_rawDesc = "" +
 	"\x0fReadFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"\x1f\n" +
 	"\tFileChunk\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"P\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"h\n" +
 	"\x10WriteFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05chunk\x18\x02 \x01(\fR\x05chunk\x12\x12\n" +
-	"\x04mode\x18\x03 \x01(\rR\x04mode\"8\n" +
+	"\x04mode\x18\x03 \x01(\rR\x04mode\x12\x16\n" +
+	"\x06append\x18\x04 \x01(\bR\x06append\"8\n" +
 	"\x11WriteFileResponse\x12#\n" +
 	"\rbytes_written\x18\x01 \x01(\x03R\fbytesWritten*\xa3\x01\n" +
 	"\rProcessStatus\x12\x1e\n" +
