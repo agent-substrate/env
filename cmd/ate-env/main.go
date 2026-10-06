@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/agent-substrate/env/clients/go"
 	"github.com/agent-substrate/env/internal/apiservice"
@@ -89,13 +90,25 @@ func newGuestCommand(id string) *cobra.Command {
 		},
 	})
 
-	guestCmd.AddCommand(&cobra.Command{
+	var (
+		shellStdin   bool
+		shellTimeout time.Duration
+	)
+	shellCmd := &cobra.Command{
 		Use:     "shell <cmdline>",
 		Aliases: []string{"cmd"},
 		Short:   "Run a shell command line in the environment",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := client.Env(atespace, id).Shell(cmd.Context(), strings.Join(args, " "))
+			req := env.ShellRequest{Command: strings.Join(args, " "), Timeout: shellTimeout}
+			if shellStdin {
+				data, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("reading stdin: %w", err)
+				}
+				req.Stdin = data
+			}
+			res, err := client.Env(atespace, id).Run(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -110,7 +123,10 @@ func newGuestCommand(id string) *cobra.Command {
 			}
 			return nil
 		},
-	})
+	}
+	shellCmd.Flags().BoolVarP(&shellStdin, "stdin", "i", false, "feed this process's stdin to the command")
+	shellCmd.Flags().DurationVar(&shellTimeout, "timeout", 0, "kill the command after this duration (default: server default)")
+	guestCmd.AddCommand(shellCmd)
 
 	return guestCmd
 }

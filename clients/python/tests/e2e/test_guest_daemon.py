@@ -37,10 +37,12 @@ import pytest
 
 from ate_env import (
     Client,
-    OutputSource,
+    FailedPreconditionError,
     NotFoundError,
     PermissionDeniedError,
-    ProcessStatus,
+    ProcessExitedError,
+    ProcessState,
+    Signal,
 )
 
 TARGET = os.environ.get("ATE_ENV_GUEST_TARGET")
@@ -80,54 +82,119 @@ async def test_file_roundtrip(guest_env):
     assert await guest_env.read_file_bytes(path) == content
 
 
-async def test_stream_outputs_follow(guest_env):
-    pid = await guest_env.start_process(["sh", "-c", "echo one; echo two; echo err >&2"])
+async def _stdout(outputs) -> bytes:
+    return b"".join([o.stdout async for o in outputs if o.stdout is not None])
+
+
+async def test_write_file_seek_offset(guest_env):
+    path = f"ate-env-e2e-{uuid.uuid4().hex}.txt"
+    await guest_env.write_file(path, b"hello world")
+    await guest_env.write_file(path, b"W", seek_offset=6)
+    assert await guest_env.read_file_bytes(path) == b"hello World"
+    await guest_env.write_file(path, b"!", seek_offset=13)
+    assert await guest_env.read_file_bytes(path) == b"hello World\0\0!"
+
+
+async def test_output_follow_ends_with_exit(guest_env):
+    proc = await guest_env.start_process(["sh", "-c", "echo one; echo two; echo err >&2; exit 4"])
     stdout = bytearray()
     stderr = bytearray()
-    async for chunk in guest_env.stream_outputs(pid, follow=True):
-        if chunk.source == OutputSource.STDOUT:
-            stdout.extend(chunk.data)
+    exit_info = None
+    async for out in proc.output(follow=True):
+        if out.stdout is not None:
+            stdout.extend(out.stdout)
+        elif out.stderr is not None:
+            stderr.extend(out.stderr)
         else:
-            stderr.extend(chunk.data)
+            exit_info = out.exit
     assert stdout == b"one\ntwo\n"
     assert stderr == b"err\n"
-    proc = await guest_env.wait(pid)
-    assert proc.status == ProcessStatus.COMPLETED
+    assert exit_info is not None
+    assert exit_info.state == ProcessState.EXITED
+    assert exit_info.exit_code == 4
 
 
 async def test_kill_process(guest_env):
-    pid = await guest_env.start_process(["sleep", "30"])
-    exit_code = await guest_env.kill_process(pid)
-    assert exit_code >= 128  # 128 + signal number
-    proc = await guest_env.wait(pid)
-    assert proc.status == ProcessStatus.TERMINATED
+    proc = await guest_env.start_process(["sleep", "30"])
+    info = await proc.kill()
+    assert info.state == ProcessState.EXITED
+    assert info.exit_code == 137  # 128 + SIGKILL
+    # Idempotent, and other signals are refused once exited.
+    assert (await proc.kill()).exit_code == 137
+    with pytest.raises(ProcessExitedError):
+        await proc.signal(Signal.TERM)
+
+
+async def test_signal_term(guest_env):
+    proc = await guest_env.start_process(["sleep", "30"])
+    await proc.signal(Signal.TERM)
+    info = await proc.wait()
+    assert info.exit_code == 143  # 128 + SIGTERM
+
+
+async def test_signal_trapped(guest_env):
+    proc = await guest_env.start_process(
+        ["sh", "-c", "trap 'echo got-usr1; exit 7' USR1; while :; do sleep 0.05; done"]
+    )
+    await asyncio.sleep(0.3)
+    await proc.signal(Signal.USR1)
+    info = await proc.wait()
+    assert info.exit_code == 7
+    assert b"got-usr1" in await _stdout(proc.output())
+
+
+async def test_stdin_streaming(guest_env):
+    proc = await guest_env.start_process(["cat"], stdin=True)
+    await proc.write_input(b"hello ")
+    await proc.write_input(b"world\n", close=True)
+    info = await proc.wait()
+    assert info.exit_code == 0
+    assert await _stdout(proc.output()) == b"hello world\n"
+
+
+async def test_stdin_not_requested(guest_env):
+    proc = await guest_env.start_process(["cat"])
+    info = await proc.wait()
+    assert info.exit_code == 0  # immediate EOF
+    with pytest.raises(FailedPreconditionError, match="without stdin"):
+        await proc.write_input(b"x")
+
+
+async def test_shell_with_stdin(guest_env):
+    result = await guest_env.shell("tr a-z A-Z", stdin="shout\n")
+    assert result.stdout == "SHOUT\n"
+    assert result.exit_code == 0
+
+
+async def test_shell_timeout(guest_env):
+    result = await guest_env.shell("sleep 30", timeout=0.2)
+    assert result.exit_code == 137
 
 
 async def test_cwd_passthrough(guest_env):
-    pid = await guest_env.start_process(["pwd"], cwd="/")
-    proc = await guest_env.wait(pid)
-    assert proc.status == ProcessStatus.COMPLETED
-    output = b"".join(
-        [c.data async for c in guest_env.stream_outputs(pid) if c.source == OutputSource.STDOUT]
-    )
-    assert output == b"/\n"
+    proc = await guest_env.start_process(["pwd"], cwd="/")
+    info = await proc.wait()
+    assert info.exit_code == 0
+    assert await _stdout(proc.output()) == b"/\n"
 
 
 async def test_env_passthrough(guest_env):
-    result_pid = await guest_env.start_process(
+    proc = await guest_env.start_process(
         ["sh", "-c", "echo $ATE_E2E_MARKER"], env={"ATE_E2E_MARKER": "marker-42"}
     )
-    await guest_env.wait(result_pid)
-    output = b"".join([c.data async for c in guest_env.stream_outputs(result_pid)])
-    assert output == b"marker-42\n"
+    await proc.wait()
+    assert await _stdout(proc.output()) == b"marker-42\n"
 
 
-async def test_process_timestamps(guest_env):
-    pid = await guest_env.start_process(["true"])
-    proc = await guest_env.wait(pid)
-    assert proc.started_at is not None
-    assert proc.finished_at is not None
-    assert proc.finished_at >= proc.started_at
+async def test_process_info(guest_env):
+    proc = await guest_env.start_process(["true"])
+    info = await proc.wait()
+    assert info.command == ("true",)
+    assert info.pid > 0
+    assert info.started_at is not None
+    assert info.finished_at is not None
+    assert info.finished_at >= info.started_at
+    assert (await guest_env.process(proc.id).info()) == info
 
 
 async def test_binary_file_roundtrip(guest_env):
@@ -156,20 +223,18 @@ async def test_write_file_from_async_generator(guest_env):
     assert written == len(content)
 
 
-async def test_stream_outputs_offset_replay(guest_env):
-    pid = await guest_env.start_process(["sh", "-c", "printf abcdef; printf 123456 >&2"])
-    await guest_env.wait(pid)
+async def test_output_offset_replay(guest_env):
+    proc = await guest_env.start_process(["sh", "-c", "printf abcdef; printf 123456 >&2"])
+    await proc.wait()
 
-    full = [(c.source, c.data) async for c in guest_env.stream_outputs(pid)]
-    assert b"".join(d for s, d in full if s == OutputSource.STDOUT) == b"abcdef"
-    assert b"".join(d for s, d in full if s == OutputSource.STDERR) == b"123456"
+    full = [o async for o in proc.output()]
+    assert b"".join(o.stdout for o in full if o.stdout is not None) == b"abcdef"
+    assert b"".join(o.stderr for o in full if o.stderr is not None) == b"123456"
+    assert full[-1].exit is not None
 
-    replay = [
-        (c.source, c.data)
-        async for c in guest_env.stream_outputs(pid, stdout_offset=4, stderr_offset=2)
-    ]
-    assert b"".join(d for s, d in replay if s == OutputSource.STDOUT) == b"ef"
-    assert b"".join(d for s, d in replay if s == OutputSource.STDERR) == b"3456"
+    replay = [o async for o in proc.output(stdout_offset=4, stderr_offset=2)]
+    assert b"".join(o.stdout for o in replay if o.stdout is not None) == b"ef"
+    assert b"".join(o.stderr for o in replay if o.stderr is not None) == b"3456"
 
 
 async def test_concurrent_shells(guest_env):
@@ -189,7 +254,7 @@ async def test_missing_file_maps_to_not_found(guest_env):
 
 async def test_missing_process_maps_to_not_found(guest_env):
     with pytest.raises(NotFoundError):
-        await guest_env.get_process("bogus-process-id")
+        await guest_env.process("bogus-process-id").info()
 
 
 async def test_sandbox_escape_maps_to_permission_denied(guest_env):
@@ -198,16 +263,16 @@ async def test_sandbox_escape_maps_to_permission_denied(guest_env):
 
 
 async def test_kill_ends_follow_stream(guest_env):
-    pid = await guest_env.start_process(["sh", "-c", "echo started; sleep 30"])
+    proc = await guest_env.start_process(["sh", "-c", "echo started; sleep 30"])
 
     async def consume():
-        return [c async for c in guest_env.stream_outputs(pid, follow=True)]
+        return [o async for o in proc.output(follow=True)]
 
     task = asyncio.create_task(consume())
     # Give the process time to start and emit its first output.
     await asyncio.sleep(0.3)
-    await guest_env.kill_process(pid)
-    chunks = await asyncio.wait_for(task, timeout=10)
-    assert any(b"started" in c.data for c in chunks)
-    proc = await guest_env.wait(pid)
-    assert proc.status == ProcessStatus.TERMINATED
+    await proc.kill()
+    outputs = await asyncio.wait_for(task, timeout=10)
+    assert any(o.stdout is not None and b"started" in o.stdout for o in outputs)
+    assert outputs[-1].exit is not None
+    assert outputs[-1].exit.exit_code == 137  # 128 + SIGKILL

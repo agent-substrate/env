@@ -23,6 +23,8 @@ __all__ = [
     "NotFoundError",
     "InvalidArgumentError",
     "PermissionDeniedError",
+    "FailedPreconditionError",
+    "ProcessExitedError",
     "RpcError",
     "map_rpc_error",
 ]
@@ -42,6 +44,14 @@ class InvalidArgumentError(EnvError):
 
 class PermissionDeniedError(EnvError):
     """Access denied — e.g. a file path outside the workspace sandbox."""
+
+
+class FailedPreconditionError(EnvError):
+    """The operation is not valid in the target's current state."""
+
+
+class ProcessExitedError(FailedPreconditionError):
+    """The process has already exited (signals and stdin need a running one)."""
 
 
 class RpcError(EnvError):
@@ -67,4 +77,8 @@ def map_rpc_error(err: BaseException) -> BaseException:
         return InvalidArgumentError(details)
     if code == grpc.StatusCode.PERMISSION_DENIED:
         return PermissionDeniedError(details)
+    if code == grpc.StatusCode.FAILED_PRECONDITION:
+        if "has exited" in details:
+            return ProcessExitedError(details)
+        return FailedPreconditionError(details)
     return RpcError(details, code)

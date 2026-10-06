@@ -33,23 +33,25 @@ Quickstart:
 """
 
 from .client import DEFAULT_ATESPACE, Client
-from .env import Env
+from .env import Env, Process
 from .errors import (
     EnvError,
+    FailedPreconditionError,
     InvalidArgumentError,
     NotFoundError,
     PermissionDeniedError,
+    ProcessExitedError,
     RpcError,
     map_rpc_error,
 )
 from .types import (
     EnvironmentInfo,
     EnvironmentStatus,
-    OutputChunk,
-    OutputSource,
     ProcessInfo,
-    ProcessStatus,
+    ProcessOutput,
+    ProcessState,
     ShellResult,
+    Signal,
     Template,
 )
 
@@ -60,15 +62,18 @@ __all__ = [
     "EnvError",
     "EnvironmentInfo",
     "EnvironmentStatus",
+    "FailedPreconditionError",
     "InvalidArgumentError",
-    "OutputChunk",
-    "OutputSource",
     "NotFoundError",
     "PermissionDeniedError",
+    "Process",
+    "ProcessExitedError",
     "ProcessInfo",
-    "ProcessStatus",
+    "ProcessOutput",
+    "ProcessState",
     "RpcError",
     "ShellResult",
+    "Signal",
     "Template",
     "map_rpc_error",
 ]

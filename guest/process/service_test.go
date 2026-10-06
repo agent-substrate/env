@@ -16,7 +16,9 @@ package process
 
 import (
 	"context"
+	"errors"
 	"io"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -29,14 +31,15 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func setupTestServer(t *testing.T) (ateenvv1alpha.ProcessServiceClient, func()) {
+func setupTestServer(t *testing.T) ateenvv1alpha.ProcessServiceClient {
 	t.Helper()
 	return setupTestServerWithConfig(t, DefaultConfig(t.TempDir()))
 }
 
-func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) (ateenvv1alpha.ProcessServiceClient, func()) {
+func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) ateenvv1alpha.ProcessServiceClient {
 	t.Helper()
 	if cfg.LogDir == "" {
 		cfg.LogDir = t.TempDir()
@@ -49,466 +52,481 @@ func setupTestServerWithConfig(t *testing.T, cfg TrackerConfig) (ateenvv1alpha.P
 
 	lis := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	svc := NewService(tracker)
-	ateenvv1alpha.RegisterProcessServiceServer(server, svc)
-
-	go func() {
-		_ = server.Serve(lis)
-	}()
+	ateenvv1alpha.RegisterProcessServiceServer(server, NewService(tracker))
+	go func() { _ = server.Serve(lis) }()
 
 	conn, err := grpc.NewClient("passthrough://bufnet",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return lis.Dial()
-		}),
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		t.Fatalf("failed to dial bufnet: %v", err)
 	}
 
-	client := ateenvv1alpha.NewProcessServiceClient(conn)
-
-	cleanup := func() {
+	t.Cleanup(func() {
 		tracker.Close()
 		conn.Close()
 		server.Stop()
 		lis.Close()
 		_ = os.RemoveAll(cfg.LogDir)
-	}
-
-	return client, cleanup
+	})
+	return ateenvv1alpha.NewProcessServiceClient(conn)
 }
 
-func TestStartAndGetProcess(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "echo 'hello from substrate'"},
-	})
+func start(t *testing.T, client ateenvv1alpha.ProcessServiceClient, req *ateenvv1alpha.StartProcessRequest) *ateenvv1alpha.Process {
+	t.Helper()
+	proc, err := client.StartProcess(context.Background(), req)
 	if err != nil {
 		t.Fatalf("StartProcess failed: %v", err)
 	}
-
-	if startRes.ProcessId == "" {
-		t.Fatalf("expected non-empty process_id")
+	if proc.GetProcessId() == "" || proc.GetPid() == 0 {
+		t.Fatalf("expected process id and pid, got %v", proc)
 	}
+	if proc.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_RUNNING {
+		t.Fatalf("expected RUNNING right after start, got %v", proc.GetState())
+	}
+	return proc
+}
 
-	// Poll until completed
-	var proc *ateenvv1alpha.Process
-	for i := 0; i < 20; i++ {
-		proc, err = client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-			ProcessId: startRes.ProcessId,
-		})
+func sh(t *testing.T, client ateenvv1alpha.ProcessServiceClient, script string) *ateenvv1alpha.Process {
+	t.Helper()
+	return start(t, client, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", script}})
+}
+
+// wait follows the output stream with offsets past the spool end, so only
+// the exit message is delivered.
+func wait(t *testing.T, client ateenvv1alpha.ProcessServiceClient, id string) *ateenvv1alpha.Process {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream, err := client.StreamProcessOutput(ctx, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: id, Follow: true, StdoutOffset: math.MaxInt64, StderrOffset: math.MaxInt64,
+	})
+	if err != nil {
+		t.Fatalf("StreamProcessOutput failed: %v", err)
+	}
+	msg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("waiting for process: %v", err)
+	}
+	proc := msg.GetExit()
+	if proc == nil {
+		t.Fatalf("expected only an exit message with offsets past the end, got %v", msg)
+	}
+	if proc.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED {
+		t.Fatalf("expected EXITED after wait, got %v", proc.GetState())
+	}
+	if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF after exit, got %v", err)
+	}
+	return proc
+}
+
+// collect drains an output stream into stdout, stderr and the final exit message.
+func collect(t *testing.T, client ateenvv1alpha.ProcessServiceClient, req *ateenvv1alpha.StreamProcessOutputRequest) (string, string, *ateenvv1alpha.Process) {
+	t.Helper()
+	stream, err := client.StreamProcessOutput(context.Background(), req)
+	if err != nil {
+		t.Fatalf("StreamProcessOutput failed: %v", err)
+	}
+	var stdout, stderr strings.Builder
+	var exit *ateenvv1alpha.Process
+	for {
+		msg, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return stdout.String(), stderr.String(), exit
+		}
 		if err != nil {
-			t.Fatalf("GetProcess failed: %v", err)
+			t.Fatalf("stream recv: %v", err)
 		}
-		if proc.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED {
-			break
+		switch out := msg.GetOutput().(type) {
+		case *ateenvv1alpha.ProcessOutput_Stdout:
+			stdout.Write(out.Stdout)
+		case *ateenvv1alpha.ProcessOutput_Stderr:
+			stderr.Write(out.Stderr)
+		case *ateenvv1alpha.ProcessOutput_Exit:
+			if exit != nil {
+				t.Fatalf("received two exit messages")
+			}
+			exit = out.Exit
+		default:
+			t.Fatalf("unexpected output %T", out)
 		}
-		time.Sleep(50 * time.Millisecond)
+		if exit != nil {
+			// exit must be the last message.
+			if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+				t.Fatalf("expected EOF after exit message, got %v", err)
+			}
+			return stdout.String(), stderr.String(), exit
+		}
+	}
+}
+
+func TestStartAndWait(t *testing.T) {
+	client := setupTestServer(t)
+	started := sh(t, client, "echo 'hello from substrate'")
+	if got := started.GetCommand(); len(got) != 3 || got[0] != "sh" {
+		t.Fatalf("command not echoed back: %v", got)
 	}
 
-	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_COMPLETED {
-		t.Fatalf("expected status COMPLETED, got %v", proc.Status)
+	proc := wait(t, client, started.GetProcessId())
+	if proc.GetExitCode() != 0 {
+		t.Fatalf("expected exit_code 0, got %d", proc.GetExitCode())
 	}
-	if proc.ExitCode != 0 {
-		t.Fatalf("expected exit_code 0, got %d", proc.ExitCode)
-	}
-	if proc.StartedAt == nil || proc.FinishedAt == nil {
+	if proc.GetStartedAt() == nil || proc.GetFinishedAt() == nil {
 		t.Fatalf("expected non-nil timestamps")
 	}
-}
 
-func TestProcessFailureExitCode(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "exit 42"},
-	})
+	got, err := client.GetProcess(context.Background(), &ateenvv1alpha.GetProcessRequest{ProcessId: started.GetProcessId()})
 	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+		t.Fatalf("GetProcess: %v", err)
 	}
-
-	var proc *ateenvv1alpha.Process
-	for i := 0; i < 20; i++ {
-		proc, err = client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-			ProcessId: startRes.ProcessId,
-		})
-		if err != nil {
-			t.Fatalf("GetProcess failed: %v", err)
-		}
-		if proc.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_FAILED {
-		t.Fatalf("expected status FAILED, got %v", proc.Status)
-	}
-	if proc.ExitCode != 42 {
-		t.Fatalf("expected exit_code 42, got %d", proc.ExitCode)
+	if got.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED {
+		t.Fatalf("GetProcess state = %v, want EXITED", got.GetState())
 	}
 }
 
-func TestStreamProcessOutputs(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "echo 'out1'; echo 'err1' >&2; sleep 0.1; echo 'out2'"},
-	})
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
-	}
-
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
-		ProcessId: startRes.ProcessId,
-		Follow:    true,
-	})
-	if err != nil {
-		t.Fatalf("StreamProcessOutputs failed: %v", err)
-	}
-
-	var stdoutBuilder strings.Builder
-	var stderrBuilder strings.Builder
-
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("error reading output chunk: %v", err)
-		}
-		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
-			stdoutBuilder.Write(chunk.Data)
-		} else if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR {
-			stderrBuilder.Write(chunk.Data)
-		}
-	}
-
-	stdout := stdoutBuilder.String()
-	stderr := stderrBuilder.String()
-
-	if !strings.Contains(stdout, "out1") || !strings.Contains(stdout, "out2") {
-		t.Fatalf("expected stdout to contain out1 and out2, got %q", stdout)
-	}
-	if !strings.Contains(stderr, "err1") {
-		t.Fatalf("expected stderr to contain err1, got %q", stderr)
+func TestNonZeroExitCode(t *testing.T) {
+	client := setupTestServer(t)
+	proc := wait(t, client, sh(t, client, "exit 42").GetProcessId())
+	if proc.GetExitCode() != 42 {
+		t.Fatalf("expected exit_code 42, got %d", proc.GetExitCode())
 	}
 }
 
-func TestStreamProcessOutputsWithOffset(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "echo 'prefix-to-skip'; echo 'streamed-line'"},
-	})
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+func TestSelfSignalDeath(t *testing.T) {
+	client := setupTestServer(t)
+	proc := wait(t, client, sh(t, client, "kill -15 $$").GetProcessId())
+	if proc.GetExitCode() != 143 {
+		t.Fatalf("expected exit_code 143 (128+SIGTERM), got %d", proc.GetExitCode())
 	}
+}
 
+func TestStreamOutputFollowEndsWithExit(t *testing.T) {
+	client := setupTestServer(t)
+	started := sh(t, client, "echo 'out1'; echo 'err1' >&2; sleep 0.1; echo 'out2'; exit 3")
+
+	stdout, stderr, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: started.GetProcessId(), Follow: true,
+	})
+	if stdout != "out1\nout2\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if stderr != "err1\n" {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if exit == nil || exit.GetExitCode() != 3 {
+		t.Fatalf("expected exit message with code 3, got %v", exit)
+	}
+}
+
+func TestStreamOutputOffsets(t *testing.T) {
+	client := setupTestServer(t)
+	started := sh(t, client, "printf abcdef; printf 123456 >&2")
+	wait(t, client, started.GetProcessId())
+
+	stdout, stderr, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: started.GetProcessId(), StdoutOffset: 4, StderrOffset: 2,
+	})
+	if stdout != "ef" || stderr != "3456" {
+		t.Fatalf("got stdout %q stderr %q", stdout, stderr)
+	}
+	if exit == nil {
+		t.Fatalf("snapshot of an exited process should end with exit")
+	}
+}
+
+func TestStreamOutputSnapshotOfRunningProcess(t *testing.T) {
+	client := setupTestServer(t)
+	started := sh(t, client, "echo 'instant-output'; sleep 5")
 	time.Sleep(100 * time.Millisecond)
 
-	skipLen := int64(len("prefix-to-skip\n"))
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
-		ProcessId:    startRes.ProcessId,
-		StdoutOffset: skipLen,
-		Follow:       false,
+	begin := time.Now()
+	stdout, _, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: started.GetProcessId()})
+	if d := time.Since(begin); d > 2*time.Second {
+		t.Fatalf("snapshot took %v, should return immediately", d)
+	}
+	if stdout != "instant-output\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if exit != nil {
+		t.Fatalf("running process must not produce an exit message")
+	}
+	_, _ = client.SignalProcess(context.Background(), &ateenvv1alpha.SignalProcessRequest{
+		ProcessId: started.GetProcessId(), Signal: ateenvv1alpha.Signal_SIGNAL_KILL,
+	})
+}
+
+func TestSignalProcess(t *testing.T) {
+	client := setupTestServer(t)
+	ctx := context.Background()
+	started := sh(t, client, "sleep 60")
+
+	proc, err := client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{
+		ProcessId: started.GetProcessId(), Signal: ateenvv1alpha.Signal_SIGNAL_TERM,
 	})
 	if err != nil {
-		t.Fatalf("StreamProcessOutputs failed: %v", err)
+		t.Fatalf("SignalProcess failed: %v", err)
+	}
+	if proc.GetProcessId() != started.GetProcessId() {
+		t.Fatalf("SignalProcess returned wrong process %v", proc)
 	}
 
-	var stdoutBuilder strings.Builder
+	final := wait(t, client, started.GetProcessId())
+	if final.GetExitCode() != 143 {
+		t.Fatalf("expected exit_code 143 (128+SIGTERM), got %d", final.GetExitCode())
+	}
+
+	// Signalling an exited process is a failed precondition.
+	_, err = client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{
+		ProcessId: started.GetProcessId(), Signal: ateenvv1alpha.Signal_SIGNAL_KILL,
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
+	}
+
+	// Unspecified signal is rejected.
+	_, err = client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{ProcessId: started.GetProcessId()})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestSignalTrappedByProcess(t *testing.T) {
+	client := setupTestServer(t)
+	started := sh(t, client, `trap 'echo got-usr1; exit 7' USR1; while :; do sleep 0.05; done`)
+	time.Sleep(150 * time.Millisecond)
+
+	if _, err := client.SignalProcess(context.Background(), &ateenvv1alpha.SignalProcessRequest{
+		ProcessId: started.GetProcessId(), Signal: ateenvv1alpha.Signal_SIGNAL_USR1,
+	}); err != nil {
+		t.Fatalf("SignalProcess failed: %v", err)
+	}
+
+	stdout, _, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: started.GetProcessId(), Follow: true})
+	if !strings.Contains(stdout, "got-usr1") {
+		t.Fatalf("handler did not run, stdout = %q", stdout)
+	}
+	if exit.GetExitCode() != 7 {
+		t.Fatalf("expected exit code 7 from handler, got %d", exit.GetExitCode())
+	}
+}
+
+func TestStopAndContinue(t *testing.T) {
+	client := setupTestServer(t)
+	ctx := context.Background()
+	started := sh(t, client, "sleep 0.2; echo done")
+
+	signal := func(sig ateenvv1alpha.Signal) {
+		if _, err := client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{ProcessId: started.GetProcessId(), Signal: sig}); err != nil {
+			t.Fatalf("signal %v: %v", sig, err)
+		}
+	}
+	signal(ateenvv1alpha.Signal_SIGNAL_STOP)
+
+	// Well past the sleep: a stopped process must not have progressed.
+	time.Sleep(500 * time.Millisecond)
+	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: started.GetProcessId()})
+	if err != nil {
+		t.Fatalf("GetProcess: %v", err)
+	}
+	if proc.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_RUNNING {
+		t.Fatalf("stopped process should still be RUNNING, got %v", proc.GetState())
+	}
+
+	signal(ateenvv1alpha.Signal_SIGNAL_CONT)
+	if final := wait(t, client, started.GetProcessId()); final.GetExitCode() != 0 {
+		t.Fatalf("expected clean exit after CONT, got %d", final.GetExitCode())
+	}
+}
+
+func TestStdinStreaming(t *testing.T) {
+	client := setupTestServer(t)
+	ctx := context.Background()
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{Command: []string{"cat"}, Stdin: true})
+
+	in, err := client.WriteProcessInput(ctx)
+	if err != nil {
+		t.Fatalf("WriteProcessInput: %v", err)
+	}
+	if err := in.Send(&ateenvv1alpha.WriteProcessInputRequest{ProcessId: started.GetProcessId(), Data: []byte("hello ")}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if err := in.Send(&ateenvv1alpha.WriteProcessInputRequest{Data: []byte("world\n")}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	resp, err := in.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+	if resp.GetBytesWritten() != int64(len("hello world\n")) {
+		t.Fatalf("bytes_written = %d", resp.GetBytesWritten())
+	}
+
+	// cat is still running: stdin was not closed. Snapshot shows the echo.
+	deadline := time.Now().Add(2 * time.Second)
 	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
+		stdout, _, _ := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: started.GetProcessId()})
+		if stdout == "hello world\n" {
 			break
 		}
-		if err != nil {
-			t.Fatalf("error reading output chunk: %v", err)
+		if time.Now().After(deadline) {
+			t.Fatalf("cat did not echo input, stdout = %q", stdout)
 		}
-		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
-			stdoutBuilder.Write(chunk.Data)
-		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if p, _ := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: started.GetProcessId()}); p.GetState() != ateenvv1alpha.ProcessState_PROCESS_STATE_RUNNING {
+		t.Fatalf("cat should still be running with stdin open")
 	}
 
-	out := stdoutBuilder.String()
-	if strings.Contains(out, "prefix-to-skip") {
-		t.Fatalf("expected prefix-to-skip to be skipped, got %q", out)
+	// Second call: more data plus EOF.
+	in, err = client.WriteProcessInput(ctx)
+	if err != nil {
+		t.Fatalf("WriteProcessInput: %v", err)
 	}
-	if !strings.Contains(out, "streamed-line") {
-		t.Fatalf("expected streamed-line in output, got %q", out)
+	_ = in.Send(&ateenvv1alpha.WriteProcessInputRequest{ProcessId: started.GetProcessId(), Data: []byte("bye\n"), Close: true})
+	if _, err := in.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+
+	stdout, _, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: started.GetProcessId(), Follow: true})
+	if stdout != "hello world\nbye\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if exit.GetExitCode() != 0 {
+		t.Fatalf("cat exit = %d", exit.GetExitCode())
+	}
+
+	// Writing after close fails.
+	in, _ = client.WriteProcessInput(ctx)
+	_ = in.Send(&ateenvv1alpha.WriteProcessInputRequest{ProcessId: started.GetProcessId(), Data: []byte("late")})
+	if _, err := in.CloseAndRecv(); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition writing after close, got %v", err)
 	}
 }
 
-func TestStreamProcessOutputsSnapshotNoFollow(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
+func TestStdinRejectedWhenNotRequested(t *testing.T) {
+	client := setupTestServer(t)
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "echo 'instant-output'; sleep 5"},
-	})
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{Command: []string{"cat"}})
+
+	// Without a stdin pipe cat sees EOF immediately and exits 0.
+	if proc := wait(t, client, started.GetProcessId()); proc.GetExitCode() != 0 {
+		t.Fatalf("cat without stdin should exit 0, got %d", proc.GetExitCode())
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	start := time.Now()
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
-		ProcessId: startRes.ProcessId,
-		Follow:    false,
-	})
-	if err != nil {
-		t.Fatalf("StreamProcessOutputs failed: %v", err)
+	in, _ := client.WriteProcessInput(ctx)
+	_ = in.Send(&ateenvv1alpha.WriteProcessInputRequest{ProcessId: started.GetProcessId(), Data: []byte("x")})
+	if _, err := in.CloseAndRecv(); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
 	}
 
-	var stdoutBuilder strings.Builder
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("error reading chunk: %v", err)
-		}
-		stdoutBuilder.Write(chunk.Data)
+	in, _ = client.WriteProcessInput(ctx)
+	_ = in.Send(&ateenvv1alpha.WriteProcessInputRequest{ProcessId: "nope", Data: []byte("x")})
+	if _, err := in.CloseAndRecv(); status.Code(err) != codes.NotFound {
+		t.Fatalf("expected NotFound, got %v", err)
 	}
-	duration := time.Since(start)
 
-	if duration > 2*time.Second {
-		t.Fatalf("snapshot mode (follow=false) took %v, should have returned immediately", duration)
-	}
-	if !strings.Contains(stdoutBuilder.String(), "instant-output") {
-		t.Fatalf("expected output in snapshot, got %q", stdoutBuilder.String())
+	in, _ = client.WriteProcessInput(ctx)
+	if _, err := in.CloseAndRecv(); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument for empty stream, got %v", err)
 	}
 }
 
-func TestKillProcess(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
+func TestNotFound(t *testing.T) {
+	client := setupTestServer(t)
 	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "sleep 60"},
-	})
+	if _, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: "nope"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("GetProcess: expected NotFound, got %v", err)
+	}
+	stream, err := client.StreamProcessOutput(ctx, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: "nope"})
 	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+		t.Fatalf("StreamProcessOutput: %v", err)
 	}
-
-	time.Sleep(50 * time.Millisecond)
-
-	killRes, err := client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{
-		ProcessId: startRes.ProcessId,
-	})
-	if err != nil {
-		t.Fatalf("KillProcess failed: %v", err)
+	if _, err := stream.Recv(); status.Code(err) != codes.NotFound {
+		t.Fatalf("StreamProcessOutput: expected NotFound, got %v", err)
 	}
-
-	if killRes.ExitCode != 137 {
-		t.Fatalf("expected exit code 137 after kill, got %d", killRes.ExitCode)
+	if _, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty id: expected InvalidArgument, got %v", err)
 	}
-
-	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-		ProcessId: startRes.ProcessId,
-	})
-	if err != nil {
-		t.Fatalf("GetProcess failed: %v", err)
-	}
-
-	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
-		t.Fatalf("expected status TERMINATED, got %v", proc.Status)
-	}
-	if proc.ExitCode != 137 {
-		t.Fatalf("expected exit code 137, got %d", proc.ExitCode)
-	}
-}
-
-func TestProcessSignalDeath(t *testing.T) {
-	client, cleanup := setupTestServer(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	startRes, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "kill -15 $$"},
-	})
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
-	}
-
-	var proc *ateenvv1alpha.Process
-	for i := 0; i < 20; i++ {
-		proc, err = client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-			ProcessId: startRes.ProcessId,
-		})
-		if err != nil {
-			t.Fatalf("GetProcess failed: %v", err)
-		}
-		if proc.Status == ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
-		t.Fatalf("expected status TERMINATED, got %v", proc.Status)
-	}
-	if proc.ExitCode != 143 { // 128 + 15 (SIGTERM)
-		t.Fatalf("expected exit code 143 (128+SIGTERM), got %d", proc.ExitCode)
+	if _, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty command: expected InvalidArgument, got %v", err)
 	}
 }
 
 func TestConcurrencyLimiter(t *testing.T) {
-	// Configure tracker with max 2 concurrent jobs
 	cfg := DefaultConfig("")
 	cfg.MaxConcurrentProcesses = 2
-
-	client, cleanup := setupTestServerWithConfig(t, cfg)
-	defer cleanup()
-
+	client := setupTestServerWithConfig(t, cfg)
 	ctx := context.Background()
 
-	// Launch job 1 (running for 5s)
-	res1, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "sleep 5"},
-	})
-	if err != nil {
-		t.Fatalf("job 1 failed: %v", err)
-	}
+	res1 := sh(t, client, "sleep 5")
+	res2 := sh(t, client, "sleep 5")
 
-	// Launch job 2 (running for 5s)
-	res2, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "sleep 5"},
-	})
-	if err != nil {
-		t.Fatalf("job 2 failed: %v", err)
-	}
-
-	// Launch job 3 -> Must be rejected with ResourceExhausted!
-	_, err = client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "echo 'should fail'"},
-	})
+	_, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "echo 'should fail'"}})
 	if status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("expected ResourceExhausted for job 3, got: %v", err)
 	}
 
-	// Kill job 1 to free up a slot
-	_, err = client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{
-		ProcessId: res1.ProcessId,
-	})
-	if err != nil {
+	// Kill job 1 and wait for the slot to free up.
+	if _, err := client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{ProcessId: res1.GetProcessId(), Signal: ateenvv1alpha.Signal_SIGNAL_KILL}); err != nil {
 		t.Fatalf("failed to kill job 1: %v", err)
 	}
-
-	// Now job 3 should succeed
-	res3, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "echo 'now succeeds'"},
-	})
-	if err != nil {
-		t.Fatalf("job 3 failed after slot freed: %v", err)
-	}
-	if res3.ProcessId == "" {
-		t.Fatalf("expected non-empty process ID for job 3")
+	if proc := wait(t, client, res1.GetProcessId()); proc.GetExitCode() != 137 {
+		t.Fatalf("expected 137 (128+SIGKILL), got %d", proc.GetExitCode())
 	}
 
-	// Clean up job 2
-	_, _ = client.KillProcess(ctx, &ateenvv1alpha.KillProcessRequest{ProcessId: res2.ProcessId})
+	sh(t, client, "echo 'now succeeds'")
+	_, _ = client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{ProcessId: res2.GetProcessId(), Signal: ateenvv1alpha.Signal_SIGNAL_KILL})
 }
 
 func TestLogCapping(t *testing.T) {
-	// Configure max log size to 256 bytes
 	cfg := DefaultConfig("")
 	cfg.MaxLogBytes = 256
+	client := setupTestServerWithConfig(t, cfg)
 
-	client, cleanup := setupTestServerWithConfig(t, cfg)
-	defer cleanup()
+	started := sh(t, client, "for i in $(seq 1 500); do echo 'spamming-log-line-0123456789'; done")
+	stdout, _, _ := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: started.GetProcessId(), Follow: true})
 
-	ctx := context.Background()
-
-	// Command outputs 10,000 bytes of spam
-	res, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "for i in $(seq 1 500); do echo 'spamming-log-line-0123456789'; done"},
-	})
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+	if !strings.Contains(stdout, "maximum log limit") || !strings.Contains(stdout, "truncated") {
+		t.Fatalf("expected truncation warning in capped logs, got:\n%s", stdout)
 	}
-
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
-		ProcessId: res.ProcessId,
-		Follow:    true,
-	})
-	if err != nil {
-		t.Fatalf("StreamProcessOutputs failed: %v", err)
-	}
-
-	var stdout strings.Builder
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("stream recv error: %v", err)
-		}
-		if chunk.Source == ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT {
-			stdout.Write(chunk.Data)
-		}
-	}
-
-	outStr := stdout.String()
-	if !strings.Contains(outStr, "maximum log limit") || !strings.Contains(outStr, "truncated") {
-		t.Fatalf("expected truncation warning in capped logs, got:\n%s", outStr)
-	}
-
-	// Total length should be close to 256 bytes + truncation banner (~350 bytes), not 15,000 bytes!
-	if len(outStr) > 1000 {
-		t.Fatalf("log size %d exceeded capped expectation", len(outStr))
+	if len(stdout) > 1000 {
+		t.Fatalf("log size %d exceeded capped expectation", len(stdout))
 	}
 }
 
-func TestWatchdogTimeout(t *testing.T) {
-	// Configure 100ms watchdog timeout
+func TestDefaultTimeoutKills(t *testing.T) {
 	cfg := DefaultConfig("")
 	cfg.DefaultProcessTimeout = 100 * time.Millisecond
+	client := setupTestServerWithConfig(t, cfg)
 
-	client, cleanup := setupTestServerWithConfig(t, cfg)
-	defer cleanup()
+	started := sh(t, client, "sleep 30")
+	proc := wait(t, client, started.GetProcessId())
+	if proc.GetExitCode() != 137 {
+		t.Fatalf("expected 137 (128+SIGKILL) from watchdog, got %d", proc.GetExitCode())
+	}
+}
 
-	ctx := context.Background()
-
-	// Process attempts to sleep 30 seconds
-	res, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", "sleep 30"},
+func TestPerProcessTimeout(t *testing.T) {
+	client := setupTestServer(t)
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"sleep", "30"},
+		Timeout: durationpb.New(100 * time.Millisecond),
 	})
-	if err != nil {
-		t.Fatalf("StartProcess failed: %v", err)
+	proc := wait(t, client, started.GetProcessId())
+	if proc.GetExitCode() != 137 {
+		t.Fatalf("expected 137 (128+SIGKILL) from per-process timeout, got %d", proc.GetExitCode())
 	}
+}
 
-	// Wait 250ms for watchdog timer to trigger
-	time.Sleep(250 * time.Millisecond)
-
-	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-		ProcessId: res.ProcessId,
-	})
-	if err != nil {
-		t.Fatalf("GetProcess failed: %v", err)
+func TestSignalRoundTrip(t *testing.T) {
+	for api, sys := range signalTable {
+		if got := FromSyscallSignal(sys); got != api {
+			t.Errorf("FromSyscallSignal(%v) = %v, want %v", sys, got, api)
+		}
 	}
-
-	if proc.Status != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_TERMINATED {
-		t.Fatalf("expected status TERMINATED by watchdog timeout, got %v", proc.Status)
-	}
-	if proc.ExitCode != 137 {
-		t.Fatalf("expected exit code 137, got %d", proc.ExitCode)
+	if _, ok := ToSyscallSignal(ateenvv1alpha.Signal_SIGNAL_UNSPECIFIED); ok {
+		t.Errorf("UNSPECIFIED must not map to a signal")
 	}
 }

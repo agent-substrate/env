@@ -77,6 +77,9 @@ ate-env create dev1
 # Execute a shell command inside the environment.
 ate-env dev1 shell 'echo hello > /note.txt'
 
+# Feed stdin to a command and bound its run time.
+echo 'shout' | ate-env dev1 shell --stdin --timeout 30s 'tr a-z A-Z'
+
 # Read and write files.
 ate-env dev1 read /note.txt
 echo "world" | ate-env dev1 write /note.txt
@@ -159,14 +162,17 @@ Manages the lifecycle of isolated execution environments (defined in [`proto/ate
 
 ### ProcessService
 
-Manages asynchronous process execution and output streaming inside the environment container (defined in [`proto/ateenv/v1alpha/guest.proto`](proto/ateenv/v1alpha/guest.proto)). Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
+Manages process execution, I/O streaming, and signals inside the environment container (defined in [`proto/ateenv/v1alpha/guest.proto`](proto/ateenv/v1alpha/guest.proto)). Requests are proxied by `ate-env-api` directly to the `ate-env-guest` daemon:
 
 | RPC | Description |
 | --- | ----------- |
-| `StartProcess` | Launches a process and returns a process ID. |
-| `GetProcess` | Retrieves process metadata and status |
-| `StreamProcessOutputs` | Streams stdout and stderr chunks |
-| `KillProcess` | Terminates a running background process |
+| `StartProcess` | Launches a process (optionally with a stdin pipe and a timeout) and returns the `Process` resource |
+| `GetProcess` | Retrieves the process state, exit code, and timestamps |
+| `StreamProcessOutput` | Streams stdout and stderr chunks; with `follow`, ends with an `exit` message carrying the final `Process` |
+| `WriteProcessInput` | Streams bytes to the process's stdin; a message with `close` sends EOF |
+| `SignalProcess` | Delivers a POSIX signal (`TERM`, `INT`, `KILL`, `USR1`, ...) to the process group |
+
+`exit_code` follows the shell convention: the process's exit code, or 128 + signal number if it was killed by a signal. To wait for a process without receiving its output, follow the output stream with offsets past the end of the spool.
 
 ### FileSystemService
 

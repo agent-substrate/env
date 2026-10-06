@@ -21,10 +21,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"time"
 
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // Env is a handle to a single environment.
@@ -36,7 +36,6 @@ type Env struct {
 
 // ID returns the environment's identifier.
 func (e *Env) ID() string { return e.id }
-
 
 func (e *Env) withEnv(ctx context.Context) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "x-env-id", e.id, "x-env-atespace", e.atespace)
@@ -52,66 +51,74 @@ func (e *Env) Delete(ctx context.Context) error {
 	return e.client.Delete(ctx, e.atespace, e.id)
 }
 
-// Shell runs a shell command line inside the environment using ProcessService.
+// Shell runs a shell command line inside the environment and captures its
+// output. It is shorthand for Run with only Command set.
 func (e *Env) Shell(ctx context.Context, commandLine string) (*ShellResponse, error) {
-	ctx = e.withEnv(ctx)
-	startResp, err := e.client.process.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: []string{"sh", "-c", commandLine},
-	})
+	return e.Run(ctx, ShellRequest{Command: commandLine})
+}
+
+// Run executes `sh -c req.Command` inside the environment, feeds it
+// req.Stdin, and returns its buffered output and exit status once it exits.
+// For incremental output or interactive input use StartProcess.
+func (e *Env) Run(ctx context.Context, req ShellRequest) (*ShellResponse, error) {
+	start := &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"sh", "-c", req.Command},
+		Cwd:     req.Cwd,
+		Env:     req.Env,
+		Stdin:   req.Stdin != nil,
+	}
+	if req.Timeout > 0 {
+		start.Timeout = durationpb.New(req.Timeout)
+	}
+	proc, err := e.StartProcess(ctx, start)
 	if err != nil {
-		return nil, fromGRPCError(err)
+		return nil, err
 	}
 
-	pid := startResp.GetProcessId()
-	outStream, err := e.client.process.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
-		ProcessId: pid,
-		Follow:    true,
-	})
-	if err != nil {
-		return nil, fromGRPCError(err)
+	if req.Stdin != nil {
+		w, err := proc.Stdin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(req.Stdin); err != nil {
+			return nil, err
+		}
+		if err := w.Close(); err != nil {
+			return nil, err
+		}
 	}
 
+	stream, err := proc.Output(ctx, &ateenvv1alpha.StreamProcessOutputRequest{Follow: true})
+	if err != nil {
+		return nil, err
+	}
 	var stdoutBuf, stderrBuf bytes.Buffer
+	var exit *ateenvv1alpha.Process
 	for {
-		chunk, err := outStream.Recv()
+		msg, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return nil, fromGRPCError(err)
 		}
-		switch chunk.GetSource() {
-		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT:
-			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR:
-			stderrBuf.Write(chunk.GetData())
+		switch out := msg.GetOutput().(type) {
+		case *ateenvv1alpha.ProcessOutput_Stdout:
+			stdoutBuf.Write(out.Stdout)
+		case *ateenvv1alpha.ProcessOutput_Stderr:
+			stderrBuf.Write(out.Stderr)
+		case *ateenvv1alpha.ProcessOutput_Exit:
+			exit = out.Exit
 		}
 	}
-
-	// Retrieve final process state / exit code
-	var exitCode int
-	for {
-		proc, err := e.client.process.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{
-			ProcessId: pid,
-		})
-		if err != nil {
-			return nil, fromGRPCError(err)
-		}
-		if proc.GetStatus() != ateenvv1alpha.ProcessStatus_PROCESS_STATUS_RUNNING {
-			exitCode = int(proc.GetExitCode())
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(20 * time.Millisecond):
-		}
+	if exit == nil {
+		return nil, errors.New("env: output stream ended before the process exited")
 	}
 
 	return &ShellResponse{
 		Stdout:   stdoutBuf.String(),
 		Stderr:   stderrBuf.String(),
-		ExitCode: exitCode,
+		ExitCode: int(exit.GetExitCode()),
 	}, nil
 }
 
@@ -138,8 +145,8 @@ func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
 
 	pr, pw := io.Pipe()
 	go func() {
-		if len(firstChunk.GetData()) > 0 {
-			if _, writeErr := pw.Write(firstChunk.GetData()); writeErr != nil {
+		if len(firstChunk.GetChunk()) > 0 {
+			if _, writeErr := pw.Write(firstChunk.GetChunk()); writeErr != nil {
 				return
 			}
 		}
@@ -153,8 +160,8 @@ func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
 				_ = pw.CloseWithError(fromGRPCError(err))
 				return
 			}
-			if len(chunk.GetData()) > 0 {
-				if _, writeErr := pw.Write(chunk.GetData()); writeErr != nil {
+			if len(chunk.GetChunk()) > 0 {
+				if _, writeErr := pw.Write(chunk.GetChunk()); writeErr != nil {
 					return
 				}
 			}
@@ -164,9 +171,25 @@ func (e *Env) ReadFile(ctx context.Context, p string) (io.ReadCloser, error) {
 	return pr, nil
 }
 
-// WriteFile streams the contents of r to the file at path inside the
-// environment with the given permissions using FileSystemService.
+// WriteFile replaces the file at path inside the environment with the
+// contents of r, creating it with the given permissions if needed.
 func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.FileMode) error {
+	return e.writeFile(ctx, p, r, mode, 0)
+}
+
+// WriteFileAt writes the contents of r into the file at path starting at
+// byte offset, keeping existing content outside the written range. The file
+// is created with the given permissions if it does not exist, and extended
+// with zero bytes if offset is past its end. An offset of zero replaces the
+// file, like WriteFile.
+func (e *Env) WriteFileAt(ctx context.Context, p string, offset int64, r io.Reader, mode fs.FileMode) error {
+	if offset < 0 {
+		return fmt.Errorf("env: negative offset %d for %q", offset, p)
+	}
+	return e.writeFile(ctx, p, r, mode, offset)
+}
+
+func (e *Env) writeFile(ctx context.Context, p string, r io.Reader, mode fs.FileMode, seekOffset int64) error {
 	ctx = e.withEnv(ctx)
 	stream, err := e.client.filesystem.WriteFile(ctx)
 	if err != nil {
@@ -180,9 +203,10 @@ func (e *Env) WriteFile(ctx context.Context, p string, r io.Reader, mode fs.File
 	}
 
 	firstReq := &ateenvv1alpha.WriteFileRequest{
-		Path:  p,
-		Mode:  uint32(mode.Perm()),
-		Chunk: buf[:n],
+		Path:       p,
+		Mode:       uint32(mode.Perm()),
+		Chunk:      buf[:n],
+		SeekOffset: seekOffset,
 	}
 	if err := stream.Send(firstReq); err != nil {
 		return fromGRPCError(err)

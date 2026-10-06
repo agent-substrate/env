@@ -60,6 +60,20 @@ async def test_write_file_bytes(fake_stack):
     assert fakes.filesystem.modes["/big.bin"] == 0o755
 
 
+async def test_write_file_seek_offset(fake_stack):
+    client, fakes = fake_stack
+    env = client.env("dev1")
+    await env.write_file("/seek.txt", b"hello world")
+    assert await env.write_file("/seek.txt", b"W", seek_offset=6) == 1
+    assert fakes.filesystem.files["/seek.txt"] == b"hello World"
+    await env.write_file("/seek.txt", b"!", seek_offset=13)
+    assert fakes.filesystem.files["/seek.txt"] == b"hello World\0\0!"
+    await env.write_file("/seek.txt", b"new")  # no offset: replaced
+    assert fakes.filesystem.files["/seek.txt"] == b"new"
+    with pytest.raises(ValueError, match="seek_offset"):
+        await env.write_file("/seek.txt", b"x", seek_offset=-1)
+
+
 async def test_write_file_empty_creates_file(fake_stack):
     client, fakes = fake_stack
     env = client.env("dev1")

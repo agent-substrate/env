@@ -24,10 +24,11 @@ plain gRPC (h2c). Behind that endpoint there are two distinct paths:
  │  delete() env()            │      (unary)       │               │            ╰────────╯
  ╰────────────────────────────╯                    │  ate-env-api  │ Substrate control plane
  ╭────────────────────────────╮                    │ (guest proxy) │
- │ Env                        │ ProcessService     │               │ x-env-id   ╭────────╮   ╭──────────────────╮
+ │ Env / Process              │ ProcessService     │               │ x-env-id   ╭────────╮   ╭──────────────────╮
  │  shell() start_process()   │ FileSystemService  │               │───────────▶│ atenet │──▶│ actor            │
- │  stream_outputs() wait()   │───────────────────▶│               │  routing   │ router │   │ └ ate-env-guest  │
- │  read_file() write_file()  │ + routing metadata ╰───────────────╯            ╰────────╯   ╰──────────────────╯
+ │  output() write_input()    │───────────────────▶│               │  routing   │ router │   │ └ ate-env-guest  │
+ │  signal() wait()           │ + routing metadata ╰───────────────╯            ╰────────╯   ╰──────────────────╯
+ │  read_file() write_file()  │
  ╰────────────────────────────╯
 ```
 
@@ -73,16 +74,18 @@ actor boots. Retry until it serves (see the how-to below).
 | `Client.delete()` / `Env.delete()` | `EnvironmentService.DeleteEnvironment` | ate-env-api → control plane |
 | `Client.env()` | *(no RPC — returns a handle)* | — |
 | `Env.start_process()` | `ProcessService.StartProcess` | proxied to guest |
-| `Env.get_process()` / `Env.wait()` | `ProcessService.GetProcess` | proxied to guest |
-| `Env.stream_outputs()` | `ProcessService.StreamProcessOutputs` *(server-streaming)* | proxied to guest |
-| `Env.kill_process()` | `ProcessService.KillProcess` | proxied to guest |
-| `Env.shell()` | `StartProcess` + `StreamProcessOutputs` + `GetProcess` | proxied to guest |
+| `Env.process()` | *(no RPC — returns a handle)* | — |
+| `Process.info()` | `ProcessService.GetProcess` | proxied to guest |
+| `Process.output()` / `Process.wait()` | `ProcessService.StreamProcessOutput` *(server-streaming)* | proxied to guest |
+| `Process.write_input()` / `close_input()` | `ProcessService.WriteProcessInput` *(client-streaming)* | proxied to guest |
+| `Process.signal()` / `Process.kill()` | `ProcessService.SignalProcess` | proxied to guest |
+| `Env.shell()` | `StartProcess` (+ `WriteProcessInput`) + `StreamProcessOutput` | proxied to guest |
 | `Env.read_file()` / `read_file_bytes()` | `FileSystemService.ReadFile` *(server-streaming)* | proxied to guest |
 | `Env.write_file()` | `FileSystemService.WriteFile` *(client-streaming)* | proxied to guest |
 
 `Env.shell()` is a convenience composed from the process primitives: it
-starts `sh -c <command>`, follows the log stream until the process exits,
-then polls `GetProcess` for the final exit code.
+starts `sh -c <command>`, feeds it stdin if given, and follows the output
+stream, which ends with the process's exit state.
 
 ## How-to
 
@@ -168,39 +171,71 @@ async def wait_until_serving(env, timeout=180):
 
 ```python
 result = await env.shell("echo hello && uname -a")
-print(result.exit_code)   # int
+print(result.exit_code)   # int; 128 + signal number if killed by a signal
 print(result.stdout)      # str (utf-8, invalid bytes replaced)
 print(result.stderr)
+
+result = await env.shell("tr a-z A-Z", stdin="shout\n", timeout=30)
 ```
 
 `shell()` buffers all output in memory and returns after the command
-exits. For long-running or chatty commands, use the process API instead.
+exits. `stdin` (bytes or str) is fed to the command and then closed;
+`timeout` (seconds or `timedelta`) kills the command with SIGKILL when
+it elapses. For long-running, chatty, or interactive commands, use the
+process API instead.
 
-### Run background processes and stream logs
+### Run background processes and stream output
 
 ```python
-pid = await env.start_process(
+proc = await env.start_process(
     ["python", "train.py"],
     cwd="/workspace",
     env={"EPOCHS": "10"},
+    timeout=3600,
 )
 
-# Follow output live until the process exits:
-async for chunk in env.stream_outputs(pid, follow=True):
-    print(chunk.source.name, chunk.data.decode(), end="")
+# Follow output live; the last message carries the exit state:
+async for out in proc.output(follow=True):
+    if out.stdout is not None:
+        print(out.stdout.decode(), end="")
+    elif out.stderr is not None:
+        print(out.stderr.decode(), end="", file=sys.stderr)
+    else:
+        print("exited:", out.exit.exit_code)
 
-proc = await env.wait(pid)          # final state: status, exit_code, timestamps
+info = await proc.wait()             # or: block until exit without reading output
+info = await proc.info()             # snapshot: state, pid, exit_code, timestamps
 ```
 
 Notes:
 
-- `stream_outputs(follow=True)` blocks until the process exits — consume it
+- `output(follow=True)` blocks until the process exits — consume it
   under `asyncio.timeout()` or in a task you can cancel. Breaking out of
   the `async for` cancels the underlying RPC cleanly.
 - Replay from a byte offset with `stdout_offset=` / `stderr_offset=`;
-  without `follow` you get the logs written so far and the stream ends.
-- `await env.kill_process(pid)` terminates the process tree and returns
-  its exit code (128 + signal, e.g. 137 for SIGKILL).
+  without `follow` you get the output written so far and the stream ends
+  (with an `exit` message only if the process has already exited).
+- `env.process(process_id)` returns a handle to a process started earlier.
+
+### Feed stdin and send signals
+
+```python
+proc = await env.start_process(["python", "-i"], stdin=True)
+await proc.write_input(b"print(6 * 7)\n")      # stdin stays open across calls
+await proc.write_input(b"exit()\n", close=True) # close=True sends EOF
+
+server = await env.start_process(["./serve"])
+await server.signal(Signal.HUP)                # any POSIX signal, to the process group
+await server.signal(Signal.TERM)
+info = await server.wait()
+assert info.exit_code == 143                   # 128 + SIGTERM
+
+info = await server.kill()                     # SIGKILL + wait; idempotent
+```
+
+Signals and stdin need a running process; once it has exited they raise
+`ProcessExitedError`. `write_input()` on a process started without
+`stdin=True`, or after `close=True`, raises `FailedPreconditionError`.
 
 ### Read and write files
 
@@ -225,7 +260,13 @@ await env.write_file("/workspace/dataset.bin", produce(), mode=0o600)
 
 `write_file` accepts `bytes`/`bytearray`/`memoryview` (chunked for you)
 or any sync/async iterable of bytes chunks (sent as-is). Writing `b""`
-creates an empty file.
+creates an empty file. By default the file is replaced; pass a positive
+`seek_offset=` to keep existing content and write starting at that byte
+(the file is zero-extended if it is shorter):
+
+```python
+await env.write_file("/workspace/data.bin", patch, seek_offset=4096)
+```
 
 ### Suspend and delete
 
@@ -246,6 +287,8 @@ All failures raise subclasses of `ate_env.EnvError`:
 | `NotFoundError` | `NOT_FOUND` | unknown environment, process id, or file path |
 | `InvalidArgumentError` | `INVALID_ARGUMENT` | empty id, missing routing metadata, empty command |
 | `PermissionDeniedError` | `PERMISSION_DENIED` | file path escapes the workspace sandbox |
+| `FailedPreconditionError` | `FAILED_PRECONDITION` | stdin not opened or already closed |
+| `ProcessExitedError` | `FAILED_PRECONDITION` | signal or stdin write to a process that has exited (subclass of `FailedPreconditionError`) |
 | `RpcError` | anything else | transport failures, `ALREADY_EXISTS`, actor still waking, … (`.code` holds the status) |
 
 ```python

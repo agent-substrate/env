@@ -23,10 +23,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/agent-substrate/env/internal/tool"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const defaultChunkSize = 64 * 1024
@@ -94,7 +96,7 @@ func readFileTool(client ateenvv1alpha.FileSystemServiceClient) tool.Tool {
 			if err != nil {
 				return "", fmt.Errorf("reading file chunk: %w", err)
 			}
-			buf.Write(chunk.GetData())
+			buf.Write(chunk.GetChunk())
 		}
 		return buf.String(), nil
 	})
@@ -172,6 +174,8 @@ type shellParams struct {
 	Command string            `json:"command"`
 	Cwd     string            `json:"cwd,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	Stdin   string            `json:"stdin,omitempty"`
+	Timeout float64           `json:"timeout_seconds,omitempty"`
 }
 
 func shellTool(client ateenvv1alpha.ProcessServiceClient) tool.Tool {
@@ -191,6 +195,11 @@ func shellTool(client ateenvv1alpha.ProcessServiceClient) tool.Tool {
 					"additionalProperties": map[string]any{"type": "string"},
 					"description":          "Optional environment variables.",
 				},
+				"stdin": map[string]any{"type": "string", "description": "Optional text fed to the command's standard input."},
+				"timeout_seconds": map[string]any{
+					"type":        "number",
+					"description": "Optional wall-clock limit; the command is killed (SIGKILL) when it elapses.",
+				},
 			},
 			"required": []string{"command"},
 		},
@@ -200,49 +209,63 @@ func shellTool(client ateenvv1alpha.ProcessServiceClient) tool.Tool {
 		if command == "" {
 			return "", errors.New("command must not be empty")
 		}
-		return runProcessToCompletion(ctx, client, []string{"sh", "-c", command}, p.Cwd, p.Env)
+		req := &ateenvv1alpha.StartProcessRequest{
+			Command: []string{"sh", "-c", command},
+			Cwd:     p.Cwd,
+			Env:     p.Env,
+			Stdin:   p.Stdin != "",
+		}
+		if p.Timeout > 0 {
+			req.Timeout = durationpb.New(time.Duration(p.Timeout * float64(time.Second)))
+		}
+		return runProcessToCompletion(ctx, client, req, []byte(p.Stdin))
 	})
 }
 
-func runProcessToCompletion(ctx context.Context, client ateenvv1alpha.ProcessServiceClient, command []string, cwd string, env map[string]string) (string, error) {
-	startResp, err := client.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
-		Command: command,
-		Cwd:     cwd,
-		Env:     env,
-	})
+// runProcessToCompletion starts a process, feeds it stdin (if any), and
+// collects its output and exit status into a single tool result.
+func runProcessToCompletion(ctx context.Context, client ateenvv1alpha.ProcessServiceClient, req *ateenvv1alpha.StartProcessRequest, stdin []byte) (string, error) {
+	proc, err := client.StartProcess(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("process start failed: %w", err)
 	}
-	procID := startResp.GetProcessId()
+	procID := proc.GetProcessId()
 
-	stream, err := client.StreamProcessOutputs(ctx, &ateenvv1alpha.StreamProcessOutputsRequest{
+	if req.GetStdin() {
+		if err := writeInput(ctx, client, procID, stdin); err != nil {
+			return "", err
+		}
+	}
+
+	stream, err := client.StreamProcessOutput(ctx, &ateenvv1alpha.StreamProcessOutputRequest{
 		ProcessId: procID,
 		Follow:    true,
 	})
 	if err != nil {
-		return "", fmt.Errorf("stream outputs failed: %w", err)
+		return "", fmt.Errorf("stream output failed: %w", err)
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
+	var exit *ateenvv1alpha.Process
 	for {
-		chunk, err := stream.Recv()
+		msg, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", fmt.Errorf("reading process output chunk: %w", err)
+			return "", fmt.Errorf("reading process output: %w", err)
 		}
-		switch chunk.GetSource() {
-		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDOUT:
-			stdoutBuf.Write(chunk.GetData())
-		case ateenvv1alpha.OutputSource_OUTPUT_SOURCE_STDERR:
-			stderrBuf.Write(chunk.GetData())
+		switch out := msg.GetOutput().(type) {
+		case *ateenvv1alpha.ProcessOutput_Stdout:
+			stdoutBuf.Write(out.Stdout)
+		case *ateenvv1alpha.ProcessOutput_Stderr:
+			stderrBuf.Write(out.Stderr)
+		case *ateenvv1alpha.ProcessOutput_Exit:
+			exit = out.Exit
 		}
 	}
-
-	proc, err := client.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: procID})
-	if err != nil {
-		return "", fmt.Errorf("get process status failed: %w", err)
+	if exit == nil {
+		return "", errors.New("output stream ended before the process exited")
 	}
 
 	var out strings.Builder
@@ -255,14 +278,40 @@ func runProcessToCompletion(ctx context.Context, client ateenvv1alpha.ProcessSer
 		}
 		out.WriteString("[STDERR]\n" + stderrBuf.String())
 	}
-	if proc.GetExitCode() != 0 {
+	if exit.GetExitCode() != 0 {
 		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
 			out.WriteString("\n")
 		}
-		out.WriteString(fmt.Sprintf("[Exit Code: %d]", proc.GetExitCode()))
+		fmt.Fprintf(&out, "[Exit Code: %d]", exit.GetExitCode())
 	}
 	if out.Len() == 0 {
 		return "(no output)", nil
 	}
 	return out.String(), nil
+}
+
+// writeInput sends data to the process's stdin in chunks and closes it.
+func writeInput(ctx context.Context, client ateenvv1alpha.ProcessServiceClient, procID string, data []byte) error {
+	stream, err := client.WriteProcessInput(ctx)
+	if err != nil {
+		return fmt.Errorf("write input failed: %w", err)
+	}
+	for i := 0; ; i += defaultChunkSize {
+		end := min(i+defaultChunkSize, len(data))
+		last := end == len(data)
+		req := &ateenvv1alpha.WriteProcessInputRequest{Data: data[i:end], Close: last}
+		if i == 0 {
+			req.ProcessId = procID
+		}
+		if err := stream.Send(req); err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("sending stdin chunk: %w", err)
+		}
+		if last {
+			break
+		}
+	}
+	if _, err := stream.CloseAndRecv(); err != nil {
+		return fmt.Errorf("writing stdin: %w", err)
+	}
+	return nil
 }

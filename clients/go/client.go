@@ -32,8 +32,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ErrNotFound is returned when an env, file, or directory does not exist.
+// ErrNotFound is returned when an env, process, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
+
+// ErrProcessExited is returned when an operation needs a running process
+// (signalling it, writing to its stdin) but it has already exited.
+var ErrProcessExited = errors.New("process has exited")
 
 // ClientOptions configures a Client.
 type ClientOptions struct {
@@ -151,8 +155,13 @@ func fromGRPCError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if status.Code(err) == codes.NotFound {
+	switch status.Code(err) {
+	case codes.NotFound:
 		return fmt.Errorf("env: %w: %s", ErrNotFound, status.Convert(err).Message())
+	case codes.FailedPrecondition:
+		if strings.Contains(status.Convert(err).Message(), "has exited") {
+			return fmt.Errorf("env: %w: %s", ErrProcessExited, status.Convert(err).Message())
+		}
 	}
 	return fmt.Errorf("env: %w", err)
 }
