@@ -21,8 +21,10 @@ reachable under ate_env._gen for callers that need them.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+import hashlib
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
 
 from ._gen.ateenv.v1alpha import env_pb2, guest_pb2
 
@@ -35,7 +37,17 @@ __all__ = [
     "ProcessInfo",
     "ProcessOutput",
     "ShellResult",
+    "ResourceLimits",
+    "PlacementSpec",
+    "EnvironmentSpec",
+    "Task",
+    "ExecResult",
+    "DataPlaneEndpoint",
+    "RawSandboxInstance",
+    "PlanEntry",
+    "FleetPlan",
 ]
+
 
 
 class EnvironmentStatus(enum.IntEnum):
@@ -193,3 +205,140 @@ def _process_output_from_pb(pb: guest_pb2.ProcessOutput) -> ProcessOutput:
     if which == "exit":
         return ProcessOutput(exit=_process_info_from_pb(pb.exit))
     raise ValueError(f"ate_env: unexpected process output {pb!r}")
+
+
+@dataclass(frozen=True)
+class ResourceLimits:
+    """CPU and memory limits for a sandbox environment."""
+    cpu: str = "2"
+    memory: str = "4Gi"
+
+
+@dataclass(frozen=True)
+class PlacementSpec:
+    """Placement constraints and worker hardware selectors."""
+    node_selector: Dict[str, str] = field(default_factory=dict)
+    tolerations: List[Dict[str, Any]] = field(default_factory=list)
+    worker_family: Optional[str] = None  # e.g., "c2", "n2", "c3"
+
+
+@dataclass(frozen=True)
+class EnvironmentSpec:
+    """Immutable environment definition representing image, bundle, and constraints."""
+    image: str
+    runtime_bundle: str = "default-guest"
+    limits: ResourceLimits = field(default_factory=ResourceLimits)
+    placement: PlacementSpec = field(default_factory=PlacementSpec)
+    snapshot_storage_uri: Optional[str] = None
+
+    def template_key(self) -> str:
+        """Derive canonical template ID including CPU family and bundle digest."""
+        raw = f"{self.image}::{self.runtime_bundle}::{self.placement.worker_family or 'ambient'}"
+        img_hash = hashlib.sha256(raw.encode()).hexdigest()[:12]
+        # Clean alphanumeric template name
+        clean_img = self.image.split("/")[-1].split(":")[0].replace(".", "-").replace("_", "-")
+        return f"tmpl-{clean_img[:20]}-{img_hash}"
+
+
+@dataclass
+class Task:
+    """Single workload/task definition (e.g. one SWE-bench instance)."""
+    id: str
+    image: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ExecResult:
+    """Outcome of a command that the guest actually ran.
+
+    A runtime returns an ExecResult only when the guest started the command
+    and either observed it exit (``exit_code`` set) or killed it at its
+    deadline (``timed_out=True`` and ``exit_code=None``; output may be
+    partial). Anything else (unreachable sandbox, HTTP/gRPC error, malformed
+    response) raises ``InfrastructureError`` instead, so transport failures
+    can never be mistaken for agent failures.
+
+    ``exit_code == -1`` means the guest reported that the process was
+    terminated by a signal before its deadline (for example OOM-killed);
+    details are appended to ``stderr``.
+    """
+    exit_code: Optional[int]
+    stdout: str
+    stderr: str
+    duration_s: float = 0.0
+    timed_out: bool = False
+
+    def __post_init__(self) -> None:
+        if self.timed_out and self.exit_code is not None:
+            raise ValueError("ExecResult: exit_code must be None when timed_out=True")
+        if not self.timed_out and self.exit_code is None:
+            raise ValueError("ExecResult: exit_code is required unless timed_out=True")
+
+    @property
+    def ok(self) -> bool:
+        """True iff the command finished within its deadline with exit code 0."""
+        return not self.timed_out and self.exit_code == 0
+
+
+_SENSITIVE_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "x-api-key"})
+
+
+@dataclass(repr=False)
+class DataPlaneEndpoint:
+    """Per-sandbox data-plane coordinates produced by a BackendDriver.
+
+    Attributes:
+        protocol: ``"http"`` (requests to ``address`` reach the sandbox's
+            primary HTTP port) or ``"grpc"`` (in-guest gRPC server).
+        address: Base URL for http (e.g. ``"http://atenet-router:8080"``);
+            ``host:port`` for grpc.
+        headers: HTTP headers or gRPC metadata that route to and authenticate
+            against this specific sandbox, e.g.
+            ``{"ate-target-actor": "<atespace>/<actor>"}``. Keys are lowercase.
+    """
+    protocol: Literal["http", "grpc"]
+    address: str
+    headers: Dict[str, str] = field(default_factory=dict)
+
+    def __repr__(self) -> str:
+        shown = {k: ("<redacted>" if k.lower() in _SENSITIVE_HEADERS else v)
+                 for k, v in self.headers.items()}
+        return (f"DataPlaneEndpoint(protocol={self.protocol!r}, "
+                f"address={self.address!r}, headers={shown!r})")
+
+
+@dataclass
+class RawSandboxInstance:
+    """Low-level sandbox handle returned by BackendDriver."""
+    instance_id: str
+    endpoint: str
+    template_id: str
+    run_id: str
+    status: str = "RUNNING"
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    # Keyed by data-plane name matching FleetConfig.data_plane ("router", "grpc").
+    data_planes: Dict[str, DataPlaneEndpoint] = field(default_factory=dict)
+
+
+@dataclass
+class PlanEntry:
+    """One environment's calculated provisioning plan."""
+    image: str
+    template_id: str
+    replicas: int
+    tasks: int
+
+
+class FleetPlan:
+    """The complete provisioning plan computed by SandboxFleet.plan()."""
+    def __init__(self, entries: List[PlanEntry]):
+        self.entries = entries
+        self._by_image = {e.image: e for e in entries}
+
+    def for_image(self, image: str) -> Optional[PlanEntry]:
+        return self._by_image.get(image)
+
+    @property
+    def total_replicas(self) -> int:
+        return sum(e.replicas for e in self.entries)

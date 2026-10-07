@@ -1,0 +1,221 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: async-verl-swebench-sandbox-sdk
+  namespace: default
+spec:
+  entrypoint: "python3 /workspace/examples/verl_swebench/async_verl_swebench_pipeline.py --backend substrate --data-plane router --task-type smoke --num-iters 3 --group-size 4"
+  shutdownAfterJobFinishes: false
+
+  rayClusterSpec:
+    rayVersion: "2.58.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+        num-cpus: "2"
+        temp-dir: "/tmp/ray"
+      template:
+        metadata:
+          labels:
+            ray.io/node-type: head
+        spec:
+          nodeSelector:
+            iam.gke.io/gke-metadata-server-enabled: "true"
+          initContainers:
+          - name: init-workspace
+            image: us-central1-docker.pkg.dev/songsunny-gke-dev2/rl-genetics/verl-worker:v1
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              mkdir -p /workspace/site-packages
+              base64 -d /etc/pkg/pkg.tar.gz.b64 | tar -xz -C /workspace
+              pip install --no-cache-dir --target=/workspace/site-packages 'numpy==1.26.4'
+              echo "Workspace initialized on head."
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: pkg
+              mountPath: /etc/pkg
+          containers:
+          - name: ray-head
+            image: us-central1-docker.pkg.dev/songsunny-gke-dev2/rl-genetics/verl-worker:v1
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: PYTHONPATH
+              value: "/workspace/site-packages:/workspace/clients/python/src:/workspace/examples/verl_swebench"
+            - name: SUBSTRATE_ROUTER_URL
+              value: "http://atenet-router.ate-system.svc.cluster.local:8080"
+            - name: SUBSTRATE_GRPC_ENDPOINT
+              value: "substrate-env.ate-system.svc.cluster.local:50051"
+            - name: SANDBOX_WORKER_FAMILY
+              value: "default"
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            resources:
+              limits:
+                cpu: "2"
+                memory: "8Gi"
+              requests:
+                cpu: "1"
+                memory: "4Gi"
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          volumes:
+          - name: workspace
+            emptyDir: {}
+          - name: pkg
+            configMap:
+              name: sandbox-sdk-pkg
+
+    workerGroupSpecs:
+    # --------------------------------------------------------------------------
+    # 1. VeRL Trainer & Sampler Worker Group (NVIDIA L4 GPUs)
+    # --------------------------------------------------------------------------
+    - groupName: gpu-verl-workers
+      replicas: 2
+      minReplicas: 2
+      maxReplicas: 2
+      rayStartParams:
+        num-gpus: "1"
+        num-cpus: "6"
+        temp-dir: "/tmp/ray"
+      template:
+        metadata:
+          labels:
+            ray.io/node-type: gpu-worker
+        spec:
+          nodeSelector:
+            cloud.google.com/gke-accelerator: nvidia-l4
+          tolerations:
+          - key: nvidia.com/gpu
+            operator: Exists
+            effect: NoSchedule
+          initContainers:
+          - name: init-workspace
+            image: us-central1-docker.pkg.dev/songsunny-gke-dev2/rl-genetics/verl-worker:v1
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              mkdir -p /workspace/site-packages
+              base64 -d /etc/pkg/pkg.tar.gz.b64 | tar -xz -C /workspace
+              pip install --no-cache-dir --target=/workspace/site-packages 'numpy==1.26.4'
+              echo "Workspace initialized on GPU worker."
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: pkg
+              mountPath: /etc/pkg
+          containers:
+          - name: ray-gpu-worker
+            image: us-central1-docker.pkg.dev/songsunny-gke-dev2/rl-genetics/verl-worker:v1
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: PYTHONPATH
+              value: "/workspace/site-packages:/workspace/clients/python/src:/workspace/examples/verl_swebench"
+            - name: SUBSTRATE_ROUTER_URL
+              value: "http://atenet-router.ate-system.svc.cluster.local:8080"
+            - name: SUBSTRATE_GRPC_ENDPOINT
+              value: "substrate-env.ate-system.svc.cluster.local:50051"
+            - name: SANDBOX_WORKER_FAMILY
+              value: "default"
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+                cpu: "7"
+                memory: "28Gi"
+              requests:
+                nvidia.com/gpu: "1"
+                cpu: "6"
+                memory: "24Gi"
+            volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: workspace
+              mountPath: /workspace
+          volumes:
+          - name: dshm
+            emptyDir:
+              medium: Memory
+              sizeLimit: 16Gi
+          - name: workspace
+            emptyDir: {}
+          - name: pkg
+            configMap:
+              name: sandbox-sdk-pkg
+
+    # --------------------------------------------------------------------------
+    # 2. CPU Evaluator Worker Group (Dispatches rollouts to Sandbox SDK)
+    # --------------------------------------------------------------------------
+    - groupName: cpu-evaluators
+      replicas: 2
+      minReplicas: 2
+      maxReplicas: 4
+      rayStartParams:
+        num-cpus: "2"
+        temp-dir: "/tmp/ray"
+      template:
+        metadata:
+          labels:
+            ray.io/node-type: cpu-evaluator
+        spec:
+          nodeSelector:
+            iam.gke.io/gke-metadata-server-enabled: "true"
+          initContainers:
+          - name: init-workspace
+            image: us-central1-docker.pkg.dev/songsunny-gke-dev2/rl-genetics/verl-worker:v1
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              mkdir -p /workspace/site-packages
+              base64 -d /etc/pkg/pkg.tar.gz.b64 | tar -xz -C /workspace
+              pip install --no-cache-dir --target=/workspace/site-packages 'numpy==1.26.4'
+              echo "Workspace initialized on CPU evaluator."
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: pkg
+              mountPath: /etc/pkg
+          containers:
+          - name: ray-cpu-worker
+            image: us-central1-docker.pkg.dev/songsunny-gke-dev2/rl-genetics/verl-worker:v1
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: PYTHONPATH
+              value: "/workspace/site-packages:/workspace/clients/python/src:/workspace/examples/verl_swebench"
+            - name: SUBSTRATE_ROUTER_URL
+              value: "http://atenet-router.ate-system.svc.cluster.local:8080"
+            - name: SUBSTRATE_GRPC_ENDPOINT
+              value: "substrate-env.ate-system.svc.cluster.local:50051"
+            - name: SANDBOX_WORKER_FAMILY
+              value: "default"
+            resources:
+              limits:
+                cpu: "2"
+                memory: "6Gi"
+              requests:
+                cpu: "1"
+                memory: "3Gi"
+            volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          volumes:
+          - name: workspace
+            emptyDir: {}
+          - name: pkg
+            configMap:
+              name: sandbox-sdk-pkg

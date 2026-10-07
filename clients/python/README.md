@@ -1,11 +1,12 @@
-# ate-env-client — Async Python Client
+# ate-env-client — Python Client & Sandbox Fleet SDK
 
 > [!WARNING]
 > This is an alpha API and is likely to change until v1.0 is released.
 
-Async Python client for the [Agent Substrate Environment](../../README.md)
-API (`ate-env-api`): environment lifecycle, remote command execution, and
-streaming file I/O over gRPC.
+Unified Python client and high-throughput Sandbox Fleet SDK for the [Agent Substrate Environment](../../README.md)
+API (`ate-env-api`):
+1. **Single Environment Lifecycle & Guest Operations**: `Client` & `Env` for fine-grained gRPC control, process execution, and file streaming.
+2. **High-Throughput Fleet & Sandbox Orchestration**: `SandboxFleet` & `AsyncSandboxFleet` for massive RL rollouts (Ray, VeRL, NeMo Gym) with automated pooling, pre-warming, and concurrency control.
 
 Requires Python >= 3.10. Everything is `asyncio`-native: methods are
 coroutines, log/file streams are async iterators, and cancellation works
