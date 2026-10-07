@@ -29,6 +29,7 @@ while this project adds the environment-shaped API on top.
 - **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
 - **`clients/go`** — The Go client library to manage environments, run commands, and perform file operations.
 - **`clients/python`** — The async Python client library ([README](clients/python/README.md)).
+- **`integrations/nemo-gym`** — A [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) sandbox provider that runs rollout sandboxes as environments, built on the Python client ([README](integrations/nemo-gym/README.md)).
 
 ## Installation
 
@@ -256,6 +257,8 @@ curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
 For complete runnable Go programs:
 - **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 - **Guest Daemon**: See [guest-daemon](examples/guest-daemon/main.go) to run a standalone in-actor gRPC service for asynchronous process execution and chunked file transfer.
+
+For using environments from a framework, see [integrations/nemo-gym](integrations/nemo-gym/README.md): a NeMo Gym sandbox provider registered through the `nemo_gym.sandbox_providers` entry point.
 
 ## Cleanup
 
