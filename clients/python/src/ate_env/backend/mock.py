@@ -31,7 +31,7 @@ class MockBackendDriver(BackendDriver):
         self.fail_preflight = fail_preflight
         self.fail_acquire = fail_acquire
         self.templates: dict[str, EnvironmentSpec] = {}
-        self.warm_pools: dict[str, int] = collections.defaultdict(int)
+        self.warm_pools: dict[str | tuple[str, str | None], int] = collections.defaultdict(int)
         self.instances: dict[str, RawSandboxInstance] = {}
         self.reaped_runs: set[str] = set()
 
@@ -44,23 +44,44 @@ class MockBackendDriver(BackendDriver):
         self.templates[tid] = env
         return tid
 
-    def warm_pool(self, template_id: str, replicas: int, wait: bool = True) -> None:
+    def warm_pool(
+        self,
+        template_id: str,
+        replicas: int,
+        wait: bool = True,
+        run_id: str | None = None,
+        rootfs_image: str | None = None,
+    ) -> None:
         self.warm_pools[template_id] = replicas
+        if rootfs_image is not None:
+            self.warm_pools[(template_id, rootfs_image)] = replicas
 
-    def unwarm_pool(self, template_id: str) -> None:
+    def unwarm_pool(self, template_id: str, rootfs_image: str | None = None) -> None:
         self.warm_pools[template_id] = 0
+        if rootfs_image is not None:
+            self.warm_pools.pop((template_id, rootfs_image), None)
 
-    def acquire(self, template_id: str, run_id: str, timeout_s: float = 180.0) -> RawSandboxInstance:
+    def acquire(
+        self,
+        template_id: str,
+        run_id: str,
+        timeout_s: float = 180.0,
+        rootfs_image: str | None = None,
+    ) -> RawSandboxInstance:
         if self.fail_acquire:
             raise SandboxStartError("Mock acquire failed: capacity exhausted")
 
         inst_id = f"mock-sb-{uuid.uuid4().hex[:8]}"
+        metadata = {"created_at": time.time(), "template": template_id}
+        if rootfs_image is not None:
+            metadata["rootfs_image"] = rootfs_image
         inst = RawSandboxInstance(
             instance_id=inst_id,
             endpoint=f"http://127.0.0.1:8000/{inst_id}",
             template_id=template_id,
             run_id=run_id,
-            metadata={"created_at": time.time(), "template": template_id}
+            metadata=metadata,
+            rootfs_image=rootfs_image,
         )
         self.instances[inst_id] = inst
         return inst

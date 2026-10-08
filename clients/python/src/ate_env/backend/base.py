@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from ..types import EnvironmentSpec, RawSandboxInstance
 
@@ -36,15 +37,28 @@ class BackendDriver(ABC):
         """Ensure template/golden snapshot exists. Returns unique template ID."""
 
     @abstractmethod
-    def warm_pool(self, template_id: str, replicas: int, wait: bool = True) -> None:
+    def warm_pool(
+        self,
+        template_id: str,
+        replicas: int,
+        wait: bool = True,
+        run_id: str | None = None,
+        rootfs_image: str | None = None,
+    ) -> None:
         """Provision warm replicas (Ready pods in K8s or Paused Actors in Substrate)."""
 
     @abstractmethod
-    def unwarm_pool(self, template_id: str) -> None:
+    def unwarm_pool(self, template_id: str, rootfs_image: str | None = None) -> None:
         """Scale down warm pool for the template to 0."""
 
     @abstractmethod
-    def acquire(self, template_id: str, run_id: str, timeout_s: float = 180.0) -> RawSandboxInstance:
+    def acquire(
+        self,
+        template_id: str,
+        run_id: str,
+        timeout_s: float = 180.0,
+        rootfs_image: str | None = None,
+    ) -> RawSandboxInstance:
         """Instantly claim a sandbox instance from warm pool or golden."""
 
     @abstractmethod
@@ -54,3 +68,9 @@ class BackendDriver(ABC):
     @abstractmethod
     def reap(self, run_id: str) -> int:
         """Force delete all resources associated with a run_id."""
+
+    def build_runtime(
+        self, instance: RawSandboxInstance, data_plane: str = "ate_env"
+    ) -> tuple[Any, Any | None]:
+        """Construct runtime guest hook and data plane coordinates for this sandbox."""
+        raise NotImplementedError

@@ -123,6 +123,19 @@ class SandboxHandle:
         finally:
             self.runtime.close()
 
+    async def release_async(self) -> None:
+        """Asynchronously release this sandbox back to the backend or terminate it."""
+        try:
+            if hasattr(self.backend, "release_async"):
+                await self.backend.release_async(self.sandbox_id, recycle=False)
+            else:
+                self.backend.release(self.sandbox_id, recycle=False)
+        finally:
+            if hasattr(self.runtime, "close_async"):
+                await self.runtime.close_async()
+            else:
+                self.runtime.close()
+
     def recycle(self) -> None:
         """Return sandbox to warm pool.
 
@@ -135,6 +148,24 @@ class SandboxHandle:
         finally:
             self.runtime.close()
 
+    async def recycle_async(self) -> None:
+        """Asynchronously return sandbox to warm pool.
+
+        Note: This suspends the actor and places it back in the pool without
+        resetting filesystem or process state. The next claim will receive
+        the actor in the state left by the previous workload.
+        """
+        try:
+            if hasattr(self.backend, "release_async"):
+                await self.backend.release_async(self.sandbox_id, recycle=True)
+            else:
+                self.backend.release(self.sandbox_id, recycle=True)
+        finally:
+            if hasattr(self.runtime, "close_async"):
+                await self.runtime.close_async()
+            else:
+                self.runtime.close()
+
     def __enter__(self) -> SandboxHandle:
         return self
 
@@ -145,4 +176,4 @@ class SandboxHandle:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.release()
+        await self.release_async()

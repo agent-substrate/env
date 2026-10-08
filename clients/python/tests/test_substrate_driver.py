@@ -91,8 +91,10 @@ async def test_substrate_synchronous_fleet_multiple_acquires(fake_stack):
     def _run_sync_fleet():
         fleet = SandboxFleet(cfg)
         try:
-            sb1 = fleet.acquire(Task(id="task-1", image="img-1"))
-            sb2 = fleet.acquire(Task(id="task-2", image="img-2"))
+            img1 = "docker.io/library/python@sha256:" + "a" * 64
+            img2 = "docker.io/library/python@sha256:" + "b" * 64
+            sb1 = fleet.acquire(Task(id="task-1", image=img1))
+            sb2 = fleet.acquire(Task(id="task-2", image=img2))
             assert sb1.sandbox_id != sb2.sandbox_id
             fleet.release([sb1, sb2])
         finally:
@@ -112,7 +114,8 @@ async def test_substrate_fleet_setup_and_teardown_cleans_warm_pool(fake_stack):
 
     def _run_setup_teardown():
         fleet = SandboxFleet(cfg)
-        fleet.load_tasks([Task(id="t1", image="img"), Task(id="t2", image="img")])
+        img = "docker.io/library/python@sha256:" + "c" * 64
+        fleet.load_tasks([Task(id="t1", image=img), Task(id="t2", image=img)])
         fleet.setup()
         assert len(fakes.environments.environments) == 2
         fleet.teardown()
@@ -132,24 +135,93 @@ async def test_substrate_preflight_fails_on_closed_port():
 
 
 def test_substrate_default_template_resolution():
-    # B1: A fleet with no template configured falls back to "default-template"
+    # B1: A fleet with no template configured falls back to ("default-template", image)
     cfg = FleetConfig(backend="substrate")
     fleet = SandboxFleet(cfg)
-    tmpl = fleet._ensure_template_for_image("docker.io/library/python@sha256:2176bb31f3eb")
+    tmpl, rootfs = fleet._ensure_template_for_image("docker.io/library/python@sha256:2176bb31f3eb")
     assert tmpl == "default-template"
+    assert rootfs == "docker.io/library/python@sha256:2176bb31f3eb"
 
-    # M5: image_templates mapping wins over config.template
+    # M5: image_templates mapping gives (mapped, None); any other gives (config.template, image)
     cfg_mapped = FleetConfig(
         backend="substrate",
         template="fallback-template",
         image_templates={"docker.io/library/python:3.11": "python-template"},
     )
     fleet_mapped = SandboxFleet(cfg_mapped)
-    assert fleet_mapped._ensure_template_for_image("docker.io/library/python:3.11") == "python-template"
-    assert fleet_mapped._ensure_template_for_image("other-img") == "fallback-template"
+    assert fleet_mapped._ensure_template_for_image("docker.io/library/python:3.11") == ("python-template", None)
+    assert fleet_mapped._ensure_template_for_image("other-img") == ("fallback-template", "other-img")
 
     # SubstrateBackendDriver with default_template="default-template" does not treat it as unset
     driver = SubstrateBackendDriver(default_template="default-template")
     assert driver.ensure_template("docker.io/library/python@sha256:2176bb31f3eb") == "default-template"
     driver_none = SubstrateBackendDriver(default_template=None)
     assert driver_none.ensure_template("docker.io/library/python@sha256:2176bb31f3eb") == "default-template"
+
+
+async def test_substrate_rootfs_image_sent_to_server(fake_stack):
+    from ate_env.async_fleet import AsyncSandboxFleet
+
+    client, fakes = fake_stack
+    image = "docker.io/library/python@sha256:" + "d" * 64
+
+    # 1. Default FleetConfig with unmapped task image sends template.name == "default-template" and rootfs_image == image
+    cfg = FleetConfig(backend="substrate", endpoint=client.endpoint)
+
+    def _run_sync_default():
+        fleet = SandboxFleet(cfg)
+        try:
+            task = Task(id="task-rootfs", image=image)
+            sb = fleet.acquire(task)
+            assert fakes.environments.last_create_request is not None
+            assert fakes.environments.last_create_request.template.name == "default-template"
+            assert fakes.environments.last_create_request.rootfs_image == image
+            fleet.release(sb)
+        finally:
+            fleet.close()
+
+    await asyncio.to_thread(_run_sync_default)
+
+    # 2. AsyncSandboxFleet with unmapped task image also sends rootfs_image
+    async_fleet = AsyncSandboxFleet(cfg)
+    try:
+        task_async = Task(id="task-async", image=image)
+        sb_async = await async_fleet.acquire(task_async)
+        assert fakes.environments.last_create_request is not None
+        assert fakes.environments.last_create_request.template.name == "default-template"
+        assert fakes.environments.last_create_request.rootfs_image == image
+        await async_fleet.release(sb_async)
+    finally:
+        async_fleet.close()
+
+    # 3. Warm pool passes rootfs_image to client.create and keys _warm_paused_pool by (template, image)
+    driver = SubstrateBackendDriver(client=client, atespace="ate-env")
+    try:
+        await driver.warm_pool_async("custom-base", replicas=1, rootfs_image=image)
+        assert fakes.environments.last_create_request is not None
+        assert fakes.environments.last_create_request.template.name == "custom-base"
+        assert fakes.environments.last_create_request.rootfs_image == image
+        assert len(driver._warm_paused_pool[("custom-base", image)]) == 1
+    finally:
+        await driver.unwarm_pool_async("custom-base", rootfs_image=image)
+        await driver.close_async()
+
+    # 4. Mapped image gives (mapped, None) and does not send rootfs_image
+    cfg_mapped = FleetConfig(
+        backend="substrate",
+        endpoint=client.endpoint,
+        image_templates={image: "mapped-template"},
+    )
+
+    def _run_sync_mapped():
+        fleet_mapped = SandboxFleet(cfg_mapped)
+        try:
+            sb_mapped = fleet_mapped.acquire(Task(id="task-mapped", image=image))
+            assert fakes.environments.last_create_request is not None
+            assert fakes.environments.last_create_request.template.name == "mapped-template"
+            assert fakes.environments.last_create_request.rootfs_image == ""
+            fleet_mapped.release(sb_mapped)
+        finally:
+            fleet_mapped.close()
+
+    await asyncio.to_thread(_run_sync_mapped)
