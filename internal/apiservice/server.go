@@ -79,6 +79,30 @@ func (s *Server) Close() {}
 // ============================================================================
 
 // CreateEnvironment registers and starts a new environment.
+//
+// Defaults: id is required. The template name defaults to DefaultTemplate.
+// The atespace is the request's atespace, else template.atespace, else
+// DefaultAtespace, and that one atespace is used both to resolve the template
+// and to create the actor; a template.atespace that differs from a non-empty
+// request atespace is ignored.
+//
+// When image is set, the template acts as the base and the environment is
+// created from a template derived from it, named
+// "<base>-<first 12 hex digits of the image digest>" in the same atespace.
+// The derived template keeps the base's settings, runs image as the
+// container image and mounts the base's guest as a read-only image volume,
+// so the image runs unmodified (see ensureImageTemplate and
+// DeriveImageTemplate). It is created on first use and reused by later
+// creates on the same image, and the response reports it in
+// Environment.template. When image is empty the template is used as is.
+//
+// Errors: InvalidArgument for a missing id, an image not pinned by digest, a
+// derived name that is too long or not a valid resource name, or a base that
+// cannot be derived from (no containers, unpinned guest image, or a command
+// that cannot be re-rooted under the guest volume). FailedPrecondition when
+// the base template does not exist in the atespace, or when the derived name
+// is already held by a template running a different image. Other control
+// plane failures are mapped by toGRPCError.
 func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1alpha.CreateEnvironmentRequest) (*ateenvv1alpha.CreateEnvironmentResponse, error) {
 	if req.GetId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
