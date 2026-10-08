@@ -240,6 +240,7 @@ Common environment commands:
   ate-env <id> shell <cmdline>   Run a shell command line in the environment`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version,
 	}
 
 	root.AddCommand(newManifestCommand())

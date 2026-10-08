@@ -49,10 +49,15 @@ type manifestConfig struct {
 }
 
 func (c *manifestConfig) resolveImages() error {
-	if c.workerImage == "" || c.apiImage == "" {
-		return errors.New(`--api-image and --worker-image (or --ateom-image) are required; use the
-digest-pinned images published by the latest release (the README
-quickstart records them), or build and push your own.`)
+	if c.workerImage == "" {
+		return errors.New(`--worker-image (or --ateom-image) is required: the worker image is
+ateom-gvisor from the Substrate repo and must match the Substrate version
+deployed on your cluster; build it there with ko (see the README).`)
+	}
+	if c.apiImage == "" {
+		return errors.New(`--api-image is required when ate-env is built from source; release
+binaries default it to the ate-env-api image published with the release
+(see docs/release.md), or build and push your own with make images.`)
 	}
 	return nil
 }
@@ -68,7 +73,9 @@ type templateConfig struct {
 
 func (c *templateConfig) resolveImages() error {
 	if c.guestImage == "" {
-		return errors.New("--guest-image is required; use the digest-pinned ate-env-guest image")
+		return errors.New(`--guest-image is required when ate-env is built from source; release
+binaries default it to the ate-env-guest image published with the release
+(see docs/release.md), or build and push your own with make images.`)
 	}
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
@@ -108,7 +115,7 @@ the "template" subcommand: ate-env manifest template`,
 	cmd.Flags().StringVar(&mCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&mCfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
 	cmd.Flags().StringVar(&mCfg.workerImage, "ateom-image", "", "alias for --worker-image")
-	cmd.Flags().StringVar(&mCfg.apiImage, "api-image", "", "digest-pinned ate-env-api image for the API service")
+	cmd.Flags().StringVar(&mCfg.apiImage, "api-image", defaultAPIImage, imageDefaultHelp("digest-pinned ate-env-api image for the API service", defaultAPIImage))
 	cmd.Flags().Int32Var(&mCfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
 	cmd.Flags().Int32Var(&mCfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
 	cmd.Flags().StringVar(&mCfg.workerPool, "workerpool", "", "WorkerPool name (defaults to <template>-workerpool)")
@@ -141,7 +148,7 @@ It prints YAML to stdout without touching the cluster.`,
 
 	cmd.Flags().StringVar(&tCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
 	cmd.Flags().StringVar(&tCfg.atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace for the ActorTemplate")
-	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
+	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", defaultGuestImage, imageDefaultHelp("digest-pinned ate-env-guest image (repo@sha256:...)", defaultGuestImage))
 	cmd.Flags().StringSliceVar(&tCfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
 	cmd.Flags().StringVar(&tCfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
 

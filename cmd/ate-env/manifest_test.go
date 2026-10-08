@@ -265,3 +265,39 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 		t.Errorf("expected guest image and storage location in output:\n%s", out)
 	}
 }
+
+const relHex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestImageFlagsDefaultToReleaseImages(t *testing.T) {
+	// A source build has no defaults and the flags are required.
+	cmd := newManifestTemplateCommand()
+	if got := cmd.Flags().Lookup("guest-image").DefValue; got != "" {
+		t.Errorf("source build guest-image default = %q, want empty", got)
+	}
+	cfg := templateConfig{template: "t", snapshotsBucket: "gs://b/"}
+	if err := cfg.resolveImages(); err == nil || !strings.Contains(err.Error(), "built from source") {
+		t.Errorf("missing --guest-image should name the source-build case, got %v", err)
+	}
+
+	// A release build carries the digests; the flags default to them.
+	oldAPI, oldGuest := defaultAPIImage, defaultGuestImage
+	defaultAPIImage = "ghcr.io/example/ate-env-api@sha256:" + relHex64
+	defaultGuestImage = "ghcr.io/example/ate-env-guest@sha256:" + relHex64
+	t.Cleanup(func() { defaultAPIImage, defaultGuestImage = oldAPI, oldGuest })
+
+	if got := newManifestTemplateCommand().Flags().Lookup("guest-image").DefValue; got != defaultGuestImage {
+		t.Errorf("guest-image default = %q, want the release image", got)
+	}
+	if got := newManifestCommand().Flags().Lookup("api-image").DefValue; got != defaultAPIImage {
+		t.Errorf("api-image default = %q, want the release image", got)
+	}
+	usage := newManifestCommand().Flags().Lookup("api-image").Usage
+	if !strings.Contains(usage, "published with this release") {
+		t.Errorf("api-image help should say the default is the release image, got %q", usage)
+	}
+	// The worker image stays required: it comes from the Substrate repo.
+	m := manifestConfig{apiImage: defaultAPIImage}
+	if err := m.resolveImages(); err == nil || !strings.Contains(err.Error(), "Substrate") {
+		t.Errorf("missing --worker-image should point at the Substrate repo, got %v", err)
+	}
+}
