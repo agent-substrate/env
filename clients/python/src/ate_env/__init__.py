@@ -33,9 +33,9 @@ Quickstart:
 """
 
 # Layer 1: Core Client & Env
-from .client import DEFAULT_ATESPACE, Client
-
 # Layer 2: High-Level Fleet Management & Abstractions
+from .async_fleet import AsyncSandboxFleet
+from .client import DEFAULT_ATESPACE, Client
 from .config import FleetConfig
 from .env import Env, Process
 
@@ -92,6 +92,7 @@ __all__ = [
     # High-level Fleet API
     "FleetConfig",
     "SandboxFleet",
+    "AsyncSandboxFleet",
     "SandboxHandle",
     # Low-level Errors
     "EnvError",
@@ -131,4 +132,3 @@ __all__ = [
     "PlanEntry",
     "FleetPlan",
 ]
-

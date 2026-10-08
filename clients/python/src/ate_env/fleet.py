@@ -50,7 +50,7 @@ class SandboxFleet:
         self.config = config or FleetConfig()
         self.run_id = uuid.uuid4().hex[:12]
         self._tasks: list[Task] = []
-        self._image_to_template: dict[str, str] = {}
+        self._image_to_template: dict[str, tuple[str, str | None]] = {}
         self._plan: FleetPlan | None = None
         self._lock = threading.Lock()
 
@@ -140,7 +140,7 @@ class SandboxFleet:
         entries: list[PlanEntry] = []
         counts = self.image_counts()
         for img, task_count in counts.items():
-            template_id = self._ensure_template_for_image(img)
+            template_id, rootfs_image = self._ensure_template_for_image(img)
             # Size warm pool to min(task_count, max_warmpool_replicas)
             replicas = min(task_count, self.config.max_warmpool_replicas)
             entries.append(PlanEntry(
@@ -148,6 +148,7 @@ class SandboxFleet:
                 template_id=template_id,
                 replicas=replicas,
                 tasks=task_count,
+                rootfs_image=rootfs_image,
             ))
         self._plan = FleetPlan(entries)
         return self._plan
@@ -160,20 +161,26 @@ class SandboxFleet:
         plan = self.plan()
         for entry in plan.entries:
             if entry.replicas > 0:
-                self.backend.warm_pool(entry.template_id, entry.replicas, wait=True)
+                self.backend.warm_pool(
+                    entry.template_id,
+                    entry.replicas,
+                    wait=True,
+                    rootfs_image=getattr(entry, "rootfs_image", None),
+                )
 
     def warm_images(self, images: list[str], replicas: int | None = None, wait: bool = True) -> None:
         """Warm up pools for specific images (used by windowed strategies)."""
         rep = replicas if replicas is not None else self.config.max_warmpool_replicas
         for img in images:
-            template_id = self._ensure_template_for_image(img)
-            self.backend.warm_pool(template_id, rep, wait=wait)
+            template_id, rootfs_image = self._ensure_template_for_image(img)
+            self.backend.warm_pool(template_id, rep, wait=wait, rootfs_image=rootfs_image)
 
     def unwarm_image(self, image: str) -> None:
         """Drain warm pool for a specific image."""
-        template_id = self._image_to_template.get(image)
-        if template_id:
-            self.backend.unwarm_pool(template_id)
+        entry = self._image_to_template.get(image)
+        if entry:
+            template_id, rootfs_image = entry
+            self.backend.unwarm_pool(template_id, rootfs_image=rootfs_image)
 
     def acquire(
         self,
@@ -206,11 +213,14 @@ class SandboxFleet:
 
         if task_obj.template:
             template_id = task_obj.template
+            rootfs_image = None
         else:
-            template_id = self._ensure_template_for_image(task_obj.image)
+            template_id, rootfs_image = self._ensure_template_for_image(task_obj.image)
 
         to_s = timeout_s or self.config.acquire_timeout_s
-        raw_inst = self.backend.acquire(template_id, self.run_id, timeout_s=to_s)
+        raw_inst = self.backend.acquire(
+            template_id, self.run_id, timeout_s=to_s, rootfs_image=rootfs_image
+        )
 
         try:
             runtime, data_plane = self._build_runtime(raw_inst)
@@ -277,17 +287,15 @@ class SandboxFleet:
         c = concurrency or min(self.config.max_concurrent, len(self._tasks))
         return strat_fn(self, process_fn, max(1, c))
 
-    def _ensure_template_for_image(self, image: str) -> str:
+    def _ensure_template_for_image(self, image: str) -> tuple[str, str | None]:
         with self._lock:
             if image in self._image_to_template:
                 return self._image_to_template[image]
+            res: tuple[str, str | None]
             if image in self.config.image_templates:
-                tmpl = self.config.image_templates[image]
-                self._image_to_template[image] = tmpl
-                return tmpl
-            if self.config.template:
-                self._image_to_template[image] = self.config.template
-                return self.config.template
-            tmpl = "default-template"
-            self._image_to_template[image] = tmpl
-            return tmpl
+                res = (self.config.image_templates[image], None)
+            else:
+                base = self.config.template or "default-template"
+                res = (base, image)
+            self._image_to_template[image] = res
+            return res

@@ -242,11 +242,21 @@ class EnvironmentSpec:
 
 @dataclass
 class Task:
-    """Single workload/task definition (e.g. one SWE-bench instance)."""
+    """Single workload/task definition (e.g. one SWE-bench instance).
+
+    Attributes:
+        id: Unique identifier for this task.
+        image: OCI container image reference. For Substrate backends, if mapped in
+            image_templates the mapped ActorTemplate is used; otherwise it is passed
+            as rootfs_image to derive a template on the fly.
+        metadata: Optional dictionary of arbitrary task metadata.
+        template: Optional explicit ActorTemplate name override.
+    """
     id: str
     image: str
     metadata: dict[str, Any] = field(default_factory=dict)
     template: str | None = None
+
 
 
 @dataclass
@@ -319,6 +329,7 @@ class RawSandboxInstance:
     metadata: dict[str, Any] = field(default_factory=dict)
     # Keyed by data-plane name matching FleetConfig.data_plane ("router", "grpc").
     data_planes: dict[str, DataPlaneEndpoint] = field(default_factory=dict)
+    rootfs_image: str | None = None
 
 
 @dataclass
@@ -328,6 +339,7 @@ class PlanEntry:
     template_id: str
     replicas: int
     tasks: int
+    rootfs_image: str | None = None
 
 
 class FleetPlan:
