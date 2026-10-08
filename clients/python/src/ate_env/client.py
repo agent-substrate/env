@@ -37,6 +37,52 @@ def _normalize_target(endpoint: str) -> str:
     return target
 
 
+import collections
+
+
+class _ClientCallDetails(
+    collections.namedtuple(
+        "_ClientCallDetails",
+        ["method", "timeout", "metadata", "credentials", "wait_for_ready"],
+    ),
+    grpc.aio.ClientCallDetails,
+):
+    pass
+
+
+class _AuthInterceptor(
+    grpc.aio.UnaryUnaryClientInterceptor,
+    grpc.aio.UnaryStreamClientInterceptor,
+    grpc.aio.StreamUnaryClientInterceptor,
+    grpc.aio.StreamStreamClientInterceptor,
+):
+    def __init__(self, token: str):
+        self._token = token
+
+    def _inject(self, details: grpc.aio.ClientCallDetails) -> _ClientCallDetails:
+        md = list(details.metadata or [])
+        md.append(("authorization", f"Bearer {self._token}"))
+        return _ClientCallDetails(
+            details.method,
+            details.timeout,
+            md,
+            details.credentials,
+            details.wait_for_ready,
+        )
+
+    async def intercept_unary_unary(self, continuation, client_call_details, request):
+        return await continuation(self._inject(client_call_details), request)
+
+    async def intercept_unary_stream(self, continuation, client_call_details, request):
+        return await continuation(self._inject(client_call_details), request)
+
+    async def intercept_stream_unary(self, continuation, client_call_details, request_iterator):
+        return await continuation(self._inject(client_call_details), request_iterator)
+
+    async def intercept_stream_stream(self, continuation, client_call_details, request_iterator):
+        return await continuation(self._inject(client_call_details), request_iterator)
+
+
 class Client:
     """Manages environments against an ate-env-api endpoint over gRPC.
 
@@ -57,6 +103,7 @@ class Client:
         endpoint: str = "localhost:7777",
         *,
         channel: grpc.aio.Channel | None = None,
+        auth_token: str | None = None,
     ):
         """Create a client for the ate-env-api service at endpoint.
 
@@ -64,13 +111,17 @@ class Client:
         client. Pass channel to supply a caller-owned grpc.aio.Channel
         instead; the client then never closes it.
         """
+        self.endpoint = endpoint
         if channel is not None:
             self._channel = channel
             self._owns_channel = False
         else:
             if not endpoint:
                 raise ValueError("ate_env: endpoint is required when channel is not given")
-            self._channel = grpc.aio.insecure_channel(_normalize_target(endpoint))
+            interceptors = [_AuthInterceptor(auth_token)] if auth_token else None
+            self._channel = grpc.aio.insecure_channel(
+                _normalize_target(endpoint), interceptors=interceptors
+            )
             self._owns_channel = True
         self._environments = env_pb2_grpc.EnvironmentServiceStub(self._channel)
         self._processes = guest_pb2_grpc.ProcessServiceStub(self._channel)

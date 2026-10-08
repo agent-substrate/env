@@ -27,6 +27,14 @@ __all__ = [
     "ProcessExitedError",
     "RpcError",
     "map_rpc_error",
+    "InfrastructureError",
+    "SandboxUnavailableError",
+    "SandboxProtocolError",
+    "CommandStartError",
+    "SandboxStartError",
+    "CommandExecutionError",
+    "CommandTimeoutError",
+    "PreflightError",
 ]
 
 
@@ -82,3 +90,106 @@ def map_rpc_error(err: BaseException) -> BaseException:
             return ProcessExitedError(details)
         return FailedPreconditionError(details)
     return RpcError(details, code)
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure and Execution Errors
+#
+# Contract: ExecResult is returned only when the guest ran the command and it
+# either exited or was killed at timeout_s (timed_out=True). Every other outcome
+# raises an InfrastructureError. Transport and HTTP/gRPC statuses are never
+# encoded as exit codes.
+# ---------------------------------------------------------------------------
+
+
+class InfrastructureError(EnvError):
+    """The SDK could not obtain a verdict from the sandbox for this call.
+
+    Never score these as agent failures (e.g. reward 0). Retry the rollout on a
+    fresh sandbox when ``retryable`` is True, otherwise mask it.
+
+    Attributes:
+        sandbox_id: Sandbox the call targeted, when known.
+        status: Transport status, e.g. "grpc UNAVAILABLE".
+        retryable: Whether retrying on a fresh sandbox may succeed.
+    """
+
+    default_retryable: bool = True
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        sandbox_id: str | None = None,
+        status: str | None = None,
+        retryable: bool | None = None,
+    ):
+        super().__init__(message)
+        self.sandbox_id = sandbox_id
+        self.status = status
+        self.retryable = self.default_retryable if retryable is None else retryable
+
+    def __reduce__(self):
+        return (
+            _rebuild_infra_error,
+            (type(self), str(self), self.sandbox_id, self.status, self.retryable),
+        )
+
+
+def _rebuild_infra_error(
+    cls: type,
+    message: str,
+    sandbox_id: str | None,
+    status: str | None,
+    retryable: bool,
+) -> InfrastructureError:
+    return cls(message, sandbox_id=sandbox_id, status=status, retryable=retryable)
+
+
+class SandboxUnavailableError(InfrastructureError):
+    """Sandbox or data plane unreachable, gone, overloaded, or failed mid-call.
+
+    Examples: connection refused/reset, gRPC UNAVAILABLE/UNKNOWN/INTERNAL/ABORTED,
+    environment not found during lifecycle operations.
+    """
+
+    default_retryable = True
+
+
+class SandboxProtocolError(InfrastructureError):
+    """Request rejected or response malformed: a contract or configuration bug.
+
+    Examples: gRPC INVALID_ARGUMENT, PERMISSION_DENIED.
+    """
+
+    default_retryable = False
+
+
+class CommandStartError(InfrastructureError):
+    """The guest could not start the command (missing executable or cwd inside guest)."""
+
+    default_retryable = False
+
+
+class SandboxStartError(InfrastructureError):
+    """Raised when sandbox instantiation, template lookup, or boot fails."""
+
+    default_retryable = True
+
+
+class PreflightError(InfrastructureError):
+    """Raised when cluster or API connectivity verification fails."""
+
+    default_retryable = False
+
+
+class CommandExecutionError(EnvError):
+    """Raised when a non-zero exit code occurs in strict mode."""
+
+    def __init__(self, message: str, result: object = None):
+        super().__init__(message)
+        self.result = result
+
+
+class CommandTimeoutError(CommandExecutionError, TimeoutError):
+    """Raised in strict mode (check=True) when a command hit its deadline."""
