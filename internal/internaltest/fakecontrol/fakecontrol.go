@@ -47,6 +47,7 @@ type Server struct {
 	mu        sync.Mutex
 	actors    map[string]*ateapipb.Actor
 	atespaces map[string]*ateapipb.Atespace
+	templates map[string]*ateapipb.ActorTemplate
 }
 
 // New returns an empty fake control server.
@@ -54,9 +55,76 @@ func New() *Server {
 	return &Server{
 		actors:    make(map[string]*ateapipb.Actor),
 		atespaces: make(map[string]*ateapipb.Atespace),
+		templates: make(map[string]*ateapipb.ActorTemplate),
 	}
 }
 
+// AddTemplate seeds an ActorTemplate, as an operator would have registered it.
+func (s *Server) AddTemplate(tmpl *ateapipb.ActorTemplate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.templates[key(tmpl.GetMetadata().GetAtespace(), tmpl.GetMetadata().GetName())] = proto.Clone(tmpl).(*ateapipb.ActorTemplate)
+}
+
+// Template returns a copy of a stored ActorTemplate, or nil.
+func (s *Server) Template(atespace, name string) *ateapipb.ActorTemplate {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.templates[key(atespace, name)]
+	if !ok {
+		return nil
+	}
+	return proto.Clone(t).(*ateapipb.ActorTemplate)
+}
+
+// TemplateCount is how many ActorTemplates are stored.
+func (s *Server) TemplateCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.templates)
+}
+
+func (s *Server) GetActorTemplate(ctx context.Context, req *ateapipb.GetActorTemplateRequest) (*ateapipb.ActorTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ref := req.GetActorTemplate()
+	t, ok := s.templates[key(ref.GetAtespace(), ref.GetName())]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "actor template %q not found", ref.GetName())
+	}
+	return proto.Clone(t).(*ateapipb.ActorTemplate), nil
+}
+
+func (s *Server) CreateActorTemplate(ctx context.Context, req *ateapipb.CreateActorTemplateRequest) (*ateapipb.ActorTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := req.GetActorTemplate()
+	md := t.GetMetadata()
+	if md.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "metadata.name is required")
+	}
+	k := key(md.GetAtespace(), md.GetName())
+	if _, exists := s.templates[k]; exists {
+		return nil, status.Errorf(codes.AlreadyExists, "actor template %q already exists", md.GetName())
+	}
+	// Mirror the server's volume_mounts validation so a bad derivation fails here too.
+	declared := map[string]bool{}
+	for _, v := range t.GetVolumes() {
+		declared[v.GetName()] = true
+	}
+	for _, c := range t.GetContainers() {
+		for _, m := range c.GetVolumeMounts() {
+			if !declared[m.GetName()] {
+				return nil, status.Errorf(codes.InvalidArgument, "container %q mounts undeclared volume %q", c.GetName(), m.GetName())
+			}
+		}
+	}
+	stored := proto.Clone(t).(*ateapipb.ActorTemplate)
+	stored.Metadata.Uid = "tmpl-" + md.GetName()
+	stored.Metadata.Version = 1
+	s.templates[k] = stored
+	return proto.Clone(stored).(*ateapipb.ActorTemplate), nil
+}
 
 // Serve starts the fake on a random localhost port and returns its
 // address and a shutdown function. Like the real ateapi, it serves TLS
@@ -188,7 +256,6 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 	s.suspend(a)
 	return &ateapipb.SuspendActorResponse{Actor: clone(a)}, nil
 }
-
 
 // suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {

@@ -88,13 +88,21 @@ class Client:
         atespace: str = DEFAULT_ATESPACE,
         template_name: str | None = None,
         template_atespace: str | None = None,
+        task_image: str | None = None,
     ) -> Env:
         """Register and start a new environment; returns a handle to it.
 
         The server fills defaults for the template (name "default-template" in
         atespace "ate-env") when none is given.
+
+        With task_image (a digest-pinned OCI reference, repo@sha256:...), the
+        environment runs that image unmodified: the server derives an
+        ActorTemplate from the template, which then acts as the base, with the
+        image as the container and the ate-env-guest mounted into it as an
+        image volume. The derived template is created on first use and reused
+        for later environments on the same image; info() reports its name.
         """
-        req = env_pb2.CreateEnvironmentRequest(id=id, atespace=atespace)
+        req = env_pb2.CreateEnvironmentRequest(id=id, atespace=atespace, task_image=task_image or "")
         if template_name or template_atespace:
             req.template.name = template_name or ""
             req.template.atespace = template_atespace or ""

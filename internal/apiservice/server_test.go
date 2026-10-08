@@ -528,3 +528,131 @@ func TestActorStatusToEnvStatus(t *testing.T) {
 		}
 	}
 }
+
+const (
+	testGuestImage = "example.com/ate-env-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testTaskImage  = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+)
+
+// seedGuestTemplate registers the template `ate-env manifest template`
+// writes: the guest is the container image.
+func seedGuestTemplate(control *fakecontrol.Server, atespace, name string) {
+	control.AddTemplate(&ateapipb.ActorTemplate{
+		Metadata:       &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
+		WorkerSelector: &ateapipb.Selector{MatchLabels: map[string]string{"workload": "default-env"}},
+		Containers: []*ateapipb.Container{{
+			Name:    "guest",
+			Image:   testGuestImage,
+			Command: []string{"/ko-app/ate-env-guest"},
+			Env:     []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
+			Readyz:  &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
+		}},
+		SnapshotsConfig: &ateapipb.SnapshotsConfig{StorageLocation: "gs://bucket/ate-env/"},
+		SandboxConfig:   &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
+	})
+}
+
+func TestCreateFromImageDerivesTemplate(t *testing.T) {
+	envClient, control := newTestEnv(t)
+	seedGuestTemplate(control, "ate-env", "default-template")
+	ctx := context.Background()
+
+	resp, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "img1", TaskImage: testTaskImage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "default-template-0123456789ab"
+	if got := resp.GetEnvironment().GetTemplate().GetName(); got != want {
+		t.Errorf("response template = %q, want %q", got, want)
+	}
+
+	tmpl := control.Template("ate-env", want)
+	if tmpl == nil {
+		t.Fatalf("derived template %q was not created", want)
+	}
+	c := tmpl.GetContainers()[0]
+	if c.GetImage() != testTaskImage {
+		t.Errorf("derived container image = %q", c.GetImage())
+	}
+	if len(tmpl.GetVolumes()) != 1 || tmpl.GetVolumes()[0].GetImage().GetReference() != testGuestImage {
+		t.Errorf("derived volumes = %v, want the guest image volume", tmpl.GetVolumes())
+	}
+	if len(c.GetVolumeMounts()) != 1 || c.GetVolumeMounts()[0].GetMountPath() != apiservice.GuestMountPath {
+		t.Errorf("derived mounts = %v", c.GetVolumeMounts())
+	}
+	if len(c.GetCommand()) != 1 || c.GetCommand()[0] != "/ate/ko-app/ate-env-guest" {
+		t.Errorf("derived command = %v", c.GetCommand())
+	}
+	if tmpl.GetSnapshotsConfig().GetStorageLocation() != "gs://bucket/ate-env/" || tmpl.GetWorkerSelector() == nil {
+		t.Error("snapshots config or worker selector did not carry over")
+	}
+
+	// The actor references the derived template.
+	got, err := envClient.GetEnvironment(ctx, &ateenvv1alpha.GetEnvironmentRequest{Id: "img1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetEnvironment().GetTemplate().GetName() != want {
+		t.Errorf("actor template = %q, want %q", got.GetEnvironment().GetTemplate().GetName(), want)
+	}
+
+	// A second environment on the same image reuses the template.
+	if _, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "img2", TaskImage: testTaskImage}); err != nil {
+		t.Fatal(err)
+	}
+	if n := control.TemplateCount(); n != 2 {
+		t.Errorf("template count = %d, want 2 (base + one derived)", n)
+	}
+}
+
+func TestCreateFromImageUsesNamedBaseAndAtespace(t *testing.T) {
+	envClient, control := newTestEnv(t)
+	seedGuestTemplate(control, "team-a", "py-base")
+
+	resp, err := envClient.CreateEnvironment(context.Background(), &ateenvv1alpha.CreateEnvironmentRequest{
+		Id:        "img1",
+		Atespace:  "team-a",
+		Template:  &ateenvv1alpha.Template{Name: "py-base"},
+		TaskImage: testTaskImage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resp.GetEnvironment().GetTemplate().GetName(); got != "py-base-0123456789ab" {
+		t.Errorf("template = %q", got)
+	}
+	if control.Template("team-a", "py-base-0123456789ab") == nil {
+		t.Error("derived template not created in the environment's atespace")
+	}
+}
+
+func TestCreateFromImageRejects(t *testing.T) {
+	envClient, control := newTestEnv(t)
+	seedGuestTemplate(control, "ate-env", "default-template")
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		req  *ateenvv1alpha.CreateEnvironmentRequest
+		code codes.Code
+	}{
+		{"unpinned image", &ateenvv1alpha.CreateEnvironmentRequest{Id: "a", TaskImage: "python:3.12"}, codes.InvalidArgument},
+		{"missing base", &ateenvv1alpha.CreateEnvironmentRequest{Id: "b", Template: &ateenvv1alpha.Template{Name: "nope"}, TaskImage: testTaskImage}, codes.FailedPrecondition},
+	}
+	for _, tc := range cases {
+		_, err := envClient.CreateEnvironment(ctx, tc.req)
+		if status.Code(err) != tc.code {
+			t.Errorf("%s: code = %v (%v), want %v", tc.name, status.Code(err), err, tc.code)
+		}
+	}
+
+	// A derived name already taken by a template running something else.
+	control.AddTemplate(&ateapipb.ActorTemplate{
+		Metadata:   &ateapipb.ResourceMetadata{Atespace: "ate-env", Name: "default-template-0123456789ab"},
+		Containers: []*ateapipb.Container{{Name: "guest", Image: "example.com/other@sha256:" + testGuestImage[len(testGuestImage)-64:]}},
+	})
+	_, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "c", TaskImage: testTaskImage})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("conflicting derived template: code = %v (%v), want FailedPrecondition", status.Code(err), err)
+	}
+}
