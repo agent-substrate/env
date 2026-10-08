@@ -98,7 +98,7 @@ if [ -n "${OTHER_IMAGE:-}" ]; then
   ID2="layered2-$(date +%s)"
   ids+=("${ID2}")
   step "create ${ID2} from ${OTHER_IMAGE} with ${TEMPLATE} as the base (layer inherited)"
-  "${ATE_ENV}" create "${ID2}" --atespace "${ATESPACE}" --template "${TEMPLATE}" --image "${OTHER_IMAGE}"
+  "${ATE_ENV}" create "${ID2}" --atespace "${ATESPACE}" --template "${TEMPLATE}" --task-image "${OTHER_IMAGE}"
   "${KUBECTL_ATE}" get actor-template --atespace "${ATESPACE}" | grep "${TEMPLATE}-" || true
   wait_serving "${ID2}"
   "${ATE_ENV}" "${ID2}" shell "/opt/web/bin/busybox wget -qO- http://127.0.0.1:${PORT}/etc/os-release | head -1"

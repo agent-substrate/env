@@ -94,7 +94,7 @@ ate-env create dev1
 # Or run any digest-pinned image unmodified. ate-env-api derives a template
 # from default-template on first use (guest mounted in as an image volume)
 # and reuses it for later environments on the same image.
-ate-env create py1 --image docker.io/library/python@sha256:<digest>
+ate-env create py1 --task-image docker.io/library/python@sha256:<digest>
 
 # Execute a shell command inside the environment.
 ate-env dev1 shell 'echo hello > /note.txt'
@@ -177,7 +177,7 @@ Manages the lifecycle of isolated execution environments (defined in [`proto/ate
 
 | RPC | Description |
 | --- | ----------- |
-| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate, or from a digest-pinned `image` on top of one: the template becomes the base, the image the container, and the guest is mounted in as a read-only image volume |
+| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate, or from a digest-pinned `task_image` on top of one: the template becomes the base, the image the container, and the guest is mounted in as a read-only image volume |
 | `GetEnvironment` | Retrieves environment details and status |
 | `SuspendEnvironment` | Suspends and checkpoints the environment to snapshot storage |
 | `DeleteEnvironment` | Deletes the environment permanently |

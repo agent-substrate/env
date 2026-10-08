@@ -52,8 +52,8 @@ async def test_create_omits_template_when_not_given(fake_stack):
 async def test_create_with_image_reports_derived_template(fake_stack):
     client, fakes = fake_stack
     image = "docker.io/library/python@sha256:" + "0123456789abcdef" * 4
-    env = await client.create("dev3", image=image)
-    assert fakes.environments.last_create_request.image == image
+    env = await client.create("dev3", task_image=image)
+    assert fakes.environments.last_create_request.task_image == image
     info = await env.info()
     assert info.template is not None
     assert info.template.name == "default-template-0123456789ab"
@@ -62,7 +62,7 @@ async def test_create_with_image_reports_derived_template(fake_stack):
 async def test_create_with_image_and_base_template(fake_stack):
     client, fakes = fake_stack
     image = "docker.io/library/python@sha256:" + "0123456789abcdef" * 4
-    env = await client.create("dev4", template_name="py-base", image=image)
+    env = await client.create("dev4", template_name="py-base", task_image=image)
     info = await env.info()
     assert info.template.name == "py-base-0123456789ab"
 
@@ -70,7 +70,7 @@ async def test_create_with_image_and_base_template(fake_stack):
 async def test_create_omits_image_when_not_given(fake_stack):
     client, fakes = fake_stack
     await client.create("dev5")
-    assert fakes.environments.last_create_request.image == ""
+    assert fakes.environments.last_create_request.task_image == ""
 
 
 async def test_create_duplicate_maps_to_rpc_error_with_code(fake_stack):

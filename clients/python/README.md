@@ -151,7 +151,7 @@ read-only image volume, so the image runs unmodified. The derived template
 is created on first use and shared by every environment on that image:
 
 ```python
-env = await client.create("py1", image="docker.io/library/python@sha256:…")
+env = await client.create("py1", task_image="docker.io/library/python@sha256:…")
 print((await env.info()).template.name)   # default-template-<12 hex of the digest>
 ```
 

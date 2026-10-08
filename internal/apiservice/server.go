@@ -86,17 +86,17 @@ func (s *Server) Close() {}
 // and to create the actor; a template.atespace that differs from a non-empty
 // request atespace is ignored.
 //
-// When image is set, the template acts as the base and the environment is
+// When task_image is set, the template acts as the base and the environment is
 // created from a template derived from it, named
 // "<base>-<first 12 hex digits of the image digest>" in the same atespace.
-// The derived template keeps the base's settings, runs image as the
-// container image and mounts the base's guest as a read-only image volume,
+// The derived template keeps the base's settings, runs the task image as
+// the container image and mounts the base's guest as a read-only image volume,
 // so the image runs unmodified (see ensureImageTemplate and
 // DeriveImageTemplate). It is created on first use and reused by later
 // creates on the same image, and the response reports it in
-// Environment.template. When image is empty the template is used as is.
+// Environment.template. When task_image is empty the template is used as is.
 //
-// Errors: InvalidArgument for a missing id, an image not pinned by digest, a
+// Errors: InvalidArgument for a missing id, a task image not pinned by digest, a
 // derived name that is too long or not a valid resource name, or a base that
 // cannot be derived from (no containers, unpinned guest image, or a command
 // that cannot be re-rooted under the guest volume). FailedPrecondition when
@@ -120,7 +120,7 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *ateenvv1alpha.Creat
 		atespace = DefaultAtespace
 	}
 
-	if image := req.GetImage(); image != "" {
+	if image := req.GetTaskImage(); image != "" {
 		name, err := s.ensureImageTemplate(ctx, atespace, templateName, image)
 		if err != nil {
 			return nil, err
