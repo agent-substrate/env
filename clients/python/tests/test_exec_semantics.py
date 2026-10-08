@@ -60,6 +60,7 @@ def test_check_raises_command_execution_error_with_result(handle):
     assert ei.value.result.exit_code == 2
     res = handle.exec("failing-cmd", check=False)
     assert res.exit_code == 2
+    assert res.stdout == ""
     assert res.stderr == "boom"
 
 
@@ -100,8 +101,6 @@ def test_command_contract():
     assert command_to_argv(["ls", "-la"]) == ["ls", "-la"]
     with pytest.raises(ValueError):
         command_to_argv([])
-
-
 @pytest.mark.parametrize("name", [
     "plain.txt",
     "dir with space/it's \"quoted\" $(echo hi) `x`;.txt",
