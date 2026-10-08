@@ -76,7 +76,7 @@ without adding information.
 
 ### Server flow
 
-`CreateEnvironment` with `image` set:
+`CreateEnvironment` with `task_image` set:
 
 1. Validate the digest and compute the derived name; invalid input is
    `InvalidArgument` and touches nothing.
@@ -96,7 +96,7 @@ in practice; a stricter comparison would cost a base fetch on every reuse.
 
 ### API shape
 
-`image` is a field on `CreateEnvironmentRequest` rather than a new RPC, and the
+`task_image` is a field on `CreateEnvironmentRequest` rather than a new RPC, and the
 existing `template` field doubles as the base. This keeps one create path, lets
 clients that already pass a template start passing an image with one more
 argument, and makes "which base" an explicit, per-request choice rather than
@@ -122,7 +122,7 @@ the container's only process and the readiness authority.
 
 Derivation treats layers as part of what carries over. The guest volume is
 recognized by its name, not by being an image volume, so a base with a layer
-still gets the guest added or kept correctly, and `create --image` on a layered
+still gets the guest added or kept correctly, and `create --task-image` on a layered
 base yields environments with the second runtime present. Layers are
 documented in [RUNTIMES.md](RUNTIMES.md); the verified example uses busybox as
 a stand-in runtime.
@@ -218,7 +218,7 @@ one golden snapshot per image. Neither is reclaimed automatically.
   volume and not the image, that the rootfs is the task image's, that files
   round-trip, and that a second environment reuses the derived template.
 - Run once end to end on a Kubernetes cluster running Substrate with a fresh
-  two-worker ate-env: `ate-env create --image` of an unmodified
+  two-worker ate-env: `ate-env create --task-image` of an unmodified
   `python:3.12-slim` produced the derived template, served `python3 --version`
   from the image's own rootfs with the guest present under `/ate`, and deleted
   cleanly.

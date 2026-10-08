@@ -71,11 +71,11 @@ Good when the set of images is open-ended or chosen by a caller, as in RL and
 evaluation harnesses.
 
 ```bash
-ate-env create py1 --image docker.io/library/python@sha256:<digest>
+ate-env create py1 --task-image docker.io/library/python@sha256:<digest>
 ```
 
 ```python
-env = await client.create("py1", image="docker.io/library/python@sha256:<digest>")
+env = await client.create("py1", task_image="docker.io/library/python@sha256:<digest>")
 (await env.info()).template.name   # "default-template-<12 hex of the digest>"
 ```
 

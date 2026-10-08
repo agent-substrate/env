@@ -204,20 +204,20 @@ func TestHelpOutput(t *testing.T) {
 }
 
 func TestCreateImageFlag(t *testing.T) {
-	args := []string{"create", "dev1", "--image", "example.com/task@sha256:abc"}
+	args := []string{"create", "dev1", "--task-image", "example.com/task@sha256:abc"}
 	root := newRootCommand(args)
 	cmd, _, err := root.Find(args[:2])
 	if err != nil {
 		t.Fatalf("root.Find failed: %v", err)
 	}
-	if cmd.Flags().Lookup("image") == nil {
-		t.Fatal("create has no --image flag")
+	if cmd.Flags().Lookup("task-image") == nil {
+		t.Fatal("create has no --task-image flag")
 	}
 	if err := cmd.ParseFlags(args[2:]); err != nil {
-		t.Fatalf("parsing --image: %v", err)
+		t.Fatalf("parsing --task-image: %v", err)
 	}
-	if got, _ := cmd.Flags().GetString("image"); got != "example.com/task@sha256:abc" {
-		t.Errorf("--image = %q", got)
+	if got, _ := cmd.Flags().GetString("task-image"); got != "example.com/task@sha256:abc" {
+		t.Errorf("--task-image = %q", got)
 	}
 }
 

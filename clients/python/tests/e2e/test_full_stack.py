@@ -187,7 +187,7 @@ async def test_full_lifecycle(client):
 async def test_create_from_image_rejects_unpinned_image(client):
     # Validated before anything touches the control plane.
     with pytest.raises(InvalidArgumentError):
-        await client.create(f"pye2e-img-{uuid.uuid4().hex[:8]}", image="python:3.12-slim")
+        await client.create(f"pye2e-img-{uuid.uuid4().hex[:8]}", task_image="python:3.12-slim")
 
 
 async def test_create_from_image_needs_a_base_template(client):
@@ -196,7 +196,7 @@ async def test_create_from_image_needs_a_base_template(client):
         await client.create(
             f"pye2e-img-{uuid.uuid4().hex[:8]}",
             template_name=missing,
-            image="docker.io/library/busybox@sha256:" + "0" * 64,
+            task_image="docker.io/library/busybox@sha256:" + "0" * 64,
         )
     assert excinfo.value.code == grpc.StatusCode.FAILED_PRECONDITION
     assert missing in str(excinfo.value)
@@ -212,7 +212,7 @@ async def test_create_from_image(client):
     envs = []
     try:
         env = await client.create(
-            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, image=TASK_IMAGE
+            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, task_image=TASK_IMAGE
         )
         envs.append(env)
 
@@ -246,7 +246,7 @@ async def test_create_from_image(client):
         # A second environment on the same image reuses the derived template
         # instead of minting another one.
         env2 = await client.create(
-            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, image=TASK_IMAGE
+            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, task_image=TASK_IMAGE
         )
         envs.append(env2)
         assert (await env2.info()).template.name == want_template

@@ -24,7 +24,7 @@ nothing for it. They inherit the container's user, environment and filesystem.
 
 Template derivation keeps all of it. A base with layers yields derived
 templates with the same layers and the same guest flags, so environments
-created on demand with `image=` inherit the second runtime without any caller
+created on demand with `task_image=` inherit the second runtime without any caller
 knowing it exists.
 
 ## Registering a layered template
@@ -47,12 +47,12 @@ The resulting template has two image volumes (`execd` at `/opt/opensandbox`,
 ```
 
 Everything else is as in a plain task-image template. Environments are created
-the usual way, from this template by name or from any other image with `--image`
+the usual way, from this template by name or from any other image with `--task-image`
 while naming it as the base:
 
 ```bash
 ate-env create py1 --template osb-base
-ate-env create node1 --template osb-base --image docker.io/library/node@sha256:<digest>
+ate-env create node1 --template osb-base --task-image docker.io/library/node@sha256:<digest>
 ```
 
 Both run the guest and `execd`; the second one from a derived template named
