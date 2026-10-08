@@ -49,8 +49,8 @@ Deploy the namespace, worker pool, and API service:
 ```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ate-env manifest \
-  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:0952ad3fa121597c5ff2943b701f6f0968ba51fdd93b0985d1e831d7cad804a4 \
-  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:0e69688125a167ffd62ab084a9ab1a50e3f06e9107b36dcb01c3fb3ac0b23fcb | kubectl apply -f -
+  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:b3dcf23bedef13fa5478b5a5e1753ef48eb9fad00c7577a1ff51242be28ca1cc \
+  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ate-images/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:9aaf0729e2fc85976936ad68a75399184d0e846f95a203a805fa00409c40c792 | kubectl apply -f -
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env
@@ -62,7 +62,7 @@ Substrate manages ActorTemplates directly in its control plane rather than Kuber
 
 ```bash
 ate-env manifest template \
-  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:47f18ee80fbdc4aa86ca7bccb78c37add6314ca278b38b88641eb49757921b73 \
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:d9ea8650c2d6706cc3e44722a23702cbba0942eca2b10d2e7cebff49d7e5f344 \
   --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
 ```
 

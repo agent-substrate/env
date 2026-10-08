@@ -221,6 +221,9 @@ func prune(v any) any {
 	switch val := v.(type) {
 	case map[string]any:
 		for k, child := range val {
+			if k == "durableDir" || k == "durable_dir" {
+				continue
+			}
 			cleaned := prune(child)
 			if cleaned == nil {
 				delete(val, k)
@@ -231,9 +234,6 @@ func prune(v any) any {
 				continue
 			}
 			val[k] = cleaned
-		}
-		if len(val) == 0 {
-			return nil
 		}
 		return val
 	case []any:
@@ -294,9 +294,22 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 					Port: 80,
 				},
 			},
+			VolumeMounts: []*ateapipb.VolumeMount{{
+				Name:      "workspace",
+				MountPath: "/workspace",
+			}},
+		}},
+		Volumes: []*ateapipb.Volume{{
+			Name: "workspace",
+			DurableDir: &ateapipb.DurableDirVolumeSource{},
 		}},
 		SnapshotsConfig: &ateapipb.SnapshotsConfig{
 			StorageLocation: cfg.snapshotsBucket,
+			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			OnResume: &ateapipb.OnResumeConfig{
+				FromData: ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN,
+			},
 		},
 		SandboxConfig: &ateapipb.SandboxConfig{
 			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
