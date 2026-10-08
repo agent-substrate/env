@@ -186,14 +186,19 @@ one golden snapshot per image. Neither is reclaimed automatically.
 
 ## Future work
 
+- **Derived-template garbage collection** is the first follow-up. A derived
+  template is shared by every environment on its image and carries the
+  golden snapshot, so deleting it when one environment is deleted would send
+  the next create on that image back through the cold path; the count grows
+  with distinct images, not with environments. The plan is a last-used
+  annotation updated on each create, collection by age or by last use, and
+  the golden snapshot removed alongside.
 - **Reaching a second runtime from outside.** Layers and sidecars put a
   runtime such as OpenSandbox's `execd` inside the actor and gate readiness on
   it; an endpoint lookup on `ate-env-api` that names the runtime's port
   through the router is what an external SDK still needs.
 - **Per-create overrides** for resources and workspace, so one base can serve
   images with different needs.
-- **Derived-template garbage collection**, by age or by last use, with the
-  golden snapshot removed alongside.
 - **Image validation at create time**, so a bad reference fails the call
   instead of the actor.
 - **Template atespace.** `CreateEnvironment` takes `template.atespace` but the
