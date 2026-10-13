@@ -78,10 +78,29 @@ it with `--rootfs-image`: the guest is then mounted into it as a read-only OCI i
 
 ```bash
 ate-env manifest template --template py312 \
-  --rootfs-image     docker.io/library/python@sha256:<digest> \
+  --rootfs-image   docker.io/library/python@sha256:<digest> \
   --guest-image    <registry>/ate-env-guest@sha256:<digest> \
   --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
 ```
+
+A second runtime rides along the same way: `--layer` mounts its image read-only next to the
+guest, `--sidecar` has the guest start and supervise a process from it, and `--sidecar-readyz`
+holds the actor's readiness until that process answers. Here a static busybox stands in for a
+runtime daemon and serves HTTP on port 44772 inside the environment:
+
+```bash
+ate-env manifest template --template layered \
+  --rootfs-image   docker.io/library/python@sha256:<digest> \
+  --guest-image    <registry>/ate-env-guest@sha256:<digest> \
+  --layer          web=docker.io/library/busybox@sha256:<digest of the 1.37-musl tag>=/opt/web \
+  --sidecar        '/opt/web/bin/busybox httpd -f -p 44772 -h /' \
+  --sidecar-readyz http://127.0.0.1:44772/etc/hostname \
+  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
+```
+
+Layers must be self-contained: the `1.37-musl` busybox is static, while the glibc build fails
+on images with an older libc. The runnable version is
+[`examples/runtime-layers/demo.sh`](examples/runtime-layers/demo.sh).
 
 See [docs/rootfs-images/README.md](docs/rootfs-images/README.md) for the full guide, including
 creating environments from an image on demand, [docs/rootfs-images/RUNTIMES.md](docs/rootfs-images/RUNTIMES.md)
@@ -101,6 +120,12 @@ ate-env create dev1
 # from default-template on first use (guest mounted in as an image volume)
 # and reuses it for later environments on the same image.
 ate-env create py1 --rootfs-image docker.io/library/python@sha256:<digest>
+
+# Or from the layered template above: the second runtime answers inside the
+# environment, and any other image on that base inherits it.
+ate-env create web1 --template layered
+ate-env web1 shell '/opt/web/bin/busybox wget -qO- http://127.0.0.1:44772/etc/os-release'
+ate-env create node1 --template layered --rootfs-image docker.io/library/node@sha256:<digest>
 
 # Execute a shell command inside the environment.
 ate-env dev1 shell 'echo hello > /note.txt'
