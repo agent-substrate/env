@@ -25,7 +25,7 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 # ate-env-client is this repo's Python client (clients/python); it is not on
 # PyPI yet, so install it from the checkout first: pip install ./clients/python
-dependencies = ["ate-env-client>=0.1.0", "grpcio>=1.83"]
+dependencies = ["ate-env-client>=0.1.0", "grpcio>=1.84"]
 
 [project.optional-dependencies]
 # The real deployment target. Without it the package falls back to local

@@ -24,7 +24,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 dependencies = [
-    "grpcio>=1.83",
+    "grpcio>=1.84",
     "protobuf>=7.35",
 ]
 
@@ -32,7 +32,7 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=1.0",
-    "grpcio-tools>=1.83",
+    "grpcio-tools>=1.84",
     "ruff==0.16.10",
 ]
 
