@@ -133,7 +133,7 @@ func main() {
 	// and SIGKILL; that sequence needs this process to stay alive until it
 	// has run. Inside an actor the guest is PID 1 and the container would end
 	// with it anyway; outside one, this is what stops the sidecars.
-	waitBounded(&supervisors, sidecarStopGrace+time.Second)
+	waitBounded(&supervisors, 2*sidecarStopGrace+time.Second)
 }
 
 // waitBounded waits for wg, but at most d.
