@@ -32,48 +32,103 @@ Quickstart:
     asyncio.run(main())
 """
 
+# Layer 1: Core Client & Env
 from .client import DEFAULT_ATESPACE, Client
 from .env import Env, Process
+
+# Layer 2: High-Level Fleet Management & Abstractions
+from .config import FleetConfig
+from .fleet import SandboxFleet
+from .handle import SandboxHandle
+
+# Exceptions
 from .errors import (
+    CommandExecutionError,
+    CommandStartError,
+    CommandTimeoutError,
     EnvError,
     FailedPreconditionError,
+    InfrastructureError,
     InvalidArgumentError,
     NotFoundError,
     PermissionDeniedError,
+    PreflightError,
     ProcessExitedError,
     RpcError,
+    SandboxProtocolError,
+    SandboxStartError,
+    SandboxUnavailableError,
     map_rpc_error,
 )
+from .exceptions import SandboxError
+
+# Types
 from .types import (
+    DataPlaneEndpoint,
     EnvironmentInfo,
+    EnvironmentSpec,
     EnvironmentStatus,
+    ExecResult,
+    FleetPlan,
+    PlacementSpec,
+    PlanEntry,
     ProcessInfo,
     ProcessOutput,
     ProcessState,
+    RawSandboxInstance,
+    ResourceLimits,
     ShellResult,
     Signal,
+    Task,
     Template,
 )
 
 __all__ = [
+    # Low-level API
     "Client",
     "DEFAULT_ATESPACE",
     "Env",
+    "Process",
+    # High-level Fleet API
+    "FleetConfig",
+    "SandboxFleet",
+    "SandboxHandle",
+    # Low-level Errors
     "EnvError",
-    "EnvironmentInfo",
-    "EnvironmentStatus",
     "FailedPreconditionError",
     "InvalidArgumentError",
     "NotFoundError",
     "PermissionDeniedError",
-    "Process",
     "ProcessExitedError",
+    "RpcError",
+    "map_rpc_error",
+    # Fleet / Execution Exceptions
+    "SandboxError",
+    "CommandExecutionError",
+    "CommandStartError",
+    "CommandTimeoutError",
+    "InfrastructureError",
+    "PreflightError",
+    "SandboxProtocolError",
+    "SandboxStartError",
+    "SandboxUnavailableError",
+    # Types
+    "EnvironmentInfo",
+    "EnvironmentStatus",
     "ProcessInfo",
     "ProcessOutput",
     "ProcessState",
-    "RpcError",
     "ShellResult",
     "Signal",
     "Template",
-    "map_rpc_error",
+    "ResourceLimits",
+    "PlacementSpec",
+    "EnvironmentSpec",
+    "Task",
+    "ExecResult",
+    "DataPlaneEndpoint",
+    "RawSandboxInstance",
+    "PlanEntry",
+    "FleetPlan",
 ]
+
