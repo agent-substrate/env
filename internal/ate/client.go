@@ -213,20 +213,24 @@ func (c fileTokenCreds) RequireTransportSecurity() bool { return true }
 // EnsureAtespace creates the atespace with name if it does not already exist.
 // If name is empty, it defaults to DefaultAtespace.
 func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
-	if name == "" {
-		name = DefaultAtespace
-	}
-	_, err := c.control.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
-		Atespace: &ateapipb.Atespace{
-			Metadata: &ateapipb.ResourceMetadata{
-				Name: name,
-			},
-		},
-	})
-	if err != nil && status.Code(err) != codes.AlreadyExists {
-		return wrapGRPCError(err)
-	}
-	return nil
+      if name == "" {
+              name = DefaultAtespace
+      }
+      ref := &ateapipb.ObjectRef{Name: name}
+      if _, err := c.control.GetAtespace(ctx, &ateapipb.GetAtespaceRequest{Atespace: ref}); err == nil {
+              return nil
+      } else if status.Code(err) != codes.NotFound {
+              return wrapGRPCError(err)
+      }
+      // Create only when it is known to be missing: an identity allowed to use
+      // an atespace but not to create one must still start.
+      _, err := c.control.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
+              Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: name}},
+      })
+      if err != nil && status.Code(err) != codes.AlreadyExists {
+              return wrapGRPCError(err)
+      }
+      return nil
 }
 
 // CreateOptions configures the creation of a new actor.

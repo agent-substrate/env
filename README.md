@@ -64,6 +64,8 @@ kubectl get pods -n ate-env
 
 Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest template` to generate the Substrate ActorTemplate manifest:
 
+Templates live in the `ate-env` atespace, which `ate-env-api` creates when it starts. Register templates after the `ate-env-api` pod is Running, or create the atespace yourself first with `kubectl-ate create atespace ate-env`.
+
 ```bash
 ate-env manifest template \
   --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:dd4ee729051ad7e9bbfe9818539e954ecbbbbe5c6b3068a5ceb2f579e7061eee \

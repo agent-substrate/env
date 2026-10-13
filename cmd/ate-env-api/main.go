@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
@@ -54,6 +55,17 @@ func main() {
 		log.Fatalf("creating env client: %v", err)
 	}
 	defer client.Close()
+
+	// Create the default atespace up front so ActorTemplates can be registered
+	// before the first environment is created (templates live in an atespace).
+	// Bounded so a hung control plane fails the pod instead of leaving it
+	// unlistening; the restart backoff retries until Substrate answers.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := client.EnsureAtespace(ctx, ate.DefaultAtespace); err != nil {
+		log.Fatalf("ensuring default atespace %q: %v", ate.DefaultAtespace, err)
+	}
+	cancel()
+	log.Printf("default atespace %q ready", ate.DefaultAtespace)
 
 	apisvc := apiservice.New(client, *atenet, *hostSuffix)
 	defer apisvc.Close()

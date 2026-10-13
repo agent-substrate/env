@@ -47,6 +47,9 @@ type Server struct {
 	mu        sync.Mutex
 	actors    map[string]*ateapipb.Actor
 	atespaces map[string]*ateapipb.Atespace
+	// DenyCreateAtespace makes CreateAtespace fail with PermissionDenied, as
+	// Substrate does for an identity allowed to use but not create atespaces.
+	DenyCreateAtespace bool
 }
 
 // New returns an empty fake control server.
@@ -251,6 +254,9 @@ func (s *Server) CreateAtespace(ctx context.Context, req *ateapipb.CreateAtespac
 	name := space.GetMetadata().GetName()
 	if name == "" {
 		return nil, status.Error(codes.InvalidArgument, "metadata.name is required")
+	}
+	if s.DenyCreateAtespace {
+		return nil, status.Errorf(codes.PermissionDenied, "not allowed to create atespace %q", name)
 	}
 	if _, ok := s.atespaces[name]; ok {
 		return nil, status.Errorf(codes.AlreadyExists, "atespace %q already exists", name)
