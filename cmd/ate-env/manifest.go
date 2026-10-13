@@ -58,7 +58,11 @@ func (c *manifestConfig) resolveImages() error {
 	if c.workerImage == "" {
 		return errors.New(`--worker-image (or --ateom-image) is required: the worker image is
 ateom-gvisor from the Substrate repo and must match the Substrate version
-deployed on your cluster; build it there with ko (see the README).`)
+deployed on your cluster. From a Substrate checkout at that version run
+"go run ./cmd/ate-setup publish worker-images": it pushes the images and
+prints the digest-pinned refs to use. Pin by digest: a registry's :latest
+is whatever was built last, and a stale worker image registers workers
+with no capacity.`)
 	}
 	if c.apiImage == "" {
 		return errors.New(`--api-image is required when ate-env is built from source; release

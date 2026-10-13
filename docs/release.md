@@ -27,8 +27,11 @@ locally from `ATE_ENV_API_IMAGE` and `ATE_ENV_GUEST_IMAGE`.
 
 The worker image (`--worker-image`) is not published here: it is
 `ateom-gvisor` from the [Substrate repo](https://github.com/agent-substrate/substrate)
-and must match the Substrate version deployed on the cluster. Until Substrate
-publishes images, build it from that repo with `ko` at the matching version.
+and must match the Substrate version deployed on the cluster. From a Substrate
+checkout at that version, `go run ./cmd/ate-setup publish worker-images` builds
+and pushes it and prints the digest-pinned ref. Use the digest: a registry's
+`:latest` is whatever was built last, and a stale worker image makes workers
+register with no capacity, so no actor finds room.
 
 ## Pin by digest
 
@@ -42,12 +45,13 @@ digests; the CLI defaults are digests.
 ```bash
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github.com/agent-substrate/env/' \
+  --certificate-identity-regexp '^https://github.com/agent-substrate/env/\.github/workflows/release\.yaml@refs/tags/' \
   ghcr.io/agent-substrate/env/ate-env-guest@sha256:<digest>
 ```
 
-A valid signature proves the image was built by this repository's release
-workflow from the tagged commit.
+A valid signature proves the image was built by this repository's `release`
+workflow from a tag: the identity is the workflow file at a `refs/tags/` ref,
+so a signature from another workflow or from a branch run does not verify.
 
 ## Cutting a release
 

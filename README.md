@@ -75,8 +75,11 @@ published by that Substrate install.
 Deploy the namespace, worker pool, and API service:
 
 ```bash
-# With a release binary the API image defaults to the release's; the worker
-# image is ateom-gvisor built from the Substrate repo at your cluster's version.
+# With a release binary the API image defaults to the release's. The worker
+# image is ateom-gvisor from the Substrate repo at your cluster's version; in
+# that checkout, `go run ./cmd/ate-setup publish worker-images` pushes it and
+# prints the digest-pinned ref. Use the digest: a :latest tag is whatever was
+# built last, and a stale worker image registers workers with no capacity.
 ate-env manifest \
   --worker-image   <registry>/ateom-gvisor@sha256:<digest> | kubectl apply -f -
 # From a source build, add: --api-image ghcr.io/agent-substrate/env/ate-env-api@sha256:<digest>

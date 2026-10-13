@@ -130,7 +130,9 @@ jobs:
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" dist/* --clobber
-          existing=$(gh release view "$TAG" --json body --jq .body)
+          # The API can hand the body back with CRLF line endings; strip them or the
+          # block below is appended twice on republish instead of replaced.
+          existing=$(gh release view "$TAG" --json body --jq .body | tr -d '\r')
           # Replace a previous images block (republish) rather than append twice.
           existing=$(printf '%s\n' "$existing" | awk '/^## Images$/{skip=1} skip&&/^## /&&!/^## Images$/{skip=0} !skip')
           {
@@ -146,7 +148,7 @@ jobs:
             echo
             echo '```bash'
             echo "cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
-            echo "  --certificate-identity-regexp '^https://github.com/${REPO}/' ${GUEST_IMAGE}"
+            echo "  --certificate-identity-regexp '^https://github.com/${REPO}/\.github/workflows/release\.yaml@refs/tags/' ${GUEST_IMAGE}"
             echo '```'
           } > notes.md
           gh release edit "$TAG" --notes-file notes.md
