@@ -40,7 +40,11 @@ go install github.com/agent-substrate/env/cmd/ate-env@latest
 ## Quickstart
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
-installed and a snapshots bucket.
+installed and a snapshots bucket. ate-env is built against Substrate
+[`f03327bd`](https://github.com/agent-substrate/substrate/commit/f03327bd) (2026-10-12) and needs at
+least that revision on the cluster: the WorkerPool it writes declares `spec.sandboxClasses`, the
+ActorTemplate uses `snapshotConfig` and `wakeupProbe`, and `--worker-image` must be the `ateom` image
+published by that Substrate install.
 
 ### 1. Deploy the Kubernetes Resources
 
@@ -49,7 +53,7 @@ Deploy the namespace, worker pool, and API service:
 ```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ate-env manifest \
-  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:0952ad3fa121597c5ff2943b701f6f0968ba51fdd93b0985d1e831d7cad804a4 \
+  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:20b4cbf7421c34ca92ba4b86ed9abada1bad7401150bb33279af5083de843985 \
   --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:0e69688125a167ffd62ab084a9ab1a50e3f06e9107b36dcb01c3fb3ac0b23fcb | kubectl apply -f -
 
 # Ensure that the pods are running:
@@ -62,7 +66,7 @@ Substrate manages ActorTemplates directly in its control plane rather than Kuber
 
 ```bash
 ate-env manifest template \
-  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:47f18ee80fbdc4aa86ca7bccb78c37add6314ca278b38b88641eb49757921b73 \
+  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:dd4ee729051ad7e9bbfe9818539e954ecbbbbe5c6b3068a5ceb2f579e7061eee \
   --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
 ```
 

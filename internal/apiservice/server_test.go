@@ -506,6 +506,57 @@ func waitProcess(t *testing.T, client ateenvv1alpha.ProcessServiceClient, ctx co
 	}
 }
 
+// TestProxyGuestServicesClientTargetActorHeader covers the two ways a
+// caller-supplied ate-target-actor header used to break guest calls. Forwarded
+// next to the one guestConn adds, the router saw the header twice and rejected
+// the request as an invalid actor reference (agent-substrate/substrate#2308).
+// Forwarded alone, it would have let the caller retarget the call. The server
+// must not forward it, so a call that names another actor still reaches the
+// environment from x-env-id, over both the unary and the streaming path.
+func TestProxyGuestServicesClientTargetActorHeader(t *testing.T) {
+	te := newFullTestEnv(t)
+	ctx := context.Background()
+
+	if _, err := te.envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "header-test"}); err != nil {
+		t.Fatalf("CreateEnvironment: %v", err)
+	}
+	grpcGuestServer, cleanup, err := guest.NewServer(guest.Config{
+		Workspace:        t.TempDir(),
+		EnableProcess:    true,
+		EnableFileSystem: true,
+	})
+	if err != nil {
+		t.Fatalf("guest.NewServer: %v", err)
+	}
+	t.Cleanup(cleanup)
+	te.router.Register("header-test", grpcGuestServer)
+
+	envCtx := metadata.AppendToOutgoingContext(ctx,
+		"x-env-id", "header-test",
+		"x-env-atespace", "default",
+		ate.TargetActorHeader, "default/some-other-actor",
+	)
+
+	// Unary interceptor path.
+	if _, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"true"},
+	}); err != nil {
+		t.Fatalf("StartProcess with a client ate-target-actor header: %v", err)
+	}
+
+	// Stream interceptor path.
+	writeStream, err := te.fsClient.WriteFile(envCtx)
+	if err != nil {
+		t.Fatalf("WriteFile stream: %v", err)
+	}
+	if err := writeStream.Send(&ateenvv1alpha.WriteFileRequest{Path: "f.txt", Mode: 0644, Chunk: []byte("x")}); err != nil {
+		t.Fatalf("WriteFile send: %v", err)
+	}
+	if _, err := writeStream.CloseAndRecv(); err != nil {
+		t.Fatalf("WriteFile with a client ate-target-actor header: %v", err)
+	}
+}
+
 func TestActorStatusToEnvStatus(t *testing.T) {
 	cases := []struct {
 		name string

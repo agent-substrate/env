@@ -105,6 +105,21 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Spec.Template != nil {
 		t.Errorf("workerpool template = %v, want nil", pool.Spec.Template)
 	}
+	if len(pool.Spec.SandboxClasses) != 1 {
+		t.Fatalf("workerpool sandboxClasses = %+v, want exactly one", pool.Spec.SandboxClasses)
+	}
+	sc := pool.Spec.SandboxClasses[0]
+	if sc.Name != atev1alpha1.SandboxClassGvisor || sc.ConfigRef == nil || sc.ConfigRef.Name != sandboxConfigName {
+		t.Errorf("workerpool sandboxClasses[0] = %+v, want gvisor with configRef %q", sc, sandboxConfigName)
+	}
+	// The pool's class is a CRD string and the template's a proto enum: two
+	// vocabularies for one thing. A pool of the wrong class never hosts the
+	// template's actors.
+	tmplClass := strings.ToLower(strings.TrimPrefix(
+		buildActorTemplate(testTemplateConfig()).GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_"))
+	if tmplClass != string(sc.Name) {
+		t.Errorf("workerpool sandbox class %q != template sandbox class %q", sc.Name, tmplClass)
+	}
 
 	deployment := objs[2].(*appsv1.Deployment)
 	containers := deployment.Spec.Template.Spec.Containers
@@ -138,15 +153,24 @@ func TestBuildActorTemplate(t *testing.T) {
 		t.Errorf("template containers = %+v, want one guest container with image %q",
 			template.Containers, cfg.guestImage)
 	}
-	if template.GetSnapshotsConfig().GetStorageLocation() != cfg.snapshotsBucket {
-		t.Errorf("snapshots location = %q, want %q", template.GetSnapshotsConfig().GetStorageLocation(), cfg.snapshotsBucket)
+	if template.GetSnapshotConfig().GetStorageLocation() != cfg.snapshotsBucket {
+		t.Errorf("snapshots location = %q, want %q", template.GetSnapshotConfig().GetStorageLocation(), cfg.snapshotsBucket)
+	}
+	if got := template.GetSnapshotConfig().GetPreferredFidelity(); got != ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY {
+		t.Errorf("preferred fidelity = %v, want SNAPSHOT_FIDELITY_MEMORY", got)
+	}
+	if got := template.GetSnapshotConfig().GetGoldenSnapshotConfig(); got != nil {
+		t.Errorf("golden snapshot config = %v, want nil (omitted means enabled)", got)
+	}
+	if got := template.GetSandboxConfig().GetConfigName(); got != sandboxConfigName {
+		t.Errorf("sandbox config name = %q, want %q (must match the WorkerPool configRef)", got, sandboxConfigName)
 	}
 	if template.GetWorkerSelector() != nil {
 		t.Errorf("worker selector = %v, want nil", template.WorkerSelector)
 	}
-	readyz := template.Containers[0].Readyz
-	if readyz == nil || readyz.GetHttpGet() == nil || readyz.GetHttpGet().Path != "/readyz" {
-		t.Errorf("readyz = %+v, want HTTP GET /readyz", readyz)
+	probe := template.Containers[0].GetWakeupProbe()
+	if probe.GetHttpGet() == nil || probe.GetHttpGet().GetPath() != "/readyz" || probe.GetHttpGet().GetPort() != 80 {
+		t.Errorf("wakeupProbe = %+v, want HTTP GET /readyz on port 80", probe)
 	}
 }
 
@@ -188,6 +212,9 @@ func TestWriteManifests(t *testing.T) {
 		"kind: WorkerPool",
 		"kind: Deployment",
 		"kind: Service",
+		"sandboxClasses:",
+		"configRef:",
+		"name: gvisor-default",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -211,7 +238,10 @@ func TestWriteActorTemplate(t *testing.T) {
 	for _, want := range []string{
 		"name: default-template",
 		"image: example.com/guest@sha256:aaaa",
+		"wakeupProbe:",
+		"snapshotConfig:",
 		"storageLocation: gs://bucket/ate-env/",
+		"preferredFidelity: SNAPSHOT_FIDELITY_MEMORY",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)

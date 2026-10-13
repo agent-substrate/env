@@ -188,8 +188,7 @@ func (s *Server) processClient(ctx context.Context) (ateenvv1alpha.ProcessServic
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	return ateenvv1alpha.NewProcessServiceClient(conn), outCtx, func() { _ = conn.Close() }, nil
+	return ateenvv1alpha.NewProcessServiceClient(conn), ctx, func() { _ = conn.Close() }, nil
 }
 
 // StartProcess launches a process inside the target environment container.
@@ -301,8 +300,7 @@ func (s *Server) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream grpc.Server
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	clientStream, err := ateenvv1alpha.NewFileSystemServiceClient(conn).ReadFile(outCtx, req)
+	clientStream, err := ateenvv1alpha.NewFileSystemServiceClient(conn).ReadFile(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -334,8 +332,7 @@ func (s *Server) WriteFile(stream grpc.ClientStreamingServer[ateenvv1alpha.Write
 	}
 	defer conn.Close()
 
-	outCtx := forwardOutgoingContext(ctx, atespace, envID)
-	clientStream, err := ateenvv1alpha.NewFileSystemServiceClient(conn).WriteFile(outCtx)
+	clientStream, err := ateenvv1alpha.NewFileSystemServiceClient(conn).WriteFile(ctx)
 	if err != nil {
 		return err
 	}
@@ -381,18 +378,14 @@ func envFromContext(ctx context.Context) (string, string, error) {
 	return ids[0], atespace, nil
 }
 
-func forwardOutgoingContext(ctx context.Context, atespace, envID string) context.Context {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		md = metadata.MD{}
-	} else {
-		md = md.Copy()
-	}
-	targetActor := atespace + "/" + envID
-	md.Set(ate.TargetActorHeader, targetActor)
-	return metadata.NewOutgoingContext(ctx, md)
-}
-
+// guestConn dials the environment's guest through the router. Calls on the
+// returned connection take the caller's context as is, for its deadline and
+// cancellation only: the interceptors below are the only writer of
+// ate-target-actor, and no caller metadata is forwarded. Forwarding it once
+// sent that header twice, which the Substrate router rejects
+// (agent-substrate/substrate#2308 answers duplicate ate-target-actor headers
+// with "invalid actor reference"), and it would let a client pass routing
+// headers through the proxy. Nothing in the guest reads caller metadata.
 func (s *Server) guestConn(atespace, id string) (*grpc.ClientConn, error) {
 	if s.routerAddr == "" {
 		return nil, status.Error(codes.FailedPrecondition, "router address not configured for guest operations")
