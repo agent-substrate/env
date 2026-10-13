@@ -148,7 +148,12 @@ func TestRunSidecarRestartsAndStopsWithContext(t *testing.T) {
 	mu.Lock()
 	joined = strings.Join(lines, "\n")
 	mu.Unlock()
-	if !strings.Contains(joined, "sidecar sh stopped") {
-		t.Errorf("stop was not logged:\n%s", joined)
+	for _, want := range []string{"SIGTERM to process group", "sidecar sh stopped"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("termination sequence not logged (%q missing):\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(joined, "exited after SIGTERM") && !strings.Contains(joined, "already exited") {
+		t.Errorf("the group's end was not logged:\n%s", joined)
 	}
 }
