@@ -66,9 +66,7 @@ images:
 	@echo "Building and pushing container images to $(ATE_ENV_IMAGE_REPO)..."
 	@guest_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-guest ko build --bare ./cmd/ate-env-guest | tail -n 1); \
 	api_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-api ko build --bare ./cmd/ate-env-api | tail -n 1); \
-	echo "Updating README.md with published image SHAs..."; \
-	python3 -c 'import sys, re; g = sys.argv[1].split("/")[-1]; a = sys.argv[2].split("/")[-1]; r = open("README.md").read(); r = re.sub(r"(--guest-image\s+.*?" + re.escape("$$GOOGLE_CLOUD_PROJECT/") + r")\S+", r"\g<1>" + g, r); r = re.sub(r"(--api-image\s+.*?" + re.escape("$$GOOGLE_CLOUD_PROJECT/") + r")\S+", r"\g<1>" + a, r); open("README.md", "w").write(r)' "$$guest_img" "$$api_img"; \
-	echo "Published images updated in README.md:" && \
+	echo "Published:" && \
 	echo "  --guest-image $$guest_img" && \
 	echo "  --api-image   $$api_img"
 
