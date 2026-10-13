@@ -36,6 +36,11 @@ import (
 // apiName is the name of the API service Deployment and Service.
 const apiName = "ate-env-api"
 
+// sandboxConfigName is the Substrate SandboxConfig both the WorkerPool and the
+// ActorTemplate refer to. `ate-setup deploy ate-system` installs exactly this
+// one, so a pool declared with it is schedulable on a stock install.
+const sandboxConfigName = "gvisor-default"
+
 // manifestConfig holds configuration for generating Kubernetes deployment manifests.
 type manifestConfig struct {
 	namespace   string
@@ -266,6 +271,15 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 		Spec: atev1alpha1.WorkerPoolSpec{
 			Replicas:    cfg.replicas,
 			WorkerImage: cfg.workerImage,
+			// The CRD requires exactly one sandbox class per pool, and
+			// actors only schedule onto workers of their template's class,
+			// so keep this in step with buildActorTemplate. The configRef is
+			// the SandboxConfig the workers run; the template names the same
+			// one in sandboxConfig.configName.
+			SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{
+				Name:      atev1alpha1.SandboxClassGvisor,
+				ConfigRef: &atev1alpha1.SandboxConfigReference{Name: sandboxConfigName},
+			}},
 		},
 	}
 }
@@ -288,19 +302,23 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 				Name:  "PORT",
 				Value: "80",
 			}},
-			Readyz: &ateapipb.ContainerReadyz{
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{
 				HttpGet: &ateapipb.HTTPGetAction{
 					Path: "/readyz",
 					Port: 80,
 				},
 			},
 		}},
-		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: cfg.snapshotsBucket,
+			// Environments must come back from suspend with their process
+			// state intact. MEMORY is also the server default, but the API
+			// schema marks the field required, so say it explicitly.
+			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
 		},
 		SandboxConfig: &ateapipb.SandboxConfig{
 			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
-			ConfigName:   "gvisor-default",
+			ConfigName:   sandboxConfigName,
 		},
 	}
 }

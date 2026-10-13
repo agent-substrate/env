@@ -57,7 +57,6 @@ func New() *Server {
 	}
 }
 
-
 // Serve starts the fake on a random localhost port and returns its
 // address and a shutdown function. Like the real ateapi, it serves TLS
 // with a certificate no client can verify (clients set SkipVerify).
@@ -172,7 +171,7 @@ func (s *Server) ResumeActor(ctx context.Context, req *ateapipb.ResumeActorReque
 		WorkerAssignment: &ateapipb.WorkerAssignment{
 			WorkerNamespace: "ate-system",
 			WorkerPod:       "worker-0",
-			WorkerPodIp:     "10.0.0.1",
+			WorkerPodIps:    []string{"10.0.0.1"},
 		},
 	}
 	return &ateapipb.ResumeActorResponse{Actor: clone(a)}, nil
@@ -189,14 +188,19 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 	return &ateapipb.SuspendActorResponse{Actor: clone(a)}, nil
 }
 
-
 // suspend checkpoints a. The caller holds s.mu.
 func (s *Server) suspend(a *ateapipb.Actor) {
 	a.Status = &ateapipb.ActorStatus{
 		State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-		ExternalSnapshot: &ateapipb.ExternalSnapshot{
-			SnapshotUri: fmt.Sprintf("gs://bucket/snapshot-%s", a.GetMetadata().GetName()),
-		},
+		Snapshots: []*ateapipb.Snapshot{{
+			Uuid:     fmt.Sprintf("snapshot-%s", a.GetMetadata().GetName()),
+			Owner:    ateapipb.SnapshotOwner_SNAPSHOT_OWNER_ACTOR,
+			Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
+			DurableSnapshot: &ateapipb.SnapshotStorage{
+				Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+				Object: &ateapipb.ObjectSnapshot{},
+			},
+		}},
 	}
 }
 

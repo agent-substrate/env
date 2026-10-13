@@ -40,7 +40,11 @@ go install github.com/agent-substrate/env/cmd/ate-env@latest
 ## Quickstart
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
-installed and a snapshots bucket.
+installed and a snapshots bucket. ate-env is built against Substrate
+[`f03327bd`](https://github.com/agent-substrate/substrate/commit/f03327bd) (2026-10-12) and needs at
+least that revision on the cluster: the WorkerPool it writes declares `spec.sandboxClasses`, the
+ActorTemplate uses `snapshotConfig` and `wakeupProbe`, and `--worker-image` must be the `ateom` image
+published by that Substrate install.
 
 ### 1. Deploy the Kubernetes Resources
 
