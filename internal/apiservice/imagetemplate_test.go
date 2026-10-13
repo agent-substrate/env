@@ -32,15 +32,15 @@ func modeABase() *ateapipb.ActorTemplate {
 		Metadata:       &ateapipb.ResourceMetadata{Atespace: "ate-env", Name: "default-template", Uid: "u1", Version: 3},
 		WorkerSelector: &ateapipb.Selector{MatchLabels: map[string]string{"workload": "default-env"}},
 		Containers: []*ateapipb.Container{{
-			Name:    "guest",
-			Image:   testGuestImage,
-			Command: []string{"/ko-app/ate-env-guest", "-workspace", "/workspace"},
-			Env:     []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
-			Readyz:  &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
+			Name:        "guest",
+			Image:       testGuestImage,
+			Command:     []string{"/ko-app/ate-env-guest", "-workspace", "/workspace"},
+			Env:         []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
 		}},
-		SnapshotsConfig: &ateapipb.SnapshotsConfig{StorageLocation: "gs://b/p/"},
-		SandboxConfig:   &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
-		Status:          &ateapipb.ActorTemplateStatus{},
+		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://b/p/", PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY},
+		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
+		Status:         &ateapipb.ActorTemplateStatus{},
 	}
 }
 
@@ -107,9 +107,9 @@ func TestDeriveImageTemplateFromGuestImageBase(t *testing.T) {
 	}
 	// Everything else carries over.
 	if !proto.Equal(got.GetWorkerSelector(), base.GetWorkerSelector()) ||
-		!proto.Equal(got.GetSnapshotsConfig(), base.GetSnapshotsConfig()) ||
+		!proto.Equal(got.GetSnapshotConfig(), base.GetSnapshotConfig()) ||
 		!proto.Equal(got.GetSandboxConfig(), base.GetSandboxConfig()) ||
-		!proto.Equal(c.GetReadyz(), base.GetContainers()[0].GetReadyz()) ||
+		!proto.Equal(c.GetWakeupProbe(), base.GetContainers()[0].GetWakeupProbe()) ||
 		len(c.GetEnv()) != 1 {
 		t.Error("worker selector, snapshots, sandbox config, readyz or env did not carry over")
 	}

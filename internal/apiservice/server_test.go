@@ -592,14 +592,14 @@ func seedGuestTemplate(control *fakecontrol.Server, atespace, name string) {
 		Metadata:       &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
 		WorkerSelector: &ateapipb.Selector{MatchLabels: map[string]string{"workload": "default-env"}},
 		Containers: []*ateapipb.Container{{
-			Name:    "guest",
-			Image:   testGuestImage,
-			Command: []string{"/ko-app/ate-env-guest"},
-			Env:     []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
-			Readyz:  &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
+			Name:        "guest",
+			Image:       testGuestImage,
+			Command:     []string{"/ko-app/ate-env-guest"},
+			Env:         []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
 		}},
-		SnapshotsConfig: &ateapipb.SnapshotsConfig{StorageLocation: "gs://bucket/ate-env/"},
-		SandboxConfig:   &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
+		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://bucket/ate-env/"},
+		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
 	})
 }
 
@@ -634,7 +634,7 @@ func TestCreateFromImageDerivesTemplate(t *testing.T) {
 	if len(c.GetCommand()) != 1 || c.GetCommand()[0] != "/ate/ko-app/ate-env-guest" {
 		t.Errorf("derived command = %v", c.GetCommand())
 	}
-	if tmpl.GetSnapshotsConfig().GetStorageLocation() != "gs://bucket/ate-env/" || tmpl.GetWorkerSelector() == nil {
+	if tmpl.GetSnapshotConfig().GetStorageLocation() != "gs://bucket/ate-env/" || tmpl.GetWorkerSelector() == nil {
 		t.Error("snapshots config or worker selector did not carry over")
 	}
 
