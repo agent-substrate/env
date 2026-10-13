@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from dataclasses import dataclass, field
 
 import grpc
@@ -43,6 +44,7 @@ class FakeProc:
     exit_code: int | None = None  # None while running
     killed: bool = False
     timeout_s: float | None = None  # guest-side deadline the caller asked for
+    started_at: float = field(default_factory=time.monotonic)
 
     @property
     def state(self) -> int:
@@ -203,6 +205,10 @@ class FakeProcessService(guest_pb2_grpc.ProcessServiceServicer):
             yield guest_pb2.ProcessOutput(stderr=err)
         if request.follow:
             while proc.exit_code is None:
+                if proc.timeout_s is not None and time.monotonic() - proc.started_at >= proc.timeout_s:
+                    # The guest's watchdog: SIGKILL to the group at the deadline.
+                    proc.exit_code, proc.killed = 128 + SIGKILL, True
+                    break
                 await asyncio.sleep(0.01)
         if proc.exit_code is not None:
             yield guest_pb2.ProcessOutput(exit=proc.to_pb(request.process_id))

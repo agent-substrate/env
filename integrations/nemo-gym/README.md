@@ -253,11 +253,12 @@ exactly what golden-snapshot starts and fork-from-golden creates are for.
   bakes a golden snapshot; later creates restore from it.
 - `spec.files` are seeded through the guest filesystem service after readiness. `spec.env` /
   `spec.workdir` are applied per exec (`StartProcess` takes `env` and `cwd` natively).
-- `exec(timeout_s=…)` is enforced guest-side (the process's own deadline; the guest sends
-  SIGKILL, so the exit code is 137) and client-side; on the
-  client-side deadline the process is killed and a `return_code=-1` sentinel result is returned
-  rather than raising. Transport failures (env deleted mid-exec, router down) raise
-  `ate_env.EnvError` subclasses.
+- `exec(timeout_s=…)` is enforced guest-side and client-side. The guest kills the process group
+  with SIGKILL at the deadline, so the exit code is 137, and the provider appends
+  `substrate provider: exec timed out after …` to stderr. If the guest does not answer within
+  `timeout_s` plus a few seconds, the client kills the process and returns a `return_code=-1`
+  sentinel result rather than raising. Transport failures (env deleted mid-exec, router down)
+  raise `ate_env.EnvError` subclasses.
 - `status()` reads the environment's lifecycle state from `ate-env-api` without touching the
   guest, so polling it never wakes a parked sandbox. A **suspended or paused actor reports
   RUNNING** — the router auto-resumes it on the next command, which is the behavior a rollout

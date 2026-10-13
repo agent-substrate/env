@@ -62,6 +62,12 @@ _EXEC_GRACE_S = 5.0
 # Deadline for one readiness probe. A guest that is still booting may hold a
 # call open; bounding it keeps the poll loop honest.
 _PROBE_TIMEOUT_S = 10.0
+# Smallest guest deadline exec() asks for. The guest takes any positive
+# duration, but zero selects its default (an hour) and a sub-second kill
+# window is noise next to the RPC round trip.
+_MIN_GUEST_TIMEOUT_S = 1.0
+# Exit code the guest reports for a process group it killed with SIGKILL.
+_SIGKILL_EXIT = 137
 
 # Env lifecycle status -> Gym status. Parked (suspended / paused) actors report
 # RUNNING: the router resumes them on the next guest call, which is what a
@@ -273,19 +279,21 @@ class SubstrateSandboxProvider:
         effective_cwd = cwd or raw.get("workdir") or ""
 
         argv = ["sh", "-c", command]
-        # The guest enforces the deadline itself and kills the process with
-        # SIGKILL when it elapses, so a runaway process never outlives the call
-        # that started it and the image needs no `timeout` binary. `is not
-        # None` so an explicit 0 means "shortest allowed deadline", not
-        # "unlimited": a zero duration would select the guest's default.
-        guest_timeout = None if timeout_s is None else max(1.0, float(timeout_s))
+        # The guest enforces the deadline itself and kills the process group
+        # with SIGKILL when it elapses, so a runaway process never outlives the
+        # call that started it and the image needs no `timeout` binary. `is not
+        # None` so an explicit 0 means "shortest deadline", not "unlimited".
+        guest_timeout = (
+            None if timeout_s is None else max(_MIN_GUEST_TIMEOUT_S, float(timeout_s))
+        )
 
         sandbox = self._env(handle)
+        started = time.monotonic()
         process = await sandbox.start_process(
             argv, cwd=effective_cwd, env=merged_env, timeout=guest_timeout
         )
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 self._collect(process),
                 timeout=None if timeout_s is None else timeout_s + _EXEC_GRACE_S,
             )
@@ -297,6 +305,21 @@ class SubstrateSandboxProvider:
                 stderr=f"substrate provider: exec timed out after {timeout_s}s",
                 return_code=-1,
             )
+        if (
+            guest_timeout is not None
+            and result.return_code == _SIGKILL_EXIT
+            and time.monotonic() - started >= guest_timeout
+        ):
+            # The guest reports a deadline kill as a plain SIGKILL and nothing
+            # in the exit state says why; the elapsed time does. Name it: 137
+            # with an empty stderr tells a rollout nothing.
+            note = f"substrate provider: exec timed out after {timeout_s}s (killed by the guest)"
+            return SandboxExecResult(
+                stdout=result.stdout,
+                stderr=f"{result.stderr}\n{note}" if result.stderr else note,
+                return_code=result.return_code,
+            )
+        return result
 
     async def upload_file(self, handle: SandboxHandle, source_path: Path, target_path: str) -> None:
         await self._env(handle).write_file(

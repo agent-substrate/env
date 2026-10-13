@@ -141,6 +141,8 @@ def test_image_resolves_via_mapping_or_derives():
             assert env["template"] == "default-template-" + "ab" * 6
 
     run(t())
+
+
 def test_exec_nonzero_exit_returns_result_not_raise():
     async def t():
         async with stack() as (provider, _):
@@ -193,6 +195,8 @@ def test_exec_without_timeout_has_no_guest_deadline():
             assert fake.starts[-1]["timeout"] is None
 
     run(t())
+
+
 def test_exec_rejects_user():
     async def t():
         async with stack() as (provider, _):
@@ -216,6 +220,23 @@ def test_exec_client_timeout_returns_sentinel_and_kills(monkeypatch):
             assert "timed out" in (result.stderr or "")
             hung = [p for p in fake.procs.values() if p.argv[-1] == "sleepy"]
             assert hung and hung[0].killed
+
+    run(t())
+
+
+def test_exec_guest_deadline_reports_timeout(monkeypatch):
+    # The guest kills the process group at the deadline and reports a plain
+    # SIGKILL; the result keeps that exit code and says why on stderr.
+    monkeypatch.setattr(provider_mod, "_MIN_GUEST_TIMEOUT_S", 0.05)
+
+    async def t():
+        async with stack() as (provider, fake):
+            handle = await provider.create(SandboxSpec())
+            fake.hang.add("sleepy")
+            result = await provider.exec(handle, "sleepy", timeout_s=0.05)
+            assert result.return_code == 137
+            assert "timed out" in result.stderr and "guest" in result.stderr
+            assert fake.starts[-1]["timeout"] == pytest.approx(0.05)
 
     run(t())
 
