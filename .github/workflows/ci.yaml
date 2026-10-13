@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Checks for pull requests and main: the Go build, vet and tests, the license
-# headers, and the Python client's unit tests. Release publishing lives in
+# Checks for pull requests and main: the Go build, vet and tests, gofmt, the
+# license headers, and the Python client's unit tests. Release publishing lives in
 # release.yaml. Actions are pinned by commit SHA (version in the trailing
 # comment), as the organization's workflow security scan requires.
 name: ci
@@ -45,6 +45,7 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
+      - run: make verify-gofmt
       - run: hack/verify/boilerplate.sh
 
   python:

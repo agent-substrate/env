@@ -23,7 +23,7 @@ ATE_ENV_API_IMAGE ?=
 ATE_ENV_GUEST_IMAGE ?=
 CLI_LDFLAGS := -X main.version=$(VERSION) -X main.defaultAPIImage=$(ATE_ENV_API_IMAGE) -X main.defaultGuestImage=$(ATE_ENV_GUEST_IMAGE)
 
-.PHONY: build build-cli install test vet clean images python-protos python-test verify-boilerplate
+.PHONY: build build-cli install test vet clean images python-protos python-test verify-boilerplate verify-gofmt
 
 build:
 	go build ./...
@@ -45,6 +45,10 @@ vet:
 
 verify-boilerplate:
 	hack/verify/boilerplate.sh
+
+# Fail when any tracked Go file is not gofmt-formatted; prints the offenders.
+verify-gofmt:
+	@out=$$(gofmt -l $$(git ls-files '*.go')); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 # Regenerate the committed Python gRPC stubs (requires grpcio-tools; see
 # clients/python/README.md).
