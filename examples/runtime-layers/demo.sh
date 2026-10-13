@@ -18,7 +18,7 @@
 # busybox stands in for a real runtime daemon (OpenSandbox execd, say): its
 # image is mounted read-only at /opt/web, the guest starts `busybox httpd` on
 # port 44772 as a sidecar and waits for it before reporting the actor ready.
-# The task image is unmodified. The script registers the template, creates an
+# The rootfs image is unmodified. The script registers the template, creates an
 # environment from it, asks the second runtime for a file from inside the
 # environment, creates a second environment from a different image on the
 # same base to show the layer is inherited, and deletes both.
@@ -27,7 +27,7 @@
 #   GUEST_IMAGE      digest-pinned ate-env-guest image (built from this repo,
 #                    at or after the -sidecar flags)
 #   SNAPSHOTS_BUCKET object-storage URL for actor snapshots
-#   TASK_IMAGE       digest-pinned task image, e.g. docker.io/library/python@sha256:...
+#   ROOTFS_IMAGE       digest-pinned rootfs image, e.g. docker.io/library/python@sha256:...
 #   LAYER_IMAGE      digest-pinned STATIC busybox image (the 1.37-musl tag),
 #                    e.g. docker.io/library/busybox@sha256:...
 # Optional:
@@ -40,7 +40,7 @@ set -euo pipefail
 
 : "${GUEST_IMAGE:?set GUEST_IMAGE to the digest-pinned ate-env-guest image}"
 : "${SNAPSHOTS_BUCKET:?set SNAPSHOTS_BUCKET to the snapshot object-storage URL}"
-: "${TASK_IMAGE:?set TASK_IMAGE to a digest-pinned task image}"
+: "${ROOTFS_IMAGE:?set ROOTFS_IMAGE to a digest-pinned rootfs image}"
 : "${LAYER_IMAGE:?set LAYER_IMAGE to a digest-pinned busybox image}"
 TEMPLATE=${TEMPLATE:-layered-demo}
 ATESPACE=${ATESPACE:-ate-env}
@@ -54,9 +54,9 @@ READYZ="http://127.0.0.1:${PORT}/etc/hostname"
 
 step() { printf '\n== %s\n' "$*"; }
 
-step "register ${ATESPACE}/${TEMPLATE}: ${TASK_IMAGE} + guest + busybox layer"
+step "register ${ATESPACE}/${TEMPLATE}: ${ROOTFS_IMAGE} + guest + busybox layer"
 "${ATE_ENV}" manifest template --template "${TEMPLATE}" --atespace "${ATESPACE}" \
-  --task-image "${TASK_IMAGE}" --guest-image "${GUEST_IMAGE}" \
+  --rootfs-image "${ROOTFS_IMAGE}" --guest-image "${GUEST_IMAGE}" \
   --snapshots-bucket "${SNAPSHOTS_BUCKET}" \
   --layer "web=${LAYER_IMAGE}=/opt/web" \
   --sidecar "${SIDECAR}" \
@@ -98,7 +98,7 @@ if [ -n "${OTHER_IMAGE:-}" ]; then
   ID2="layered2-$(date +%s)"
   ids+=("${ID2}")
   step "create ${ID2} from ${OTHER_IMAGE} with ${TEMPLATE} as the base (layer inherited)"
-  "${ATE_ENV}" create "${ID2}" --atespace "${ATESPACE}" --template "${TEMPLATE}" --task-image "${OTHER_IMAGE}"
+  "${ATE_ENV}" create "${ID2}" --atespace "${ATESPACE}" --template "${TEMPLATE}" --rootfs-image "${OTHER_IMAGE}"
   "${KUBECTL_ATE}" get actor-template --atespace "${ATESPACE}" | grep "${TEMPLATE}-" || true
   wait_serving "${ID2}"
   "${ATE_ENV}" "${ID2}" shell "/opt/web/bin/busybox wget -qO- http://127.0.0.1:${PORT}/etc/os-release | head -1"

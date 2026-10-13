@@ -1,4 +1,4 @@
-# Running task images on ate-env
+# Running rootfs images on ate-env
 
 Any OCI image can run as an ate-env environment without being rebuilt. The
 `ate-env-guest` daemon that serves exec and file operations is mounted into the
@@ -10,11 +10,11 @@ This page is the how-to. The reasoning behind it is in [DESIGN.md](DESIGN.md).
 ## How it works
 
 An ActorTemplate normally names one container image, and for ate-env that image
-has been the guest itself. A *task-image template* splits the two things a
+has been the guest itself. A *rootfs-image template* splits the two things a
 container sources:
 
 ```
-rootfs   = the task image, unmodified, pinned by digest
+rootfs   = the image you name, unmodified, pinned by digest
 process  = /ate/ko-app/ate-env-guest, from a second image mounted read-only at /ate
 ```
 
@@ -28,13 +28,13 @@ all work unchanged.
 
 - A Substrate control plane whose ActorTemplate API supports image volumes
   (`volumes[].image`). Every supported release does.
-- Images pinned by digest (`repo@sha256:...`), both the task image and the
+- Images pinned by digest (`repo@sha256:...`), both the rootfs image and the
   guest. Substrate requires this because a changed image invalidates snapshots.
-- Worker nodes that can pull the task image's registry.
+- Worker nodes that can pull the rootfs image's registry.
 - A base template registered with `ate-env manifest template` (the quickstart
   in the root README does this). Its guest image is the one injected.
 
-What the task image needs:
+What the rootfs image needs:
 
 - A `sh` for `Env.shell()` and for the `shell` MCP tool. Images without one
   (distroless) still work for `start_process` with absolute binaries and for
@@ -45,14 +45,14 @@ What the task image needs:
   user; a writable workspace is wherever `--workspace` points (the guest's
   default is `/`).
 
-## Option A: register a task-image template up front
+## Option A: register a rootfs-image template up front
 
 Good for a fixed set of images, or when you want the template to carry its own
 name, resources or workspace.
 
 ```bash
 ate-env manifest template --template py312 \
-  --task-image     docker.io/library/python@sha256:<digest> \
+  --rootfs-image     docker.io/library/python@sha256:<digest> \
   --guest-image    <registry>/ate-env-guest@sha256:<digest> \
   --workspace      /workspace \
   --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
@@ -60,7 +60,7 @@ ate-env manifest template --template py312 \
 ate-env create job1 --template py312
 ```
 
-`--task-image` makes the task image the container and the guest an image
+`--rootfs-image` makes the rootfs image the container and the guest an image
 volume; `--workspace` is passed to the guest as `-workspace` in either mode. The
 printed template is plain YAML you can edit before registering it (resources,
 worker selector, sandbox class).
@@ -71,11 +71,11 @@ Good when the set of images is open-ended or chosen by a caller, as in RL and
 evaluation harnesses.
 
 ```bash
-ate-env create py1 --task-image docker.io/library/python@sha256:<digest>
+ate-env create py1 --rootfs-image docker.io/library/python@sha256:<digest>
 ```
 
 ```python
-env = await client.create("py1", task_image="docker.io/library/python@sha256:<digest>")
+env = await client.create("py1", rootfs_image="docker.io/library/python@sha256:<digest>")
 (await env.info()).template.name   # "default-template-<12 hex of the digest>"
 ```
 
@@ -92,7 +92,7 @@ What happens on the server:
 2. `ate-env-api` looks for a template named `<base>-<first 12 hex digits of the
    digest>` next to the base. If it exists and runs that image, it is reused.
 3. Otherwise the server derives it from the base and creates it: same worker
-   selector, snapshot and sandbox settings, env and readiness; the task image as
+   selector, snapshot and sandbox settings, env and readiness; the rootfs image as
    the container; the base's guest image as a volume at `/ate`; the command
    re-rooted to `/ate/ko-app/ate-env-guest`.
 4. The environment is created from the derived template, which the response and
@@ -127,7 +127,7 @@ runnable example in [`examples/runtime-layers`](../../examples/runtime-layers).
 | `FailedPrecondition: base actor template ... not found` | Register the base in the environment's atespace first (`ate-env manifest template`) |
 | `FailedPrecondition: actor template ... exists but runs ...` | The derived name is taken by a template with a different image; delete it or use another base name |
 | `InvalidArgument: ... cannot re-root command ...` | The base's command is not an absolute path to the guest (a shell wrapper); fix the base template |
-| Environment never serves, derived template stays `Failed` | The task image could not be pulled or does not start the guest (port 80 taken, no exec permission); check the worker pod logs |
+| Environment never serves, derived template stays `Failed` | The rootfs image could not be pulled or does not start the guest (port 80 taken, no exec permission); check the worker pod logs |
 
 ## Cleanup and limits
 
@@ -137,8 +137,8 @@ runnable example in [`examples/runtime-layers`](../../examples/runtime-layers).
 - Bumping the guest means a new base template (templates are immutable), and a
   new base name yields new derived names. Existing derived templates keep the
   guest they were built with.
-- Resources, sandbox class and worker selector come from the base; a task image
+- Resources, sandbox class and worker selector come from the base; a rootfs image
   that needs more is served by registering its own template (Option A) or a
   second base.
-- The task image's existence is not checked at create time. A bad reference is
+- The rootfs image's existence is not checked at create time. A bad reference is
   reported by the actor failing to start, not by `CreateEnvironment`.

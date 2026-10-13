@@ -582,7 +582,7 @@ func TestActorStatusToEnvStatus(t *testing.T) {
 
 const (
 	testGuestImage = "example.com/ate-env-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	testTaskImage  = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testRootfsImage  = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 // seedGuestTemplate registers the template `ate-env manifest template`
@@ -608,7 +608,7 @@ func TestCreateFromImageDerivesTemplate(t *testing.T) {
 	seedGuestTemplate(control, "ate-env", "default-template")
 	ctx := context.Background()
 
-	resp, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "img1", TaskImage: testTaskImage})
+	resp, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "img1", RootfsImage: testRootfsImage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +622,7 @@ func TestCreateFromImageDerivesTemplate(t *testing.T) {
 		t.Fatalf("derived template %q was not created", want)
 	}
 	c := tmpl.GetContainers()[0]
-	if c.GetImage() != testTaskImage {
+	if c.GetImage() != testRootfsImage {
 		t.Errorf("derived container image = %q", c.GetImage())
 	}
 	if len(tmpl.GetVolumes()) != 1 || tmpl.GetVolumes()[0].GetImage().GetReference() != testGuestImage {
@@ -648,7 +648,7 @@ func TestCreateFromImageDerivesTemplate(t *testing.T) {
 	}
 
 	// A second environment on the same image reuses the template.
-	if _, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "img2", TaskImage: testTaskImage}); err != nil {
+	if _, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "img2", RootfsImage: testRootfsImage}); err != nil {
 		t.Fatal(err)
 	}
 	if n := control.TemplateCount(); n != 2 {
@@ -664,7 +664,7 @@ func TestCreateFromImageUsesNamedBaseAndAtespace(t *testing.T) {
 		Id:        "img1",
 		Atespace:  "team-a",
 		Template:  &ateenvv1alpha.Template{Name: "py-base"},
-		TaskImage: testTaskImage,
+		RootfsImage: testRootfsImage,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -687,8 +687,8 @@ func TestCreateFromImageRejects(t *testing.T) {
 		req  *ateenvv1alpha.CreateEnvironmentRequest
 		code codes.Code
 	}{
-		{"unpinned image", &ateenvv1alpha.CreateEnvironmentRequest{Id: "a", TaskImage: "python:3.12"}, codes.InvalidArgument},
-		{"missing base", &ateenvv1alpha.CreateEnvironmentRequest{Id: "b", Template: &ateenvv1alpha.Template{Name: "nope"}, TaskImage: testTaskImage}, codes.FailedPrecondition},
+		{"unpinned image", &ateenvv1alpha.CreateEnvironmentRequest{Id: "a", RootfsImage: "python:3.12"}, codes.InvalidArgument},
+		{"missing base", &ateenvv1alpha.CreateEnvironmentRequest{Id: "b", Template: &ateenvv1alpha.Template{Name: "nope"}, RootfsImage: testRootfsImage}, codes.FailedPrecondition},
 	}
 	for _, tc := range cases {
 		_, err := envClient.CreateEnvironment(ctx, tc.req)
@@ -702,7 +702,7 @@ func TestCreateFromImageRejects(t *testing.T) {
 		Metadata:   &ateapipb.ResourceMetadata{Atespace: "ate-env", Name: "default-template-0123456789ab"},
 		Containers: []*ateapipb.Container{{Name: "guest", Image: "example.com/other@sha256:" + testGuestImage[len(testGuestImage)-64:]}},
 	})
-	_, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "c", TaskImage: testTaskImage})
+	_, err := envClient.CreateEnvironment(ctx, &ateenvv1alpha.CreateEnvironmentRequest{Id: "c", RootfsImage: testRootfsImage})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("conflicting derived template: code = %v (%v), want FailedPrecondition", status.Code(err), err)
 	}

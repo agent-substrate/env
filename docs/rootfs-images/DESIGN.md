@@ -1,4 +1,4 @@
-# Design: injecting the guest into unmodified task images
+# Design: injecting the guest into unmodified rootfs images
 
 Status: implemented. Companion to [README.md](README.md), which is the how-to.
 
@@ -6,7 +6,7 @@ Status: implemented. Companion to [README.md](README.md), which is the how-to.
 
 Every ate-env operation goes through `ate-env-guest`, a daemon inside the
 actor. Until now the only way to run an image as an environment was to make the
-guest the container image, which for a task image meant rebuilding it with the
+guest the container image, which for a rootfs image meant rebuilding it with the
 guest layered on top and set as the entrypoint. For one image that is a `ko`
 invocation. For an evaluation or RL fleet it is a build and a push per image,
 duplicated guest bytes in the registry, a rebuild of every image for every guest
@@ -38,7 +38,7 @@ image)`. Given a base template it returns a new template that:
 
 - keeps the base's worker selector, snapshot configuration, sandbox
   configuration, resources, container env and readiness probe;
-- replaces the first container's image with the task image;
+- replaces the first container's image with the rootfs image;
 - if the base runs the guest as its image, adds a read-only image volume named
   `guest` whose reference is the base's image, mounts it at `/ate`, and moves
   the command's first element under `/ate` (`/ko-app/ate-env-guest` becomes
@@ -51,13 +51,13 @@ It refuses an unpinned task or guest image, a base without containers, and a
 base command that is not an absolute path (a shell wrapper cannot be re-rooted
 and would produce a template whose guest is silently missing).
 
-Both entry points use it: `ate-env manifest template --task-image` derives from
+Both entry points use it: `ate-env manifest template --rootfs-image` derives from
 the guest-image template it would otherwise print, and `ate-env-api` derives
 from a template fetched from the control plane.
 
 ### Naming and idempotency
 
-A derived template is named `<base>-<first 12 hex digits of the task image
+A derived template is named `<base>-<first 12 hex digits of the rootfs image
 digest>`, in the base's atespace. The name is a pure function of the inputs a
 caller controls, so:
 
@@ -76,7 +76,7 @@ without adding information.
 
 ### Server flow
 
-`CreateEnvironment` with `task_image` set:
+`CreateEnvironment` with `rootfs_image` set:
 
 1. Validate the digest and compute the derived name; invalid input is
    `InvalidArgument` and touches nothing.
@@ -96,7 +96,7 @@ in practice; a stricter comparison would cost a base fetch on every reuse.
 
 ### API shape
 
-`task_image` is a field on `CreateEnvironmentRequest` rather than a new RPC, and the
+`rootfs_image` is a field on `CreateEnvironmentRequest` rather than a new RPC, and the
 existing `template` field doubles as the base. This keeps one create path, lets
 clients that already pass a template start passing an image with one more
 argument, and makes "which base" an explicit, per-request choice rather than
@@ -122,7 +122,7 @@ the container's only process and the readiness authority.
 
 Derivation treats layers as part of what carries over. The guest volume is
 recognized by its name, not by being an image volume, so a base with a layer
-still gets the guest added or kept correctly, and `create --task-image` on a layered
+still gets the guest added or kept correctly, and `create --rootfs-image` on a layered
 base yields environments with the second runtime present. Layers are
 documented in [RUNTIMES.md](RUNTIMES.md); the verified example uses busybox as
 a stand-in runtime.
@@ -136,7 +136,7 @@ piece, and it belongs with the OpenSandbox backend that needs it.
 
 | Situation | Result |
 |---|---|
-| unpinned task image | `InvalidArgument`, nothing created |
+| unpinned rootfs image | `InvalidArgument`, nothing created |
 | base missing | `FailedPrecondition`, nothing created |
 | base command not re-rootable | `InvalidArgument`, nothing created |
 | derived name held by another image | `FailedPrecondition`, nothing created |
@@ -146,9 +146,9 @@ piece, and it belongs with the OpenSandbox backend that needs it.
 
 ## Security
 
-- The task image is run with the same sandbox class and configuration as the
+- The rootfs image is run with the same sandbox class and configuration as the
   base, so injection changes what runs, not how it is isolated.
-- The guest volume is read-only. The task image cannot alter the guest.
+- The guest volume is read-only. The rootfs image cannot alter the guest.
 - Digest pinning is enforced for both images at every entry point. A tag could
   be re-pointed between the golden bake and a later cold boot, which would
   invalidate snapshots and make two environments on "the same image" differ.
@@ -159,7 +159,7 @@ piece, and it belongs with the OpenSandbox backend that needs it.
 
 ## Performance
 
-The first environment on an image pays the task image pull on the worker it
+The first environment on an image pays the rootfs image pull on the worker it
 lands on and a cold boot; the derived template's golden bake runs concurrently
 on another worker. Later environments restore from the golden. In the
 verification run below the first environment answered a shell command 37 s
@@ -214,11 +214,11 @@ one golden snapshot per image. Neither is reclaimed automatically.
 - Server tests against the in-process fake control plane cover first create,
   reuse, a named base in another atespace, and the failure table.
 - `clients/python/tests/e2e/test_full_stack.py` has a create-from-image test
-  gated on `ATE_ENV_TASK_IMAGE`, which checks that the guest comes from the
-  volume and not the image, that the rootfs is the task image's, that files
+  gated on `ATE_ENV_ROOTFS_IMAGE`, which checks that the guest comes from the
+  volume and not the image, that the rootfs is the rootfs image's, that files
   round-trip, and that a second environment reuses the derived template.
 - Run once end to end on a Kubernetes cluster running Substrate with a fresh
-  two-worker ate-env: `ate-env create --task-image` of an unmodified
+  two-worker ate-env: `ate-env create --rootfs-image` of an unmodified
   `python:3.12-slim` produced the derived template, served `python3 --version`
   from the image's own rootfs with the guest present under `/ate`, and deleted
   cleanly.

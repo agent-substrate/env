@@ -1,7 +1,7 @@
 # Injecting a second runtime as a layer
 
 [README.md](README.md) explains how the ate-env guest is injected into an
-unmodified task image. The same mechanism carries any number of further
+unmodified rootfs image. The same mechanism carries any number of further
 runtimes: a second daemon that an agent framework expects inside its sandbox,
 such as OpenSandbox's `execd`, is one more read-only image volume plus a process
 the guest starts next to itself. This page explains the model, the flags, and
@@ -19,19 +19,19 @@ A runtime layer is three things:
 
 The guest is the container's only process by contract, which is why it is the
 one that supervises the others. Sidecars run without a shell or `PATH` lookup,
-so the binary is an absolute path into its mount, and the task image needs
+so the binary is an absolute path into its mount, and the rootfs image needs
 nothing for it. They inherit the container's user, environment and filesystem.
 
 Template derivation keeps all of it. A base with layers yields derived
 templates with the same layers and the same guest flags, so environments
-created on demand with `task_image=` inherit the second runtime without any caller
+created on demand with `rootfs_image=` inherit the second runtime without any caller
 knowing it exists.
 
 ## Registering a layered template
 
 ```bash
 ate-env manifest template --template osb-base \
-  --task-image     docker.io/library/python@sha256:<digest> \
+  --rootfs-image     docker.io/library/python@sha256:<digest> \
   --guest-image    <registry>/ate-env-guest@sha256:<digest> \
   --layer          execd=<registry>/opensandbox/execd@sha256:<digest>=/opt/opensandbox \
   --sidecar        '/opt/opensandbox/execd' \
@@ -40,19 +40,19 @@ ate-env manifest template --template osb-base \
 ```
 
 The resulting template has two image volumes (`execd` at `/opt/opensandbox`,
-`guest` at `/ate`), the task image as the container, and the command
+`guest` at `/ate`), the rootfs image as the container, and the command
 
 ```
 /ate/ko-app/ate-env-guest -sidecar "/opt/opensandbox/execd" -sidecar-readyz http://127.0.0.1:44772/ready
 ```
 
-Everything else is as in a plain task-image template. Environments are created
-the usual way, from this template by name or from any other image with `--task-image`
+Everything else is as in a plain rootfs-image template. Environments are created
+the usual way, from this template by name or from any other image with `--rootfs-image`
 while naming it as the base:
 
 ```bash
 ate-env create py1 --template osb-base
-ate-env create node1 --template osb-base --task-image docker.io/library/node@sha256:<digest>
+ate-env create node1 --template osb-base --rootfs-image docker.io/library/node@sha256:<digest>
 ```
 
 Both run the guest and `execd`; the second one from a derived template named
@@ -76,7 +76,7 @@ file endpoints.
 A verified stand-in for the mechanics, which needs nothing from any registry
 but Docker Hub, is in [`examples/runtime-layers`](../../examples/runtime-layers):
 the static `busybox:1.37-musl` mounted as the layer and its `httpd` as the
-sidecar, run under two different task images.
+sidecar, run under two different rootfs images.
 
 ## Who can reach the second runtime
 
@@ -105,7 +105,7 @@ does not take the actor out of service.
 
 ## Limits
 
-- **A layer must be self-contained.** The task image's libraries are whatever
+- **A layer must be self-contained.** The rootfs image's libraries are whatever
   that image ships, so a runtime binary that is dynamically linked works on
   some images and not on others. Ship static binaries (the guest and `execd`
   are) or put the runtime's libraries in the layer and point it at them. The
@@ -113,7 +113,7 @@ does not take the actor out of service.
   once with a loader error such as ``version `GLIBC_2.38' not found`` and
   restarting with growing backoff, readiness never passes, and the actor
   fails after the wakeup probe timeout.
-- One container per actor: sidecars share the task image's user, environment
+- One container per actor: sidecars share the rootfs image's user, environment
   variables and filesystem, and have no resource limits of their own.
 - `--sidecar` values are split on whitespace with no quoting. Arguments that
   need quotes or shell features go in a wrapper script inside the layer.

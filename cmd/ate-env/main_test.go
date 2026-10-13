@@ -204,31 +204,31 @@ func TestHelpOutput(t *testing.T) {
 }
 
 func TestCreateImageFlag(t *testing.T) {
-	args := []string{"create", "dev1", "--task-image", "example.com/task@sha256:abc"}
+	args := []string{"create", "dev1", "--rootfs-image", "example.com/task@sha256:abc"}
 	root := newRootCommand(args)
 	cmd, _, err := root.Find(args[:2])
 	if err != nil {
 		t.Fatalf("root.Find failed: %v", err)
 	}
-	if cmd.Flags().Lookup("task-image") == nil {
-		t.Fatal("create has no --task-image flag")
+	if cmd.Flags().Lookup("rootfs-image") == nil {
+		t.Fatal("create has no --rootfs-image flag")
 	}
 	if err := cmd.ParseFlags(args[2:]); err != nil {
-		t.Fatalf("parsing --task-image: %v", err)
+		t.Fatalf("parsing --rootfs-image: %v", err)
 	}
-	if got, _ := cmd.Flags().GetString("task-image"); got != "example.com/task@sha256:abc" {
-		t.Errorf("--task-image = %q", got)
+	if got, _ := cmd.Flags().GetString("rootfs-image"); got != "example.com/task@sha256:abc" {
+		t.Errorf("--rootfs-image = %q", got)
 	}
 }
 
-func TestManifestTemplateTaskImageFlags(t *testing.T) {
+func TestManifestTemplateRootfsImageFlags(t *testing.T) {
 	args := []string{"manifest", "template"}
 	root := newRootCommand(args)
 	cmd, _, err := root.Find(args)
 	if err != nil {
 		t.Fatalf("root.Find failed: %v", err)
 	}
-	for _, name := range []string{"task-image", "workspace", "guest-image", "snapshots-bucket"} {
+	for _, name := range []string{"rootfs-image", "workspace", "guest-image", "snapshots-bucket"} {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Errorf("manifest template has no --%s flag", name)
 		}

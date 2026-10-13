@@ -151,7 +151,7 @@ read-only image volume, so the image runs unmodified. The derived template
 is created on first use and shared by every environment on that image:
 
 ```python
-env = await client.create("py1", task_image="docker.io/library/python@sha256:…")
+env = await client.create("py1", rootfs_image="docker.io/library/python@sha256:…")
 print((await env.info()).template.name)   # default-template-<12 hex of the digest>
 ```
 
@@ -390,7 +390,7 @@ ATE_ENV_API_TARGET=127.0.0.1:17777 .venv/bin/pytest tests/e2e/test_full_stack.py
 
 `ATE_ENV_TEMPLATE` optionally overrides the ActorTemplate used for the
 test environment; `ATE_ENV_READY_TIMEOUT` (default 180s) bounds the wait
-for the environment to start serving. `ATE_ENV_TASK_IMAGE`, a digest-pinned
+for the environment to start serving. `ATE_ENV_ROOTFS_IMAGE`, a digest-pinned
 image that has `sh`, enables the create-from-image test, which runs that
 image unmodified with the guest injected and checks the derived template is
 reused by a second environment.

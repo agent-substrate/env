@@ -70,10 +70,10 @@ type templateConfig struct {
 	guestImage      string
 	guestCommand    []string
 	snapshotsBucket string
-	// taskImage, when set, is the digest-pinned image the actor runs; the
+	// rootfsImage, when set, is the digest-pinned image the actor runs; the
 	// guest is then mounted into it as an image volume instead of being the
 	// container image itself.
-	taskImage string
+	rootfsImage string
 	// workspace, when set, is passed to the guest as -workspace.
 	workspace string
 	// layers are extra runtimes mounted as read-only image volumes, each
@@ -137,9 +137,9 @@ func (c *templateConfig) resolveImages() error {
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
 	}
-	if c.taskImage != "" {
-		if _, err := apiservice.ImageDigest(c.taskImage); err != nil {
-			return fmt.Errorf("--task-image: %w", err)
+	if c.rootfsImage != "" {
+		if _, err := apiservice.ImageDigest(c.rootfsImage); err != nil {
+			return fmt.Errorf("--rootfs-image: %w", err)
 		}
 		if _, err := apiservice.ImageDigest(c.guestImage); err != nil {
 			return fmt.Errorf("--guest-image must be digest-pinned to be mounted as an image volume: %w", err)
@@ -234,7 +234,7 @@ It prints YAML to stdout without touching the cluster.`,
 	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringSliceVar(&tCfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
 	cmd.Flags().StringVar(&tCfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
-	cmd.Flags().StringVar(&tCfg.taskImage, "task-image", "", "digest-pinned image to run unmodified; the guest is mounted into it as a read-only image volume at "+apiservice.GuestMountPath)
+	cmd.Flags().StringVar(&tCfg.rootfsImage, "rootfs-image", "", "digest-pinned image to run unmodified; the guest is mounted into it as a read-only image volume at "+apiservice.GuestMountPath)
 	cmd.Flags().StringVar(&tCfg.workspace, "workspace", "", "workspace root inside the actor, passed to the guest as -workspace (default: the guest's default)")
 	cmd.Flags().StringArrayVar(&tCfg.layers, "layer", nil, "extra runtime mounted as a read-only image volume, as name=image@sha256:...=/mount/path (repeatable)")
 	cmd.Flags().StringArrayVar(&tCfg.sidecars, "sidecar", nil, "command the guest starts and keeps running next to itself, an absolute binary path plus arguments, e.g. '/opt/opensandbox/execd --port 44772' (repeatable)")
@@ -414,7 +414,7 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 }
 
 // buildTemplate returns the ActorTemplate for cfg: the guest template from
-// buildActorTemplate with the workspace flag applied and, when a task image is
+// buildActorTemplate with the workspace flag applied and, when a rootfs image is
 // set, that image as the container with the guest mounted into it.
 func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
 	tmpl := buildActorTemplate(cfg)
@@ -424,7 +424,7 @@ func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
 		command = append(command, "-workspace", cfg.workspace)
 	}
 	// Extra runtimes: each layer is an image volume, each sidecar a flag the
-	// guest acts on. They are added before any task-image derivation so the
+	// guest acts on. They are added before any rootfs-image derivation so the
 	// derived template inherits them, and so do environments created from
 	// it with an image of their own.
 	layers, err := parseLayers(cfg.layers)
@@ -445,10 +445,10 @@ func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
 		command = append(command, "-sidecar-readyz", u)
 	}
 	c.Command = command
-	if cfg.taskImage == "" {
+	if cfg.rootfsImage == "" {
 		return tmpl, nil
 	}
-	return apiservice.DeriveImageTemplate(tmpl, cfg.template, cfg.taskImage)
+	return apiservice.DeriveImageTemplate(tmpl, cfg.template, cfg.rootfsImage)
 }
 
 // buildAPIDeployment returns the ate-env-api Deployment, pointed at the

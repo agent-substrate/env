@@ -26,7 +26,7 @@ import (
 )
 
 // GuestMountPath is where the ate-env-guest image is mounted inside an actor
-// whose container image is a task image rather than the guest itself. The
+// whose container image is a rootfs image rather than the guest itself. The
 // guest binary is then at GuestMountPath + "/ko-app/ate-env-guest".
 const GuestMountPath = "/ate"
 

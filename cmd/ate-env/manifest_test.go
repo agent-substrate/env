@@ -299,10 +299,10 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 
 const testHex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-func TestBuildTemplateTaskImage(t *testing.T) {
+func TestBuildTemplateRootfsImage(t *testing.T) {
 	cfg := testTemplateConfig()
 	cfg.guestImage = "example.com/guest@sha256:" + testHex64
-	cfg.taskImage = "docker.io/library/python@sha256:" + testHex64
+	cfg.rootfsImage = "docker.io/library/python@sha256:" + testHex64
 	cfg.workspace = "/workspace"
 
 	tmpl, err := buildTemplate(cfg)
@@ -313,8 +313,8 @@ func TestBuildTemplateTaskImage(t *testing.T) {
 		t.Errorf("name = %q, want the configured template name unchanged", tmpl.GetMetadata().GetName())
 	}
 	c := tmpl.GetContainers()[0]
-	if c.GetImage() != cfg.taskImage {
-		t.Errorf("container image = %q, want the task image", c.GetImage())
+	if c.GetImage() != cfg.rootfsImage {
+		t.Errorf("container image = %q, want the rootfs image", c.GetImage())
 	}
 	if len(tmpl.GetVolumes()) != 1 || tmpl.GetVolumes()[0].GetImage().GetReference() != cfg.guestImage {
 		t.Errorf("volumes = %v, want the guest image volume", tmpl.GetVolumes())
@@ -337,22 +337,22 @@ func TestBuildTemplateWorkspaceOnly(t *testing.T) {
 	}
 	c := tmpl.GetContainers()[0]
 	if c.GetImage() != cfg.guestImage || len(tmpl.GetVolumes()) != 0 {
-		t.Errorf("without --task-image the guest stays the container image and no volume is added: %v", tmpl)
+		t.Errorf("without --rootfs-image the guest stays the container image and no volume is added: %v", tmpl)
 	}
 	if got := c.GetCommand(); len(got) != 3 || got[0] != "/ko-app/ate-env-guest" || got[2] != "/w" {
 		t.Errorf("command = %v", got)
 	}
 }
 
-func TestTemplateConfigResolveImagesTaskImage(t *testing.T) {
+func TestTemplateConfigResolveImagesRootfsImage(t *testing.T) {
 	cfg := testTemplateConfig()
-	cfg.taskImage = "python:3.12"
+	cfg.rootfsImage = "python:3.12"
 	if err := cfg.resolveImages(); err == nil {
-		t.Error("unpinned --task-image accepted")
+		t.Error("unpinned --rootfs-image accepted")
 	}
-	cfg.taskImage = "docker.io/library/python@sha256:" + testHex64
+	cfg.rootfsImage = "docker.io/library/python@sha256:" + testHex64
 	if err := cfg.resolveImages(); err == nil {
-		t.Error("short guest digest accepted together with --task-image")
+		t.Error("short guest digest accepted together with --rootfs-image")
 	}
 	cfg.guestImage = "example.com/guest@sha256:" + testHex64
 	if err := cfg.resolveImages(); err != nil {
@@ -363,7 +363,7 @@ func TestTemplateConfigResolveImagesTaskImage(t *testing.T) {
 func TestBuildTemplateWithRuntimeLayer(t *testing.T) {
 	cfg := testTemplateConfig()
 	cfg.guestImage = "example.com/guest@sha256:" + testHex64
-	cfg.taskImage = "docker.io/library/python@sha256:" + testHex64
+	cfg.rootfsImage = "docker.io/library/python@sha256:" + testHex64
 	cfg.layers = []string{"execd=example.com/execd@sha256:" + testHex64 + "=/opt/opensandbox"}
 	cfg.sidecars = []string{"/opt/opensandbox/execd --port 44772"}
 	cfg.sidecarReadyz = []string{"http://127.0.0.1:44772/ready"}
@@ -384,7 +384,7 @@ func TestBuildTemplateWithRuntimeLayer(t *testing.T) {
 	if got := strings.Join(c.GetCommand(), " "); got != want {
 		t.Errorf("command = %q, want %q", got, want)
 	}
-	if c.GetImage() != cfg.taskImage {
+	if c.GetImage() != cfg.rootfsImage {
 		t.Errorf("image = %q", c.GetImage())
 	}
 }

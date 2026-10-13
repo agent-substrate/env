@@ -26,7 +26,7 @@ Unlike test_guest_daemon.py, this exercises the whole path: environment
 lifecycle against the Substrate control plane, and guest operations proxied
 by ate-env-api through the atenet router into the environment's actor.
 
-Set ATE_ENV_TASK_IMAGE to a digest-pinned image that has `sh` (for example
+Set ATE_ENV_ROOTFS_IMAGE to a digest-pinned image that has `sh` (for example
 docker.io/library/python@sha256:...) to also run the create-from-image test,
 which checks that an unmodified image runs with the guest injected as an
 image volume and that a second environment reuses the derived template.
@@ -58,8 +58,8 @@ TARGET = os.environ.get("ATE_ENV_API_TARGET")
 READY_TIMEOUT = float(os.environ.get("ATE_ENV_READY_TIMEOUT", "180"))
 # Optional ActorTemplate override; the server default is "default-template".
 TEMPLATE = os.environ.get("ATE_ENV_TEMPLATE")
-# Optional digest-pinned task image for the create-from-image test.
-TASK_IMAGE = os.environ.get("ATE_ENV_TASK_IMAGE")
+# Optional digest-pinned rootfs image for the create-from-image test.
+ROOTFS_IMAGE = os.environ.get("ATE_ENV_ROOTFS_IMAGE")
 
 pytestmark = pytest.mark.skipif(
     not TARGET,
@@ -187,7 +187,7 @@ async def test_full_lifecycle(client):
 async def test_create_from_image_rejects_unpinned_image(client):
     # Validated before anything touches the control plane.
     with pytest.raises(InvalidArgumentError):
-        await client.create(f"pye2e-img-{uuid.uuid4().hex[:8]}", task_image="python:3.12-slim")
+        await client.create(f"pye2e-img-{uuid.uuid4().hex[:8]}", rootfs_image="python:3.12-slim")
 
 
 async def test_create_from_image_needs_a_base_template(client):
@@ -196,23 +196,23 @@ async def test_create_from_image_needs_a_base_template(client):
         await client.create(
             f"pye2e-img-{uuid.uuid4().hex[:8]}",
             template_name=missing,
-            task_image="docker.io/library/busybox@sha256:" + "0" * 64,
+            rootfs_image="docker.io/library/busybox@sha256:" + "0" * 64,
         )
     assert excinfo.value.code == grpc.StatusCode.FAILED_PRECONDITION
     assert missing in str(excinfo.value)
 
 
 @pytest.mark.skipif(
-    not TASK_IMAGE,
-    reason="set ATE_ENV_TASK_IMAGE=repo@sha256:... (an image with sh) for the create-from-image test",
+    not ROOTFS_IMAGE,
+    reason="set ATE_ENV_ROOTFS_IMAGE=repo@sha256:... (an image with sh) for the create-from-image test",
 )
 async def test_create_from_image(client):
     base = TEMPLATE or "default-template"
-    want_template = f"{base}-{TASK_IMAGE.split('@sha256:', 1)[1][:12]}"
+    want_template = f"{base}-{ROOTFS_IMAGE.split('@sha256:', 1)[1][:12]}"
     envs = []
     try:
         env = await client.create(
-            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, task_image=TASK_IMAGE
+            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, rootfs_image=ROOTFS_IMAGE
         )
         envs.append(env)
 
@@ -224,7 +224,7 @@ async def test_create_from_image(client):
 
         await _wait_until_serving(env)
 
-        # The process runs in the task image's rootfs, with the guest coming
+        # The process runs in the rootfs image's rootfs, with the guest coming
         # from the image volume rather than from the image itself.
         result = await env.shell(
             "test -x /ate/ko-app/ate-env-guest && echo guest:volume; "
@@ -234,7 +234,7 @@ async def test_create_from_image(client):
         assert result.exit_code == 0, result
         lines = result.stdout.splitlines()
         assert "guest:volume" in lines, result
-        assert "guest:baked" not in lines, "the task image should not carry the guest"
+        assert "guest:baked" not in lines, "the rootfs image should not carry the guest"
         assert "rootfs:ok" in lines, result
 
         # The workspace is writable and the guest file path works unchanged.
@@ -246,7 +246,7 @@ async def test_create_from_image(client):
         # A second environment on the same image reuses the derived template
         # instead of minting another one.
         env2 = await client.create(
-            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, task_image=TASK_IMAGE
+            f"pye2e-img-{uuid.uuid4().hex[:8]}", template_name=TEMPLATE, rootfs_image=ROOTFS_IMAGE
         )
         envs.append(env2)
         assert (await env2.info()).template.name == want_template

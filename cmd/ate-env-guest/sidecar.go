@@ -30,7 +30,7 @@ import (
 
 // Sidecars are extra runtimes started next to the guest, from the same
 // container: typically a second data-plane daemon that was mounted into the
-// actor as an image volume (see docs/task-images/RUNTIMES.md). The guest is
+// actor as an image volume (see docs/rootfs-images/RUNTIMES.md). The guest is
 // the container's only process by contract, so it is the one that starts
 // them, restarts them if they exit, and folds their readiness into /readyz.
 
@@ -51,7 +51,7 @@ func (m *multiFlag) Set(v string) error {
 // whitespace and no quoting is interpreted: sidecars run without a shell, so
 // a runtime that needs one ships a wrapper script in its layer. The binary
 // must be an absolute path, which is what a mounted layer provides and what
-// keeps the guest independent of the task image's PATH.
+// keeps the guest independent of the rootfs image's PATH.
 func parseSidecar(v string) ([]string, error) {
 	argv := strings.Fields(v)
 	if len(argv) == 0 {

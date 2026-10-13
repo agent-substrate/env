@@ -24,7 +24,7 @@ import (
 
 const (
 	testGuestImage = "example.com/ate-env-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	testTaskImage  = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testRootfsImage  = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 func modeABase() *ateapipb.ActorTemplate {
@@ -45,7 +45,7 @@ func modeABase() *ateapipb.ActorTemplate {
 }
 
 func TestImageDigestAndTemplateName(t *testing.T) {
-	name, err := ImageTemplateName("default-template", testTaskImage)
+	name, err := ImageTemplateName("default-template", testRootfsImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +58,13 @@ func TestImageDigestAndTemplateName(t *testing.T) {
 		}
 	}
 	// The derived name must stay a valid resource name.
-	if _, err := ImageTemplateName(strings.Repeat("b", 51), testTaskImage); err == nil {
+	if _, err := ImageTemplateName(strings.Repeat("b", 51), testRootfsImage); err == nil {
 		t.Error("a 64-character derived name was accepted")
 	}
-	if name, err := ImageTemplateName(strings.Repeat("b", 50), testTaskImage); err != nil || len(name) != 63 {
+	if name, err := ImageTemplateName(strings.Repeat("b", 50), testRootfsImage); err != nil || len(name) != 63 {
 		t.Errorf("a 63-character derived name should be accepted: %q, %v", name, err)
 	}
-	if _, err := ImageTemplateName("Default", testTaskImage); err == nil {
+	if _, err := ImageTemplateName("Default", testRootfsImage); err == nil {
 		t.Error("an uppercase base name was accepted")
 	}
 }
@@ -73,7 +73,7 @@ func TestDeriveImageTemplateFromGuestImageBase(t *testing.T) {
 	base := modeABase()
 	before := proto.Clone(base).(*ateapipb.ActorTemplate)
 
-	got, err := DeriveImageTemplate(base, "default-template-0123456789ab", testTaskImage)
+	got, err := DeriveImageTemplate(base, "default-template-0123456789ab", testRootfsImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +90,8 @@ func TestDeriveImageTemplateFromGuestImageBase(t *testing.T) {
 	}
 
 	c := got.GetContainers()[0]
-	if c.GetImage() != testTaskImage {
-		t.Errorf("container image = %q, want the task image", c.GetImage())
+	if c.GetImage() != testRootfsImage {
+		t.Errorf("container image = %q, want the rootfs image", c.GetImage())
 	}
 	wantCmd := []string{"/ate/ko-app/ate-env-guest", "-workspace", "/workspace"}
 	if strings.Join(c.GetCommand(), " ") != strings.Join(wantCmd, " ") {
@@ -121,12 +121,12 @@ func TestDeriveImageTemplateFromInjectedBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := DeriveImageTemplate(base, "py-base-0123456789ab", testTaskImage)
+	got, err := DeriveImageTemplate(base, "py-base-0123456789ab", testRootfsImage)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := got.GetContainers()[0]
-	if c.GetImage() != testTaskImage {
+	if c.GetImage() != testRootfsImage {
 		t.Errorf("image = %q", c.GetImage())
 	}
 	if c.GetCommand()[0] != "/ate/ko-app/ate-env-guest" {
@@ -140,7 +140,7 @@ func TestDeriveImageTemplateFromInjectedBase(t *testing.T) {
 func TestDeriveImageTemplateDefaultsCommand(t *testing.T) {
 	base := modeABase()
 	base.Containers[0].Command = nil
-	got, err := DeriveImageTemplate(base, "x", testTaskImage)
+	got, err := DeriveImageTemplate(base, "x", testRootfsImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,17 +151,17 @@ func TestDeriveImageTemplateDefaultsCommand(t *testing.T) {
 
 func TestDeriveImageTemplateRejects(t *testing.T) {
 	if _, err := DeriveImageTemplate(modeABase(), "x", "python:3.12"); err == nil {
-		t.Error("unpinned task image accepted")
+		t.Error("unpinned rootfs image accepted")
 	}
 	unpinnedGuest := modeABase()
 	unpinnedGuest.Containers[0].Image = "example.com/ate-env-guest:latest"
-	if _, err := DeriveImageTemplate(unpinnedGuest, "x", testTaskImage); err == nil {
+	if _, err := DeriveImageTemplate(unpinnedGuest, "x", testRootfsImage); err == nil {
 		t.Error("unpinned guest image accepted as an image volume")
 	}
-	if _, err := DeriveImageTemplate(&ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Name: "empty"}}, "x", testTaskImage); err == nil {
+	if _, err := DeriveImageTemplate(&ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Name: "empty"}}, "x", testRootfsImage); err == nil {
 		t.Error("base without containers accepted")
 	}
-	if _, err := DeriveImageTemplate(modeABase(), "", testTaskImage); err == nil {
+	if _, err := DeriveImageTemplate(modeABase(), "", testRootfsImage); err == nil {
 		t.Error("empty name accepted")
 	}
 	for _, cmd := range [][]string{
@@ -171,7 +171,7 @@ func TestDeriveImageTemplateRejects(t *testing.T) {
 	} {
 		wrapped := modeABase()
 		wrapped.Containers[0].Command = cmd
-		if _, err := DeriveImageTemplate(wrapped, "x", testTaskImage); err == nil || !strings.Contains(err.Error(), "re-root") {
+		if _, err := DeriveImageTemplate(wrapped, "x", testRootfsImage); err == nil || !strings.Contains(err.Error(), "re-root") {
 			t.Errorf("command %v must be rejected (only the guest binary is re-rooted), got %v", cmd, err)
 		}
 	}
@@ -187,7 +187,7 @@ func TestDeriveImageTemplateKeepsRuntimeLayers(t *testing.T) {
 	base.Containers[0].VolumeMounts = []*ateapipb.VolumeMount{{Name: "execd", MountPath: "/opt/opensandbox"}}
 	base.Containers[0].Command = []string{"/ko-app/ate-env-guest", "-sidecar", "/opt/opensandbox/execd --port 44772", "-sidecar-readyz", "http://127.0.0.1:44772/ready"}
 
-	got, err := DeriveImageTemplate(base, "x", testTaskImage)
+	got, err := DeriveImageTemplate(base, "x", testRootfsImage)
 	if err != nil {
 		t.Fatal(err)
 	}
