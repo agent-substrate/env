@@ -17,6 +17,10 @@
 # those digests baked in as its defaults, so a release binary deploys without
 # naming any image of this repo. Runs on a v* tag, or by hand for an existing
 # tag (to republish). See docs/release.md.
+#
+# Actions are pinned by commit SHA (the version is in the trailing comment),
+# expressions reach shell only through env, and the Go module cache is off:
+# the organization's workflow security scan (zizmor) requires all three.
 name: release
 
 on:
@@ -29,10 +33,12 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write # release assets and notes
-  packages: write # ghcr.io
-  id-token: write # cosign keyless signing
+# One publish per tag at a time; a second run for the same tag waits.
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions: {}
 
 env:
   # ghcr.io/<org>/<repo>/<image>; the images are linked to this repository.
@@ -41,24 +47,34 @@ env:
 
 jobs:
   publish:
+    name: Publish images, CLI and release assets
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # release assets and notes
+      packages: write # ghcr.io
+      id-token: write # cosign keyless signing
     steps:
       - name: Resolve the tag
         id: tag
-        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "tag=${INPUT_TAG:-$REF_NAME}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ steps.tag.outputs.tag }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
+          cache: false # a release build must not consume a cache another run could seed
 
-      - uses: ko-build/setup-ko@v0.9
+      - uses: ko-build/setup-ko@d006021bd0c28d1ce33a07e7943d48b079944c8d # v0.9
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
       - name: Build and push the images
         id: images
@@ -74,7 +90,10 @@ jobs:
           echo "ate-env-guest: ${guest}"
 
       - name: Sign the images (keyless, bound to this workflow's identity)
-        run: cosign sign --yes "${{ steps.images.outputs.api }}" "${{ steps.images.outputs.guest }}"
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          GUEST_IMAGE: ${{ steps.images.outputs.guest }}
+        run: cosign sign --yes "$API_IMAGE" "$GUEST_IMAGE"
 
       - name: Build the CLI with the image digests as defaults
         env:

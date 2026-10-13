@@ -82,6 +82,12 @@ workflow's `GITHUB_TOKEN`, under the repository. Once:
   a shell for `shell()`; for task-image templates only the static binary is
   used. Bump the pin deliberately and mention it in the release notes.
 - The API image uses ko's default distroless base.
+- The actions both workflows use are pinned by commit SHA, with the version in
+  a trailing comment; the organization's workflow security scan (zizmor)
+  requires it. To bump one, resolve the new tag's commit (`git ls-remote --tags
+  https://github.com/<owner>/<action> v<x.y.z>`) and update the SHA and the
+  comment together. The release job also runs with Go module caching off so a
+  release build cannot consume a cache seeded by another run.
 - `make images` builds the same two images for a registry of your choice
   (`ATE_ENV_IMAGE_REPO`), for development against a private cluster; the
   released images are the ones to point customers at.
