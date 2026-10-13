@@ -42,8 +42,8 @@ const DefaultTemplate = "default-template"
 const DefaultNamespace = "ate-env"
 
 // DefaultAtespace is the Substrate atespace used when a request does not
-// specify one.
-const DefaultAtespace = "ate-env"
+// specify one; the same one ate-env-api creates at startup.
+const DefaultAtespace = ate.DefaultAtespace
 
 // Server implements ateenvv1alpha.EnvironmentServiceServer, ateenvv1alpha.ProcessServiceServer,
 // and ateenvv1alpha.FileSystemServiceServer.
