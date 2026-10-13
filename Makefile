@@ -15,10 +15,23 @@
 GOOGLE_CLOUD_PROJECT ?= $(shell gcloud config get-value project 2>/dev/null)
 ATE_ENV_IMAGE_REPO ?= gcr.io/$(GOOGLE_CLOUD_PROJECT)
 
-.PHONY: build install test vet clean images python-protos python-test verify-boilerplate
+# Baked into the ate-env CLI by build-cli (release.yaml does the same with the
+# published digests): `ate-env --version`, and the defaults of manifest
+# --api-image and manifest template --guest-image.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+ATE_ENV_API_IMAGE ?=
+ATE_ENV_GUEST_IMAGE ?=
+CLI_LDFLAGS := -X main.version=$(VERSION) -X main.defaultAPIImage=$(ATE_ENV_API_IMAGE) -X main.defaultGuestImage=$(ATE_ENV_GUEST_IMAGE)
+
+.PHONY: build build-cli install test vet clean images python-protos python-test verify-boilerplate verify-gofmt
 
 build:
 	go build ./...
+
+# Build bin/ate-env with the version and, if ATE_ENV_API_IMAGE /
+# ATE_ENV_GUEST_IMAGE are set, image defaults baked in.
+build-cli:
+	go build -trimpath -ldflags "$(CLI_LDFLAGS)" -o bin/ate-env ./cmd/ate-env
 
 # Install ate-env and ate-env-api to $GOBIN (or $GOPATH/bin).
 install:
@@ -32,6 +45,10 @@ vet:
 
 verify-boilerplate:
 	hack/verify/boilerplate.sh
+
+# Fail when any tracked Go file is not gofmt-formatted; prints the offenders.
+verify-gofmt:
+	@out=$$(gofmt -l $$(git ls-files '*.go')); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 # Regenerate the committed Python gRPC stubs (requires grpcio-tools; see
 # clients/python/README.md).
@@ -53,9 +70,7 @@ images:
 	@echo "Building and pushing container images to $(ATE_ENV_IMAGE_REPO)..."
 	@guest_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-guest ko build --bare ./cmd/ate-env-guest | tail -n 1); \
 	api_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-api ko build --bare ./cmd/ate-env-api | tail -n 1); \
-	echo "Updating README.md with published image SHAs..."; \
-	python3 -c 'import sys, re; g = sys.argv[1].split("/")[-1]; a = sys.argv[2].split("/")[-1]; r = open("README.md").read(); r = re.sub(r"(--guest-image\s+.*?" + re.escape("$$GOOGLE_CLOUD_PROJECT/") + r")\S+", r"\g<1>" + g, r); r = re.sub(r"(--api-image\s+.*?" + re.escape("$$GOOGLE_CLOUD_PROJECT/") + r")\S+", r"\g<1>" + a, r); open("README.md", "w").write(r)' "$$guest_img" "$$api_img"; \
-	echo "Published images updated in README.md:" && \
+	echo "Published:" && \
 	echo "  --guest-image $$guest_img" && \
 	echo "  --api-image   $$api_img"
 

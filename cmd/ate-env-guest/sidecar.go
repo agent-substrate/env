@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -66,6 +67,9 @@ func parseSidecar(v string) ([]string, error) {
 const (
 	sidecarMinBackoff = time.Second
 	sidecarMaxBackoff = 30 * time.Second
+	// sidecarStopGrace is how long a stopped sidecar's process group gets to exit
+	// and release the output pipes after SIGTERM before it is SIGKILLed.
+	sidecarStopGrace = 5 * time.Second
 	// sidecarStableAfter is how long a sidecar must have run for its next
 	// restart to start from the minimum backoff again.
 	sidecarStableAfter = time.Minute
@@ -84,10 +88,32 @@ func runSidecar(ctx context.Context, argv []string, logf func(string, ...any)) {
 		out := &lineLogger{prefix: name, logf: logf}
 		cmd.Stdout = out
 		cmd.Stderr = out
+		// The sidecar runs in its own process group so that stopping it also
+		// stops what it spawned. On shutdown the group gets SIGTERM, then
+		// sidecarStopGrace to exit and release the output pipes, then SIGKILL.
+		// Killing only the direct child is not enough: a wrapper script (the
+		// documented way to pass quoted arguments) would die alone while its
+		// child kept the pipes open, and Wait would block until that child
+		// exited. On Linux `sh -c` forks its command; bash on macOS execs it,
+		// which is why the test passed on one and hung on the other.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			logf("sidecar %s: context done, SIGTERM to process group %d", name, cmd.Process.Pid)
+			return signalGroup(cmd.Process.Pid, syscall.SIGTERM)
+		}
+		cmd.WaitDelay = sidecarStopGrace
 		start := time.Now()
 		err := cmd.Run()
 		out.flush()
+		// One stop sequence for every path. On shutdown it finishes what
+		// Cancel started; before a restart it clears what a crashed sidecar
+		// left behind, so the new one does not compete with its own orphans
+		// for ports, pipes or lock files.
+		if cmd.Process != nil {
+			stopGroup(name, cmd.Process.Pid, sidecarStopGrace, logf)
+		}
 		if ctx.Err() != nil {
+			logf("sidecar %s stopped", name)
 			return
 		}
 		ran := time.Since(start)
@@ -103,6 +129,48 @@ func runSidecar(ctx context.Context, argv []string, logf func(string, ...any)) {
 			backoff = min(backoff*2, sidecarMaxBackoff)
 		}
 	}
+}
+
+// stopGroup is the one way a sidecar's process group is taken down: SIGTERM,
+// up to grace for the group to disappear, then SIGKILL for what is left. Each
+// step is logged so a shutdown or a restart can be followed in the guest log.
+// A group that is already gone (ESRCH) is success.
+func stopGroup(name string, pid int, grace time.Duration, logf func(string, ...any)) {
+	if !groupAlive(pid) {
+		logf("sidecar %s: process group %d already exited", name, pid)
+		return
+	}
+	logf("sidecar %s: SIGTERM to process group %d, waiting up to %s", name, pid, grace)
+	_ = signalGroup(pid, syscall.SIGTERM)
+	deadline := time.Now().Add(grace)
+	for groupAlive(pid) {
+		if time.Now().After(deadline) {
+			logf("sidecar %s: process group %d still alive after %s, SIGKILL", name, pid, grace)
+			_ = signalGroup(pid, syscall.SIGKILL)
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	logf("sidecar %s: process group %d exited after SIGTERM", name, pid)
+}
+
+// groupAlive reports whether any process remains in the group led by pid.
+// Signal 0 performs the permission and existence checks without delivering
+// anything; ESRCH means the group is gone.
+func groupAlive(pid int) bool {
+	return !errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
+}
+
+// signalGroup sends sig to the process group led by pid. A group that no
+// longer exists is not an error: everything in it has already exited. The
+// calls after Wait name a reaped pid; a reused pid leading another group is
+// possible in theory, but the window is microseconds in a sandbox whose pid
+// space is nearly empty.
+func signalGroup(pid int, sig syscall.Signal) error {
+	if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
 }
 
 // lineLogger writes complete lines to logf with a prefix; a partial trailing

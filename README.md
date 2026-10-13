@@ -33,9 +33,33 @@ while this project adds the environment-shaped API on top.
 
 ## Installation
 
+Download the `ate-env` binary for your platform from the
+[latest release](https://github.com/agent-substrate/env/releases/latest). Release
+binaries know the digests of the `ate-env-api` and `ate-env-guest` images
+published with that release, so the commands below need no image flags for
+this repo's images. Building from source works too, but then `--api-image` and
+`--guest-image` must be given:
+
 ```bash
 go install github.com/agent-substrate/env/cmd/ate-env@latest
 ```
+
+## Images
+
+Each release publishes two images to GitHub Container Registry, multi-platform,
+signed, and meant to be used by digest:
+
+| image | runs |
+|---|---|
+| `ghcr.io/agent-substrate/env/ate-env-api` | the API service, in the cluster |
+| `ghcr.io/agent-substrate/env/ate-env-guest` | inside every environment actor |
+
+The digests are in the release notes and in the `images_<tag>.txt` asset; the
+release's `ate-env` binary defaults to them. The worker image
+(`--worker-image`, `ateom-gvisor`) comes from the
+[Substrate repo](https://github.com/agent-substrate/substrate) and must match the
+Substrate version on your cluster. See [docs/release.md](docs/release.md) for
+verification, pinning and how releases are cut.
 
 ## Quickstart
 
@@ -51,10 +75,14 @@ published by that Substrate install.
 Deploy the namespace, worker pool, and API service:
 
 ```bash
-export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
+# With a release binary the API image defaults to the release's. The worker
+# image is ateom-gvisor from the Substrate repo at your cluster's version; in
+# that checkout, `go run ./cmd/ate-setup publish worker-images` pushes it and
+# prints the digest-pinned ref. Use the digest: a :latest tag is whatever was
+# built last, and a stale worker image registers workers with no capacity.
 ate-env manifest \
-  --api-image      gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-api@sha256:d2fc1cf6592607052b7c6f2d2ecc4730685889b4f27db580fcf84de263b089b0 \
-  --worker-image   gcr.io/$GOOGLE_CLOUD_PROJECT/ateom-gvisor-715889664656de67e44382a8d6ab981d@sha256:0e69688125a167ffd62ab084a9ab1a50e3f06e9107b36dcb01c3fb3ac0b23fcb | kubectl apply -f -
+  --worker-image   <registry>/ateom-gvisor@sha256:<digest> | kubectl apply -f -
+# From a source build, add: --api-image ghcr.io/agent-substrate/env/ate-env-api@sha256:<digest>
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env
@@ -67,9 +95,10 @@ Substrate manages ActorTemplates directly in its control plane rather than Kuber
 Templates live in the `ate-env` atespace, which `ate-env-api` creates when it starts. Register templates after the `ate-env-api` pod is Running, or create the atespace yourself first with `kubectl-ate create atespace ate-env`.
 
 ```bash
+# With a release binary the guest image defaults to the release's.
 ate-env manifest template \
-  --guest-image    gcr.io/$GOOGLE_CLOUD_PROJECT/ate-env-guest@sha256:7d02b56079fa4a0f207f20826964bae83a0b572c6ba7c38aacf0baf53ea12e36 \
-  --snapshots-bucket gs://$GOOGLE_CLOUD_PROJECT/ate-env/ | kubectl-ate create actor-template -f -
+  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
+# From a source build, add: --guest-image ghcr.io/agent-substrate/env/ate-env-guest@sha256:<digest>
 ```
 
 That template's container is the guest image itself. To run another image unmodified, name
