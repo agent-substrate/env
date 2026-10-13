@@ -91,20 +91,20 @@ func TestEnsureAtespace(t *testing.T) {
 }
 
 func TestEnsureAtespaceWithoutCreatePermission(t *testing.T) {
-      f := newFixture(t)
-      ctx := t.Context()
-      // An existing atespace is accepted through GetAtespace alone.
-      if err := f.client.EnsureAtespace(ctx, "shared-space"); err != nil {
-              t.Fatalf("EnsureAtespace (create): %v", err)
-      }
-      f.control.DenyCreateAtespace = true
-      if err := f.client.EnsureAtespace(ctx, "shared-space"); err != nil {
-              t.Fatalf("EnsureAtespace with create denied on an existing atespace: %v", err)
-      }
-      // A missing one still fails loudly rather than being silently skipped.
-      if err := f.client.EnsureAtespace(ctx, "absent-space"); err == nil {
-              t.Fatal("EnsureAtespace with create denied on a missing atespace: want error, got nil")
-      }
+	f := newFixture(t)
+	ctx := t.Context()
+	// An existing atespace is accepted through GetAtespace alone.
+	if err := f.client.EnsureAtespace(ctx, "shared-space"); err != nil {
+		t.Fatalf("EnsureAtespace (create): %v", err)
+	}
+	f.control.DenyCreateAtespace = true
+	if err := f.client.EnsureAtespace(ctx, "shared-space"); err != nil {
+		t.Fatalf("EnsureAtespace with create denied on an existing atespace: %v", err)
+	}
+	// A missing one still fails loudly rather than being silently skipped.
+	if err := f.client.EnsureAtespace(ctx, "absent-space"); err == nil {
+		t.Fatal("EnsureAtespace with create denied on a missing atespace: want error, got nil")
+	}
 }
 
 func TestSuspend(t *testing.T) {
