@@ -41,6 +41,7 @@ func main() {
 		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile  = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
+		wakeBudget = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
 	)
 	flag.Parse()
 
@@ -68,6 +69,7 @@ func main() {
 	log.Printf("default atespace %q ready", ate.DefaultAtespace)
 
 	apisvc := apiservice.New(client, *atenet, *hostSuffix)
+	apisvc.WakeBudget = *wakeBudget
 	defer apisvc.Close()
 
 	grpcServer := grpc.NewServer()
