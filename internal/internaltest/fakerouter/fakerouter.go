@@ -13,9 +13,10 @@
 // limitations under the License.
 
 // Package fakerouter implements a test double for the atenet router: it
-// resolves the target environment from the request's Host header and forwards
-// to that environment's guest handler, returning 503 when the environment is not
-// running.
+// resolves the target environment from the request's ate-target-actor header
+// (or, failing that, its Host header) and forwards to that environment's guest
+// handler, returning 404 for an invalid or duplicated actor reference and 503
+// when the environment is not running.
 package fakerouter
 
 import (
@@ -71,8 +72,15 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func actorID(req *http.Request) (string, bool) {
-	if targetActor := req.Header.Get(ate.TargetActorHeader); targetActor != "" {
-		_, actor, ok := strings.Cut(targetActor, "/")
+	// Like the real router since agent-substrate/substrate#2308: a request
+	// carrying ate-target-actor more than once is an invalid actor reference,
+	// even when every copy agrees.
+	values := req.Header.Values(ate.TargetActorHeader)
+	if len(values) > 1 {
+		return "", false
+	}
+	if len(values) == 1 && values[0] != "" {
+		_, actor, ok := strings.Cut(values[0], "/")
 		return actor, ok && actor != ""
 	}
 	if !strings.HasSuffix(req.Host, "."+ate.DefaultHostSuffix) {
