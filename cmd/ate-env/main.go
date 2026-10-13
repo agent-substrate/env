@@ -137,6 +137,7 @@ func newCreateCommand() *cobra.Command {
 		atespace               string
 		createTemplate         string
 		createTemplateAtespace string
+		rootfsImage            string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <id>",
@@ -152,8 +153,9 @@ func newCreateCommand() *cobra.Command {
 			defer client.Close()
 
 			req := &ateenvv1alpha.CreateEnvironmentRequest{
-				Id:       args[0],
-				Atespace: atespace,
+				Id:          args[0],
+				Atespace:    atespace,
+				RootfsImage: rootfsImage,
 			}
 			if createTemplate != "" || createTemplateAtespace != "" {
 				tmplAtespace := createTemplateAtespace
@@ -173,6 +175,7 @@ func newCreateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
 	cmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
 	cmd.Flags().StringVar(&createTemplateAtespace, "template-atespace", "", "Substrate atespace of the ActorTemplate (defaults to environment atespace)")
+	cmd.Flags().StringVar(&rootfsImage, "rootfs-image", "", "digest-pinned rootfs image to run unmodified (repo@sha256:...); the template becomes the base the guest is taken from")
 	return cmd
 }
 

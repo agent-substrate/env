@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -69,6 +70,64 @@ type templateConfig struct {
 	guestImage      string
 	guestCommand    []string
 	snapshotsBucket string
+	// rootfsImage, when set, is the digest-pinned image the actor runs; the
+	// guest is then mounted into it as an image volume instead of being the
+	// container image itself.
+	rootfsImage string
+	// workspace, when set, is passed to the guest as -workspace.
+	workspace string
+	// layers are extra runtimes mounted as read-only image volumes, each
+	// "name=image@sha256:...=/mount/path".
+	layers []string
+	// sidecars are command lines the guest starts and supervises next to
+	// itself (absolute binary path first), one per -sidecar flag.
+	sidecars []string
+	// sidecarReadyz are URLs the guest's /readyz waits for.
+	sidecarReadyz []string
+}
+
+// runtimeLayer is a parsed --layer value.
+type runtimeLayer struct {
+	name, image, mountPath string
+}
+
+// parseLayer parses "name=image@sha256:...=/mount/path". The image reference
+// carries no '=' and the mount path is absolute, so splitting on the first two
+// '=' is unambiguous.
+func parseLayer(v string) (runtimeLayer, error) {
+	parts := strings.SplitN(v, "=", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return runtimeLayer{}, fmt.Errorf("--layer %q: want name=image@sha256:...=/mount/path", v)
+	}
+	l := runtimeLayer{name: parts[0], image: parts[1], mountPath: parts[2]}
+	if l.name == apiservice.GuestVolumeName {
+		return runtimeLayer{}, fmt.Errorf("--layer %q: the name %q is reserved for the guest", v, apiservice.GuestVolumeName)
+	}
+	if _, err := apiservice.ImageDigest(l.image); err != nil {
+		return runtimeLayer{}, fmt.Errorf("--layer %q: %w", l.name, err)
+	}
+	if !strings.HasPrefix(l.mountPath, "/") || l.mountPath == apiservice.GuestMountPath {
+		return runtimeLayer{}, fmt.Errorf("--layer %q: mount path must be absolute and not %s", l.name, apiservice.GuestMountPath)
+	}
+	return l, nil
+}
+
+// parseLayers parses and cross-checks every --layer value.
+func parseLayers(values []string) ([]runtimeLayer, error) {
+	var layers []runtimeLayer
+	names, mounts := map[string]bool{}, map[string]bool{}
+	for _, v := range values {
+		l, err := parseLayer(v)
+		if err != nil {
+			return nil, err
+		}
+		if names[l.name] || mounts[l.mountPath] {
+			return nil, fmt.Errorf("--layer %q: duplicate name or mount path", v)
+		}
+		names[l.name], mounts[l.mountPath] = true, true
+		layers = append(layers, l)
+	}
+	return layers, nil
 }
 
 func (c *templateConfig) resolveImages() error {
@@ -77,6 +136,28 @@ func (c *templateConfig) resolveImages() error {
 	}
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
+	}
+	if c.rootfsImage != "" {
+		if _, err := apiservice.ImageDigest(c.rootfsImage); err != nil {
+			return fmt.Errorf("--rootfs-image: %w", err)
+		}
+		if _, err := apiservice.ImageDigest(c.guestImage); err != nil {
+			return fmt.Errorf("--guest-image must be digest-pinned to be mounted as an image volume: %w", err)
+		}
+	}
+	if _, err := parseLayers(c.layers); err != nil {
+		return err
+	}
+	for _, s := range c.sidecars {
+		argv := strings.Fields(s)
+		if len(argv) == 0 || !strings.HasPrefix(argv[0], "/") {
+			return fmt.Errorf("--sidecar %q: want an absolute binary path followed by its arguments", s)
+		}
+	}
+	for _, u := range c.sidecarReadyz {
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			return fmt.Errorf("--sidecar-readyz %q: want an http(s) URL", u)
+		}
 	}
 	return nil
 }
@@ -140,7 +221,11 @@ It prints YAML to stdout without touching the cluster.`,
 			if err := tCfg.resolveImages(); err != nil {
 				return err
 			}
-			return writeActorTemplate(cmd.OutOrStdout(), buildActorTemplate(tCfg))
+			tmpl, err := buildTemplate(tCfg)
+			if err != nil {
+				return err
+			}
+			return writeActorTemplate(cmd.OutOrStdout(), tmpl)
 		},
 	}
 
@@ -149,6 +234,11 @@ It prints YAML to stdout without touching the cluster.`,
 	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", "", "digest-pinned ate-env-guest image (repo@sha256:...)")
 	cmd.Flags().StringSliceVar(&tCfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
 	cmd.Flags().StringVar(&tCfg.snapshotsBucket, "snapshots-bucket", "", "object-storage bucket (with optional prefix) for actor snapshots, e.g. gs://bucket/prefix/")
+	cmd.Flags().StringVar(&tCfg.rootfsImage, "rootfs-image", "", "digest-pinned image to run unmodified; the guest is mounted into it as a read-only image volume at "+apiservice.GuestMountPath)
+	cmd.Flags().StringVar(&tCfg.workspace, "workspace", "", "workspace root inside the actor, passed to the guest as -workspace (default: the guest's default)")
+	cmd.Flags().StringArrayVar(&tCfg.layers, "layer", nil, "extra runtime mounted as a read-only image volume, as name=image@sha256:...=/mount/path (repeatable)")
+	cmd.Flags().StringArrayVar(&tCfg.sidecars, "sidecar", nil, "command the guest starts and keeps running next to itself, an absolute binary path plus arguments, e.g. '/opt/opensandbox/execd --port 44772' (repeatable)")
+	cmd.Flags().StringArrayVar(&tCfg.sidecarReadyz, "sidecar-readyz", nil, "URL the actor's readiness waits for, e.g. http://127.0.0.1:44772/ready (repeatable)")
 
 	return cmd
 }
@@ -321,6 +411,44 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 			ConfigName:   sandboxConfigName,
 		},
 	}
+}
+
+// buildTemplate returns the ActorTemplate for cfg: the guest template from
+// buildActorTemplate with the workspace flag applied and, when a rootfs image is
+// set, that image as the container with the guest mounted into it.
+func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
+	tmpl := buildActorTemplate(cfg)
+	c := tmpl.Containers[0]
+	command := append([]string(nil), c.Command...)
+	if cfg.workspace != "" {
+		command = append(command, "-workspace", cfg.workspace)
+	}
+	// Extra runtimes: each layer is an image volume, each sidecar a flag the
+	// guest acts on. They are added before any rootfs-image derivation so the
+	// derived template inherits them, and so do environments created from
+	// it with an image of their own.
+	layers, err := parseLayers(cfg.layers)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range layers {
+		tmpl.Volumes = append(tmpl.Volumes, &ateapipb.Volume{
+			Name:  l.name,
+			Image: &ateapipb.ImageVolumeSource{Reference: l.image},
+		})
+		c.VolumeMounts = append(c.VolumeMounts, &ateapipb.VolumeMount{Name: l.name, MountPath: l.mountPath})
+	}
+	for _, s := range cfg.sidecars {
+		command = append(command, "-sidecar", s)
+	}
+	for _, u := range cfg.sidecarReadyz {
+		command = append(command, "-sidecar-readyz", u)
+	}
+	c.Command = command
+	if cfg.rootfsImage == "" {
+		return tmpl, nil
+	}
+	return apiservice.DeriveImageTemplate(tmpl, cfg.template, cfg.rootfsImage)
 }
 
 // buildAPIDeployment returns the ate-env-api Deployment, pointed at the
