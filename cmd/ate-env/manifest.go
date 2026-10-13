@@ -404,7 +404,7 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 				Value: "80",
 			}},
 			WakeupProbe: &ateapipb.ContainerWakeupProbe{
-				HttpGet: &ateapipb.HTTPGetAction{
+				HttpGet: &ateapipb.HttpGetAction{
 					Path: "/readyz",
 					Port: 80,
 				},
