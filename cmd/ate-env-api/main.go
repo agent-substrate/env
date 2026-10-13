@@ -55,6 +55,12 @@ func main() {
 	}
 	defer client.Close()
 
+	// Create the default atespace up front so ActorTemplates can be registered
+	// before the first environment is created (templates live in an atespace).
+	if err := client.EnsureAtespace(context.Background(), ate.DefaultAtespace); err != nil {
+		log.Fatalf("ensuring default atespace %q: %v", ate.DefaultAtespace, err)
+	}
+
 	apisvc := apiservice.New(client, *atenet, *hostSuffix)
 	defer apisvc.Close()
 
