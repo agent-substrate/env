@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -66,6 +67,9 @@ func parseSidecar(v string) ([]string, error) {
 const (
 	sidecarMinBackoff = time.Second
 	sidecarMaxBackoff = 30 * time.Second
+	// sidecarStopGrace is how long a stopped sidecar's process group gets to exit
+	// and release the output pipes after SIGTERM before it is SIGKILLed.
+	sidecarStopGrace = 5 * time.Second
 	// sidecarStableAfter is how long a sidecar must have run for its next
 	// restart to start from the minimum backoff again.
 	sidecarStableAfter = time.Minute
@@ -84,10 +88,24 @@ func runSidecar(ctx context.Context, argv []string, logf func(string, ...any)) {
 		out := &lineLogger{prefix: name, logf: logf}
 		cmd.Stdout = out
 		cmd.Stderr = out
+		// The sidecar runs in its own process group so that stopping it also
+		// stops what it spawned. On shutdown the group gets SIGTERM, then
+		// sidecarStopGrace to exit and release the output pipes, then SIGKILL.
+		// Killing only the direct child is not enough: a wrapper script (the
+		// documented way to pass quoted arguments) would die alone while its
+		// child kept the pipes open, and Wait would block until that child
+		// exited. On Linux `sh -c` forks its command; bash on macOS execs it,
+		// which is why the test passed on one and hung on the other.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error { return signalGroup(cmd.Process.Pid, syscall.SIGTERM) }
+		cmd.WaitDelay = sidecarStopGrace
 		start := time.Now()
 		err := cmd.Run()
 		out.flush()
 		if ctx.Err() != nil {
+			if cmd.Process != nil {
+				_ = signalGroup(cmd.Process.Pid, syscall.SIGKILL)
+			}
 			return
 		}
 		ran := time.Since(start)
@@ -103,6 +121,15 @@ func runSidecar(ctx context.Context, argv []string, logf func(string, ...any)) {
 			backoff = min(backoff*2, sidecarMaxBackoff)
 		}
 	}
+}
+
+// signalGroup sends sig to the process group led by pid. A group that no
+// longer exists is not an error: everything in it has already exited.
+func signalGroup(pid int, sig syscall.Signal) error {
+	if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
 }
 
 // lineLogger writes complete lines to logf with a prefix; a partial trailing
