@@ -41,16 +41,14 @@ import uuid
 
 import pytest
 
-import grpc
-
 from ate_env import (
     Client,
     EnvError,
     EnvironmentStatus,
+    FailedPreconditionError,
     InvalidArgumentError,
     NotFoundError,
     ProcessState,
-    RpcError,
     Signal,
 )
 
@@ -192,13 +190,12 @@ async def test_create_from_image_rejects_unpinned_image(client):
 
 async def test_create_from_image_needs_a_base_template(client):
     missing = f"pye2e-nobase-{uuid.uuid4().hex[:8]}"
-    with pytest.raises(RpcError) as excinfo:
+    with pytest.raises(FailedPreconditionError) as excinfo:
         await client.create(
             f"pye2e-img-{uuid.uuid4().hex[:8]}",
             template_name=missing,
             rootfs_image="docker.io/library/busybox@sha256:" + "0" * 64,
         )
-    assert excinfo.value.code == grpc.StatusCode.FAILED_PRECONDITION
     assert missing in str(excinfo.value)
 
 
