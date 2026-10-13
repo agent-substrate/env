@@ -50,7 +50,7 @@ type Server struct {
 	// DenyCreateAtespace makes CreateAtespace fail with PermissionDenied, as
 	// Substrate does for an identity allowed to use but not create atespaces.
 	DenyCreateAtespace bool
-	templates map[string]*ateapipb.ActorTemplate
+	templates          map[string]*ateapipb.ActorTemplate
 }
 
 // New returns an empty fake control server.

@@ -581,8 +581,8 @@ func TestActorStatusToEnvStatus(t *testing.T) {
 }
 
 const (
-	testGuestImage = "example.com/ate-env-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	testRootfsImage  = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testGuestImage  = "example.com/ate-env-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testRootfsImage = "docker.io/library/python@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 // seedGuestTemplate registers the template `ate-env manifest template`
@@ -661,9 +661,9 @@ func TestCreateFromImageUsesNamedBaseAndAtespace(t *testing.T) {
 	seedGuestTemplate(control, "team-a", "py-base")
 
 	resp, err := envClient.CreateEnvironment(context.Background(), &ateenvv1alpha.CreateEnvironmentRequest{
-		Id:        "img1",
-		Atespace:  "team-a",
-		Template:  &ateenvv1alpha.Template{Name: "py-base"},
+		Id:          "img1",
+		Atespace:    "team-a",
+		Template:    &ateenvv1alpha.Template{Name: "py-base"},
 		RootfsImage: testRootfsImage,
 	})
 	if err != nil {

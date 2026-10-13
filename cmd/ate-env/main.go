@@ -137,7 +137,7 @@ func newCreateCommand() *cobra.Command {
 		atespace               string
 		createTemplate         string
 		createTemplateAtespace string
-		rootfsImage              string
+		rootfsImage            string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <id>",
@@ -153,8 +153,8 @@ func newCreateCommand() *cobra.Command {
 			defer client.Close()
 
 			req := &ateenvv1alpha.CreateEnvironmentRequest{
-				Id:        args[0],
-				Atespace:  atespace,
+				Id:          args[0],
+				Atespace:    atespace,
 				RootfsImage: rootfsImage,
 			}
 			if createTemplate != "" || createTemplateAtespace != "" {
