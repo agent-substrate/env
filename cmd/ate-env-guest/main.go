@@ -30,7 +30,9 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/agent-substrate/env/guest"
 )
@@ -112,14 +114,37 @@ func main() {
 		_ = srv.Shutdown(context.Background())
 	}()
 
+	var supervisors sync.WaitGroup
 	for _, argv := range sidecarArgv {
 		log.Printf("starting sidecar %s", strings.Join(argv, " "))
-		go runSidecar(ctx, argv, log.Printf)
+		supervisors.Add(1)
+		go func() {
+			defer supervisors.Done()
+			runSidecar(ctx, argv, log.Printf)
+		}()
 	}
 
 	log.Printf("ate-env-guest listening on %s (gRPC services=%s, workspace=%s, logdir=%s)",
 		lis.Addr(), guest.FormatEnabledServices(cfg), cfg.Workspace, cfg.LogDir)
 	if err := srv.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("ate-env-guest server error: %v", err)
+	}
+	// The supervisors stop their process groups with SIGTERM, a grace period
+	// and SIGKILL; that sequence needs this process to stay alive until it
+	// has run. Inside an actor the guest is PID 1 and the container would end
+	// with it anyway; outside one, this is what stops the sidecars.
+	waitBounded(&supervisors, sidecarStopGrace+time.Second)
+}
+
+// waitBounded waits for wg, but at most d.
+func waitBounded(wg *sync.WaitGroup, d time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
 	}
 }

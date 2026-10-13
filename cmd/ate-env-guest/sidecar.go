@@ -102,10 +102,14 @@ func runSidecar(ctx context.Context, argv []string, logf func(string, ...any)) {
 		start := time.Now()
 		err := cmd.Run()
 		out.flush()
+		// Whatever is left in the group is gone before the next step: on
+		// shutdown so the guest's stop is complete, before a restart so the
+		// new sidecar does not compete with its own orphans for ports.
+		if cmd.Process != nil {
+			_ = signalGroup(cmd.Process.Pid, syscall.SIGKILL)
+		}
 		if ctx.Err() != nil {
-			if cmd.Process != nil {
-				_ = signalGroup(cmd.Process.Pid, syscall.SIGKILL)
-			}
+			logf("sidecar %s stopped", name)
 			return
 		}
 		ran := time.Since(start)
@@ -124,7 +128,10 @@ func runSidecar(ctx context.Context, argv []string, logf func(string, ...any)) {
 }
 
 // signalGroup sends sig to the process group led by pid. A group that no
-// longer exists is not an error: everything in it has already exited.
+// longer exists is not an error: everything in it has already exited. The
+// call after Wait names a reaped pid; a reused pid leading another group is
+// possible in theory, but the window is microseconds in a sandbox whose pid
+// space is nearly empty.
 func signalGroup(pid int, sig syscall.Signal) error {
 	if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err

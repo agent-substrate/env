@@ -125,18 +125,30 @@ func TestRunSidecarRestartsAndStopsWithContext(t *testing.T) {
 		t.Errorf("backoff did not double:\n%s", joined)
 	}
 
-	// A long-running sidecar is killed promptly when the guest shuts down.
+	// A long-running sidecar is killed promptly when the guest shuts down,
+	// together with what it forked. `sleep 60 & wait` forks on every
+	// platform; a bare `sh -c "sleep 60"` execs on macOS and would not
+	// exercise the process-group kill there. The forked sleep holds the
+	// output pipe, and WaitDelay (sidecarStopGrace) would not release it
+	// before 5 s, so a return within the bound below proves the child died.
+	bound := sidecarStopGrace - time.Second
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	done2 := make(chan struct{})
 	go func() {
-		runSidecar(ctx2, []string{sh, "-c", "sleep 60"}, logf)
+		runSidecar(ctx2, []string{sh, "-c", "sleep 60 & wait"}, logf)
 		close(done2)
 	}()
 	time.Sleep(200 * time.Millisecond)
 	cancel2()
 	select {
 	case <-done2:
-	case <-time.After(3 * time.Second):
-		t.Fatal("sidecar was not stopped when the context was cancelled")
+	case <-time.After(bound):
+		t.Fatal("sidecar (or its child) was not stopped when the context was cancelled")
+	}
+	mu.Lock()
+	joined = strings.Join(lines, "\n")
+	mu.Unlock()
+	if !strings.Contains(joined, "sidecar sh stopped") {
+		t.Errorf("stop was not logged:\n%s", joined)
 	}
 }
