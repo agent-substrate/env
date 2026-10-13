@@ -62,12 +62,12 @@ deployed on your cluster. From a Substrate checkout at that version run
 "go run ./cmd/ate-setup publish worker-images": it pushes the images and
 prints the digest-pinned refs to use. Pin by digest: a registry's :latest
 is whatever was built last, and a stale worker image registers workers
-with no capacity.`)
+with no capacity`)
 	}
 	if c.apiImage == "" {
 		return errors.New(`--api-image is required when ate-env is built from source; release
 binaries default it to the ate-env-api image published with the release
-(see docs/release.md), or build and push your own with make images.`)
+(see docs/release.md), or build and push your own with make images`)
 	}
 	return nil
 }
@@ -143,7 +143,7 @@ func (c *templateConfig) resolveImages() error {
 	if c.guestImage == "" {
 		return errors.New(`--guest-image is required when ate-env is built from source; release
 binaries default it to the ate-env-guest image published with the release
-(see docs/release.md), or build and push your own with make images.`)
+(see docs/release.md), or build and push your own with make images`)
 	}
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
