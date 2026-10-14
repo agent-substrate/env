@@ -596,7 +596,7 @@ func seedGuestTemplate(control *fakecontrol.Server, atespace, name string) {
 			Image:       testGuestImage,
 			Command:     []string{"/ko-app/ate-env-guest"},
 			Env:         []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
 		}},
 		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://bucket/ate-env/"},
 		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},

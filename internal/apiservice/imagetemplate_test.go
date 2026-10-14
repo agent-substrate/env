@@ -36,7 +36,7 @@ func modeABase() *ateapipb.ActorTemplate {
 			Image:       testGuestImage,
 			Command:     []string{"/ko-app/ate-env-guest", "-workspace", "/workspace"},
 			Env:         []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}},
+			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
 		}},
 		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://b/p/", PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY},
 		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},

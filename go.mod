@@ -3,7 +3,7 @@ module github.com/agent-substrate/env
 go 1.27.0
 
 require (
-	github.com/agent-substrate/substrate v0.4.1-0.20261013000135-f03327bd4aa8
+	github.com/agent-substrate/substrate v0.4.1-0.20261013175625-da35a983ed34
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/spf13/cobra v1.10.2

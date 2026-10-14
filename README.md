@@ -65,10 +65,10 @@ verification, pinning and how releases are cut.
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket. ate-env is built against Substrate
-[`f03327bd`](https://github.com/agent-substrate/substrate/commit/f03327bd) (2026-10-12) and needs at
-least that revision on the cluster: the WorkerPool it writes declares `spec.sandboxClasses`, the
-ActorTemplate uses `snapshotConfig` and `wakeupProbe`, and `--worker-image` must be the `ateom` image
-published by that Substrate install.
+[`da35a983`](https://github.com/agent-substrate/substrate/commit/da35a983) (2026-10-13). The cluster
+needs a Substrate recent enough to accept what ate-env writes: the WorkerPool declares
+`spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and `wakeupProbe`, and `--worker-image`
+must be the `ateom` image published by that Substrate install.
 
 ### 1. Deploy the Kubernetes Resources
 
