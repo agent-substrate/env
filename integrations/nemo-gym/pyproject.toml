@@ -30,7 +30,7 @@ dependencies = ["ate-env-client>=0.1.0", "grpcio>=1.84"]
 [project.optional-dependencies]
 # The real deployment target. Without it the package falls back to local
 # structural mirrors of the nemo_gym base types (tests only).
-gym = ["nemo-gym"]
+gym = ["nemo-gym; python_full_version >= '3.13.14'"]  # what nemo-gym 0.7.0 on PyPI requires
 test = ["pytest>=8"]
 
 [project.entry-points."nemo_gym.sandbox_providers"]
@@ -38,3 +38,8 @@ substrate = "nemo_gym_substrate.provider:SubstrateSandboxProvider"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ate-env-client is not published; resolve it from this checkout so
+# `uv run --extra test pytest` works without a prior pip install.
+[tool.uv.sources]
+ate-env-client = { path = "../../clients/python", editable = true }

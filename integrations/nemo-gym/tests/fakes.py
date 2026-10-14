@@ -12,30 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""In-process fake of ate-env-api for the provider's contract tests.
+"""In-process fake of ate-env-api speaking the current ateenv.v1alpha protocol.
 
-Serves the three gRPC services the real ``ate-env-api`` exposes on one port:
-``EnvironmentService`` (lifecycle) and, proxied to the guest in production,
-``ProcessService`` and ``FileSystemService``. The guest services require the
-``x-env-id`` routing metadata the ``ate_env`` client attaches, and answer
-NOT_FOUND for an unknown environment the way the proxy does. Behavior is
-scripted through :class:`FakeAteEnv` (create/get/delete failures, readiness
-probes to fail first, commands that never exit).
+Mirrors just enough of EnvironmentService, ProcessService and FileSystemService
+for the provider's contract tests; the knobs on FakeAteEnv script failures.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from dataclasses import dataclass, field
 
 import grpc
 import grpc.aio
-from ate_env import EnvironmentStatus, OutputSource, ProcessStatus
+from ate_env import EnvironmentStatus, ProcessState
 from ate_env._gen.ateenv.v1alpha import env_pb2, env_pb2_grpc, guest_pb2, guest_pb2_grpc
 
 DEFAULT_ATESPACE = "ate-env"
 DEFAULT_TEMPLATE = "default-template"
+SIGKILL = 9
 
 
 @dataclass
@@ -46,14 +43,23 @@ class FakeProc:
     stderr: bytes = b""
     exit_code: int | None = None  # None while running
     killed: bool = False
+    timeout_s: float | None = None  # guest-side deadline the caller asked for
+    started_at: float = field(default_factory=time.monotonic)
 
     @property
-    def status(self) -> int:
-        if self.exit_code is None:
-            return int(ProcessStatus.RUNNING)
-        if self.killed:
-            return int(ProcessStatus.TERMINATED)
-        return int(ProcessStatus.COMPLETED if self.exit_code == 0 else ProcessStatus.FAILED)
+    def state(self) -> int:
+        return int(ProcessState.RUNNING if self.exit_code is None else ProcessState.EXITED)
+
+    def to_pb(self, process_id: str) -> guest_pb2.Process:
+        return guest_pb2.Process(
+            process_id=process_id,
+            command=self.argv,
+            pid=4242,
+            state=self.state,
+            # proto3 int32 has no unset value: the real guest serializes 0 for
+            # a running process too, and `state` is the discriminator.
+            exit_code=self.exit_code or 0,
+        )
 
 
 @dataclass
@@ -106,9 +112,18 @@ class FakeEnvironmentService(env_pb2_grpc.EnvironmentServiceServicer):
             await context.abort(s.create_code, "create refused")
         if request.id in s.envs:
             await context.abort(grpc.StatusCode.ALREADY_EXISTS, "exists")
+        base = request.template.name or DEFAULT_TEMPLATE
+        # Like ate-env-api: an image on the request yields a template derived
+        # from the base, named after the base and the image's digest prefix.
+        template = base
+        if request.rootfs_image:
+            digest = request.rootfs_image.split("@sha256:", 1)[-1][:12]
+            template = f"{base}-{digest}"
         s.envs[request.id] = {
             "atespace": request.atespace or DEFAULT_ATESPACE,
-            "template": request.template.name or DEFAULT_TEMPLATE,
+            "template": template,
+            "base_template": base,
+            "rootfs_image": request.rootfs_image,
             "template_atespace": request.template.atespace or DEFAULT_ATESPACE,
             "status": int(EnvironmentStatus.RUNNING),
         }
@@ -146,15 +161,22 @@ class FakeProcessService(guest_pb2_grpc.ProcessServiceServicer):
         env_id = await _env_from_metadata(s, context)
         argv = list(request.command)
         shell_cmd = argv[-1] if argv else ""
+        timeout_s = request.timeout.ToTimedelta().total_seconds() if request.HasField("timeout") else None
         s.starts.append(
-            {"env_id": env_id, "command": argv, "cwd": request.cwd, "env": dict(request.env)}
+            {
+                "env_id": env_id,
+                "command": argv,
+                "cwd": request.cwd,
+                "env": dict(request.env),
+                "timeout": timeout_s,
+            }
         )
         if shell_cmd == "true" and s._probes < s.ready_after_probes:
             s._probes += 1
             await context.abort(grpc.StatusCode.UNAVAILABLE, "guest not up yet")
         s._seq += 1
         pid = f"p{s._seq}"
-        proc = FakeProc(env_id=env_id, argv=argv)
+        proc = FakeProc(env_id=env_id, argv=argv, timeout_s=timeout_s)
         if shell_cmd in s.hang:
             proc.exit_code = None
         elif "exit 7" in shell_cmd:
@@ -162,7 +184,7 @@ class FakeProcessService(guest_pb2_grpc.ProcessServiceServicer):
         else:
             proc.stdout, proc.exit_code = b"ok", 0
         s.procs[pid] = proc
-        return guest_pb2.StartProcessResponse(process_id=pid)
+        return proc.to_pb(pid)
 
     async def _lookup(self, process_id: str, context) -> FakeProc:
         await _env_from_metadata(self.state, context)
@@ -173,25 +195,38 @@ class FakeProcessService(guest_pb2_grpc.ProcessServiceServicer):
 
     async def GetProcess(self, request, context):
         proc = await self._lookup(request.process_id, context)
-        return guest_pb2.Process(
-            process_id=request.process_id, status=proc.status, exit_code=proc.exit_code or 0
-        )
+        return proc.to_pb(request.process_id)
 
-    async def StreamProcessOutputs(self, request, context):
+    async def StreamProcessOutput(self, request, context):
         proc = await self._lookup(request.process_id, context)
-        if proc.stdout:
-            yield guest_pb2.OutputChunk(source=int(OutputSource.STDOUT), data=proc.stdout)
-        if proc.stderr:
-            yield guest_pb2.OutputChunk(source=int(OutputSource.STDERR), data=proc.stderr)
+        out = proc.stdout[request.stdout_offset :]
+        err = proc.stderr[request.stderr_offset :]
+        if out:
+            yield guest_pb2.ProcessOutput(stdout=out)
+        if err:
+            yield guest_pb2.ProcessOutput(stderr=err)
         if request.follow:
             while proc.exit_code is None:
+                if proc.timeout_s is not None and time.monotonic() - proc.started_at >= proc.timeout_s:
+                    # The guest's watchdog: SIGKILL to the group at the deadline.
+                    proc.exit_code, proc.killed = 128 + SIGKILL, True
+                    break
                 await asyncio.sleep(0.01)
+        if proc.exit_code is not None:
+            yield guest_pb2.ProcessOutput(exit=proc.to_pb(request.process_id))
 
-    async def KillProcess(self, request, context):
+    async def WriteProcessInput(self, request_iterator, context):
+        await _env_from_metadata(self.state, context)
+        n = 0
+        async for req in request_iterator:
+            n += len(req.data)
+        return guest_pb2.WriteProcessInputResponse(bytes_written=n)
+
+    async def SignalProcess(self, request, context):
         proc = await self._lookup(request.process_id, context)
-        if proc.exit_code is None:
-            proc.exit_code, proc.killed = 137, True
-        return guest_pb2.KillProcessResponse(exit_code=proc.exit_code)
+        if proc.exit_code is None and request.signal in (SIGKILL, 15):
+            proc.exit_code, proc.killed = 128 + int(request.signal), True
+        return proc.to_pb(request.process_id)
 
 
 class FakeFileSystemService(guest_pb2_grpc.FileSystemServiceServicer):
@@ -205,7 +240,7 @@ class FakeFileSystemService(guest_pb2_grpc.FileSystemServiceServicer):
             await context.abort(grpc.StatusCode.NOT_FOUND, f"{request.path}: no such file")
         # Small chunks so the client's streaming reassembly is exercised.
         for i in range(0, len(data), 4):
-            yield guest_pb2.FileChunk(data=data[i : i + 4])
+            yield guest_pb2.ReadFileResponse(chunk=data[i : i + 4])
 
     async def WriteFile(self, request_iterator, context):
         env_id = await _env_from_metadata(self.state, context)

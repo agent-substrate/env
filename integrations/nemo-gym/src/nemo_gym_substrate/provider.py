@@ -32,7 +32,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import math
 import time
 import uuid
 from dataclasses import dataclass
@@ -42,7 +41,7 @@ from urllib.parse import urlparse
 
 import grpc
 import grpc.aio
-from ate_env import Client, Env, EnvError, EnvironmentStatus, NotFoundError, OutputSource
+from ate_env import Client, Env, EnvError, EnvironmentStatus, NotFoundError, Process
 
 from ._compat import (
     SandboxCreateError,
@@ -63,6 +62,12 @@ _EXEC_GRACE_S = 5.0
 # Deadline for one readiness probe. A guest that is still booting may hold a
 # call open; bounding it keeps the poll loop honest.
 _PROBE_TIMEOUT_S = 10.0
+# Smallest guest deadline exec() asks for. The guest takes any positive
+# duration, but zero selects its default (an hour) and a sub-second kill
+# window is noise next to the RPC round trip.
+_MIN_GUEST_TIMEOUT_S = 1.0
+# Exit code the guest reports for a process group it killed with SIGKILL.
+_SIGKILL_EXIT = 137
 
 # Env lifecycle status -> Gym status. Parked (suspended / paused) actors report
 # RUNNING: the router resumes them on the next guest call, which is what a
@@ -209,7 +214,7 @@ class SubstrateSandboxProvider:
 
     async def create(self, spec: SandboxSpec) -> SandboxHandle:
         opts = SubstrateProviderOptions.from_mapping(spec.provider_options or {})
-        template = self._resolve_template(spec, opts)
+        template, rootfs_image = self._resolve_template(spec, opts)
         atespace = opts.atespace or self._create.atespace
         env_id = f"gym-{uuid.uuid4().hex[:10]}"
 
@@ -220,6 +225,7 @@ class SubstrateSandboxProvider:
                     atespace=atespace,
                     template_name=template,
                     template_atespace=atespace,
+                    rootfs_image=rootfs_image,
                 ),
                 timeout=self._connection.request_timeout_s,
             )
@@ -273,30 +279,47 @@ class SubstrateSandboxProvider:
         effective_cwd = cwd or raw.get("workdir") or ""
 
         argv = ["sh", "-c", command]
-        # `is not None` so an explicit 0 means "shortest allowed deadline"
-        # (1s guest-side), not "unlimited".
-        if timeout_s is not None:
-            # Enforce the deadline guest-side, so a runaway process does not
-            # outlive the call that started it. Round up to whole seconds with
-            # a floor of 1: `timeout 0` disables the limit in coreutils, so a
-            # sub-second timeout_s must not floor to zero.
-            argv = ["timeout", str(max(1, math.ceil(timeout_s))), *argv]
+        # The guest enforces the deadline itself and kills the process group
+        # with SIGKILL when it elapses, so a runaway process never outlives the
+        # call that started it and the image needs no `timeout` binary. `is not
+        # None` so an explicit 0 means "shortest deadline", not "unlimited".
+        guest_timeout = (
+            None if timeout_s is None else max(_MIN_GUEST_TIMEOUT_S, float(timeout_s))
+        )
 
         sandbox = self._env(handle)
-        process_id = await sandbox.start_process(argv, cwd=effective_cwd, env=merged_env)
+        started = time.monotonic()
+        process = await sandbox.start_process(
+            argv, cwd=effective_cwd, env=merged_env, timeout=guest_timeout
+        )
         try:
-            return await asyncio.wait_for(
-                self._collect(sandbox, process_id),
+            result = await asyncio.wait_for(
+                self._collect(process),
                 timeout=None if timeout_s is None else timeout_s + _EXEC_GRACE_S,
             )
         except asyncio.TimeoutError:
             with contextlib.suppress(EnvError):
-                await sandbox.kill_process(process_id)
+                await process.kill()
             return SandboxExecResult(
                 stdout=None,
                 stderr=f"substrate provider: exec timed out after {timeout_s}s",
                 return_code=-1,
             )
+        if (
+            guest_timeout is not None
+            and result.return_code == _SIGKILL_EXIT
+            and time.monotonic() - started >= guest_timeout
+        ):
+            # The guest reports a deadline kill as a plain SIGKILL and nothing
+            # in the exit state says why; the elapsed time does. Name it: 137
+            # with an empty stderr tells a rollout nothing.
+            note = f"substrate provider: exec timed out after {timeout_s}s (killed by the guest)"
+            return SandboxExecResult(
+                stdout=result.stdout,
+                stderr=f"{result.stderr}\n{note}" if result.stderr else note,
+                return_code=result.return_code,
+            )
+        return result
 
     async def upload_file(self, handle: SandboxHandle, source_path: Path, target_path: str) -> None:
         await self._env(handle).write_file(
@@ -357,19 +380,26 @@ class SubstrateSandboxProvider:
     def _env(self, handle: SandboxHandle) -> Env:
         return self._ate().env(handle.sandbox_id, atespace=self._atespace_of(handle.raw or {}))
 
-    def _resolve_template(self, spec: SandboxSpec, opts: SubstrateProviderOptions) -> str:
+    def _resolve_template(
+        self, spec: SandboxSpec, opts: SubstrateProviderOptions
+    ) -> tuple[str, str | None]:
+        """Return ``(template, rootfs_image)`` for a spec.
+
+        An explicit provider option or an ``image_templates`` entry names a
+        registered template. Any other image goes to ate-env-api as
+        ``rootfs_image``: the API derives a template from the base on first
+        use, with the guest mounted into the image as a read-only volume, and
+        reuses it afterwards. The image must be digest-pinned; the API rejects
+        tags.
+        """
         if opts.template:
-            return opts.template
+            return opts.template, None
         if spec.image:
             mapped = (self._create.image_templates or {}).get(spec.image)
             if mapped:
-                return mapped
-            raise SandboxCreateError(
-                f"no ActorTemplate mapped for image {spec.image!r}: add it to "
-                "sandbox.substrate.create.image_templates or set "
-                "provider_options.template (templates are pre-provisioned; see README)"
-            )
-        return self._create.template
+                return mapped, None
+            return self._create.template, spec.image
+        return self._create.template, None
 
     async def _wait_ready(self, env: Env, timeout_s: float) -> None:
         """Poll a trivial command until the guest answers it. A fresh actor may
@@ -395,21 +425,24 @@ class SubstrateSandboxProvider:
         )
 
     @staticmethod
-    async def _collect(env: Env, process_id: str) -> SandboxExecResult:
+    async def _collect(process: Process) -> SandboxExecResult:
         stdout = bytearray()
         stderr = bytearray()
-        async for chunk in env.stream_outputs(process_id, follow=True):
-            if chunk.source == OutputSource.STDOUT:
-                stdout.extend(chunk.data)
-            elif chunk.source == OutputSource.STDERR:
-                stderr.extend(chunk.data)
-        # The follow stream can end before the process record's status
-        # flips; wait() polls for the final state and exit code.
-        proc = await env.wait(process_id)
+        final = None
+        async for chunk in process.output(follow=True):
+            if chunk.stdout is not None:
+                stdout.extend(chunk.stdout)
+            elif chunk.stderr is not None:
+                stderr.extend(chunk.stderr)
+            elif chunk.exit is not None:
+                final = chunk.exit
+        if final is None:
+            # The stream can end before the exit message; wait() polls for it.
+            final = await process.wait()
         return SandboxExecResult(
             stdout=stdout.decode("utf-8", errors="replace"),
             stderr=stderr.decode("utf-8", errors="replace"),
-            return_code=proc.exit_code,
+            return_code=final.exit_code,
         )
 
     async def _best_effort_delete(self, env_id: str, atespace: str) -> None:

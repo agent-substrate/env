@@ -124,13 +124,21 @@ def test_create_readiness_timeout_cleans_up():
     run(t())
 
 
-def test_image_resolves_via_mapping_or_fails():
+def test_image_resolves_via_mapping_or_derives():
     async def t():
         async with stack() as (provider, fake):
+            # A mapped image names a registered template; no rootfs_image is sent.
             handle = await provider.create(SandboxSpec(image="img:1"))
             assert fake.envs[handle.sandbox_id]["template"] == "tpl-img1"
-            with pytest.raises(SandboxCreateError, match="no ActorTemplate mapped"):
-                await provider.create(SandboxSpec(image="img:unmapped"))
+            assert fake.envs[handle.sandbox_id]["rootfs_image"] == ""
+            # Any other image goes to the API as rootfs_image on the base
+            # template, which derives (and later reuses) a template for it.
+            image = "docker.io/library/python@sha256:" + "ab" * 32
+            handle = await provider.create(SandboxSpec(image=image))
+            env = fake.envs[handle.sandbox_id]
+            assert env["rootfs_image"] == image
+            assert env["base_template"] == "default-template"
+            assert env["template"] == "default-template-" + "ab" * 6
 
     run(t())
 
@@ -162,26 +170,29 @@ def test_exec_merges_spec_env_and_cwd():
 
 @pytest.mark.parametrize(
     ("timeout_s", "guest_deadline"),
-    [(3, "3"), (0.5, "1"), (0, "1"), (2.2, "3")],
+    [(3, 3.0), (0.5, 1.0), (0, 1.0), (2.2, 2.2)],
 )
-def test_exec_timeout_wraps_command_guest_side(timeout_s, guest_deadline):
-    # `timeout 0` disables the limit in coreutils, so a sub-second or zero
-    # deadline must round up to 1s rather than floor to 0.
+def test_exec_timeout_is_enforced_guest_side(timeout_s, guest_deadline):
+    # The deadline travels as the process's own timeout, not as a `timeout`
+    # wrapper, so the image needs no coreutils. Zero and sub-second values
+    # floor to 1 s: a zero duration would select the guest default instead.
     async def t():
         async with stack() as (provider, fake):
             handle = await provider.create(SandboxSpec())
             await provider.exec(handle, "sleep 100", timeout_s=timeout_s)
-            assert fake.starts[-1]["command"] == ["timeout", guest_deadline, "sh", "-c", "sleep 100"]
+            assert fake.starts[-1]["command"] == ["sh", "-c", "sleep 100"]
+            assert fake.starts[-1]["timeout"] == pytest.approx(guest_deadline)
 
     run(t())
 
 
-def test_exec_without_timeout_is_unwrapped():
+def test_exec_without_timeout_has_no_guest_deadline():
     async def t():
         async with stack() as (provider, fake):
             handle = await provider.create(SandboxSpec())
             await provider.exec(handle, "sleep 1")
             assert fake.starts[-1]["command"] == ["sh", "-c", "sleep 1"]
+            assert fake.starts[-1]["timeout"] is None
 
     run(t())
 
@@ -209,6 +220,23 @@ def test_exec_client_timeout_returns_sentinel_and_kills(monkeypatch):
             assert "timed out" in (result.stderr or "")
             hung = [p for p in fake.procs.values() if p.argv[-1] == "sleepy"]
             assert hung and hung[0].killed
+
+    run(t())
+
+
+def test_exec_guest_deadline_reports_timeout(monkeypatch):
+    # The guest kills the process group at the deadline and reports a plain
+    # SIGKILL; the result keeps that exit code and says why on stderr.
+    monkeypatch.setattr(provider_mod, "_MIN_GUEST_TIMEOUT_S", 0.05)
+
+    async def t():
+        async with stack() as (provider, fake):
+            handle = await provider.create(SandboxSpec())
+            fake.hang.add("sleepy")
+            result = await provider.exec(handle, "sleepy", timeout_s=0.05)
+            assert result.return_code == 137
+            assert "timed out" in result.stderr and "guest" in result.stderr
+            assert fake.starts[-1]["timeout"] == pytest.approx(0.05)
 
     run(t())
 

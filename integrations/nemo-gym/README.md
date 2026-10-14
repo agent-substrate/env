@@ -28,8 +28,8 @@ One gRPC endpoint, `ate-env-api`, carries everything (see the
 
 | Provider call | `ate_env` call | Where it lands |
 |---|---|---|
-| `create(spec)` | `Client.create(id, template_name=…, template_atespace=…)`, then `Env.shell("true")` until it answers, then `Env.write_file` for `spec.files` | `EnvironmentService` → Substrate control plane; the probe and the files go to the guest |
-| `exec(handle, cmd, cwd=, env=, timeout_s=)` | `Env.start_process(["sh","-c",cmd], cwd, env)` + `stream_outputs(follow=True)` + `wait` | `ProcessService` in `ate-env-guest`, proxied through the atenet router |
+| `create(spec)` | `Client.create(id, template_name=…, template_atespace=…, rootfs_image=…)`, then `Env.shell("true")` until it answers, then `Env.write_file` for `spec.files` | `EnvironmentService` → Substrate control plane; the probe and the files go to the guest |
+| `exec(handle, cmd, cwd=, env=, timeout_s=)` | `Env.start_process(["sh","-c",cmd], cwd, env, timeout=)` + `Process.output(follow=True)` | `ProcessService` in `ate-env-guest`, proxied through the atenet router |
 | `upload_file` / `download_file` | `Env.write_file` / `Env.read_file_bytes` | `FileSystemService` in the guest |
 | `status(handle)` | `Client.get(id)` → lifecycle status | `EnvironmentService`; does **not** wake a parked sandbox |
 | `close(handle)` | `Client.delete(id)`, NOT_FOUND-safe | `EnvironmentService` |
@@ -63,16 +63,19 @@ On the cluster:
    If your `ateapi` requires authentication (it does on any standard install), the
    `ate-env-api` Deployment needs a projected ServiceAccount token with audience
    `api.ate-system.svc` and the `-ateapi-token-file` flag pointing at it.
-3. **An ActorTemplate per task image**, pre-provisioned in the `ate-env` atespace (the substrate
-   analog of "the image is available"). `ate-env manifest` creates `default-template`; add one
-   template per additional image and map them under `create.image_templates` below.
+3. **A base ActorTemplate** in the `ate-env` atespace: `default-template`, which the root
+   README's quickstart registers. That is all a task image needs: `SandboxSpec.image` goes to
+   `ate-env-api` as `rootfs_image`, and the API derives a template from the base on first use
+   (the guest mounted into the image as a read-only volume) and reuses it afterwards. Register
+   extra templates only for images that need their own resources or workspace, and map them
+   under `create.image_templates`.
 
    > **Every template must run `ate-env-guest` inside the actor.** Readiness, exec, file
    > transfer, even `create()` completing — all of it goes through the guest's gRPC services
-   > behind the router. A template built from an unmodified task image (no guest) fails
-   > *completely*: the actor starts, but every guest call fails and `create()` times out with
-   > `SandboxCreateVerificationError`. See "Task images" for the two ways to get the guest in.
-   > Substrate also requires template images to be digest-pinned.
+   > behind the router. Derived templates get the guest automatically; a hand-written template
+   > without it fails *completely*: the actor starts, but every guest call fails and `create()`
+   > times out with `SandboxCreateVerificationError`. Images must be digest-pinned
+   > (`repo@sha256:…`); the API rejects tags.
 4. **Network path from wherever Gym's rollout workers run** to `ate-env-api`: in-cluster DNS
    (`ate-env-api.ate-env:7777`) or, for a workstation, a port-forward:
 
@@ -88,49 +91,31 @@ Locally:
 
 ## Task images
 
-The guest is a static Go binary. Two ways to run it on top of an arbitrary task image:
+Three ways to run a task image, from least to most work:
 
-**Mode B — mount the guest as an OCI image volume (preferred).** Substrate mounts a second image
-into the actor, so the task image stays unmodified and digest-pinned as published. One
-`ActorTemplate` per task image:
+**Pass the image (default).** Set `SandboxSpec.image` to a digest-pinned reference. `create()`
+sends it as `rootfs_image` on the base template; the API derives `<base>-<12 hex of the digest>`
+once, bakes its golden snapshot, and later creates on the same image restore from it. Nothing to
+register, nothing to rebuild. See [`docs/rootfs-images/README.md`](../../docs/rootfs-images/README.md).
 
-```yaml
-apiVersion: ate.dev/v1alpha1
-kind: ActorTemplate
-metadata: { name: py-task, namespace: ate-env }
-spec:
-  containers:
-  - name: main
-    image: python@sha256:<task image digest>
-    command: ["/bin/sh", "-c", "exec /ate/ko-app/ate-env-guest -listen :80 -workspace /workspace"]
-    wakeupProbe: { httpGet: { path: /readyz, port: 80 } }
-    volumeMounts: [{ name: guest, mountPath: /ate }]
-  volumes:
-  - name: guest
-    image: { reference: <ate-env-guest image>@sha256:<digest> }
-  sandboxClass: gvisor
-  snapshotsConfig: { location: "gs://$BUCKET/ate-env/" }
-  workerSelector: { matchLabels: { workload: default-env } }
-```
-
-This is the shape the SWE-500 benchmark uses for 500 unmodified SWE-bench images
-(`sandbox-rl-performance/substrate/drivers/run_swe500.py`).
-
-**Mode A — bake the guest into the image.** For clusters without image volumes,
-`hack/bake-task-image.sh` builds the guest as a layer on top of any base image with `ko` — no
-Dockerfile — and prints the digest-pinned ref:
+**Register a template per image** when an image needs its own resources, workspace or a second
+runtime layer, then map it under `create.image_templates`:
 
 ```bash
-# needs: ko on PATH (or $KO); builds the guest from this repo (override with $ATE_ENV_REPO)
-IMAGE=$(integrations/nemo-gym/hack/bake-task-image.sh python:3.12-slim gcr.io/$PROJECT/py-task-guest)
+ate-env manifest template --template gym-py312 \
+  --rootfs-image   docker.io/library/python@sha256:<digest> \
+  --guest-image    <registry>/ate-env-guest@sha256:<digest> \
+  --workspace      /workspace \
+  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
 ```
 
-Then the template's container runs `/ko-app/ate-env-guest` directly, with no volume.
+**Bake the guest into the image** (legacy, for control planes without image volumes):
+`hack/bake-task-image.sh` builds the guest as a layer on top of any base image with `ko` and
+prints the digest-pinned ref; the template's container then runs `/ko-app/ate-env-guest` directly.
 
-In both modes the task image needs a `timeout` binary (coreutils or busybox — present in the slim
-Debian and Alpine bases, absent from distroless): `exec(timeout_s=…)` is enforced guest-side with a
-`timeout` wrapper. Verified: `python:3.12-slim` and `node:22-slim` bases both run real `python3` /
-`node` tasks through the provider.
+Digests for public images: `crane digest --platform linux/amd64 python:3.12-slim`. The task
+image needs a `sh` for `exec()`. `timeout_s` no longer needs a `timeout` binary: the guest
+enforces the deadline itself.
 
 ## Installation
 
@@ -141,6 +126,10 @@ pip install ./integrations/nemo-gym                # nemo-gym-substrate
 # with NeMo Gym in the same environment:
 pip install './integrations/nemo-gym[gym]'
 ```
+
+The `gym` extra resolves only on Python ≥ 3.13.14, the floor the current `nemo-gym` release on PyPI
+(0.7.0) declares. The provider, its tests and CI run on Python ≥ 3.10 without it: structural mirrors
+of the `nemo_gym` base types stand in.
 
 The entry point makes the provider discoverable immediately:
 
@@ -169,7 +158,7 @@ sandbox:
       atespace: ate-env                    # atespace the templates live in and envs are created in
       ready_timeout_s: 120
       ready_poll_interval_s: 1.0
-      image_templates:                     # optional SandboxSpec.image → template map
+      image_templates:                     # optional: pin an image to a registered template; others are derived
         python:3.12-slim: gym-py312
 ```
 
@@ -263,14 +252,17 @@ exactly what golden-snapshot starts and fork-from-golden creates are for.
 
 - One Gym sandbox = one Substrate **actor**: a gVisor (or micro-VM) sandbox multiplexed onto a
   warm WorkerPool worker. Isolation is the sandbox class; actors share worker nodes.
-- `SandboxSpec.image` resolves to a pre-provisioned ActorTemplate via `image_templates` — there
-  is no dynamic image pull per create; that is what makes creates fast and repeatable.
+- `SandboxSpec.image` maps to a registered ActorTemplate via `image_templates`, or is sent as
+  `rootfs_image` and served from a derived template. The first create on an image pulls it and
+  bakes a golden snapshot; later creates restore from it.
 - `spec.files` are seeded through the guest filesystem service after readiness. `spec.env` /
   `spec.workdir` are applied per exec (`StartProcess` takes `env` and `cwd` natively).
-- `exec(timeout_s=…)` is enforced guest-side (`timeout(1)` wrapper) and client-side; on the
-  client-side deadline the process is killed and a `return_code=-1` sentinel result is returned
-  rather than raising. Transport failures (env deleted mid-exec, router down) raise
-  `ate_env.EnvError` subclasses.
+- `exec(timeout_s=…)` is enforced guest-side and client-side. The guest kills the process group
+  with SIGKILL at the deadline, so the exit code is 137, and the provider appends
+  `substrate provider: exec timed out after …` to stderr. If the guest does not answer within
+  `timeout_s` plus a few seconds, the client kills the process and returns a `return_code=-1`
+  sentinel result rather than raising. Transport failures (env deleted mid-exec, router down)
+  raise `ate_env.EnvError` subclasses.
 - `status()` reads the environment's lifecycle state from `ate-env-api` without touching the
   guest, so polling it never wakes a parked sandbox. A **suspended or paused actor reports
   RUNNING** — the router auto-resumes it on the next command, which is the behavior a rollout
@@ -287,7 +279,7 @@ Known limits (tracked in the RL-on-Substrate proposal):
 
 | Symptom | Cause / fix |
 |---|---|
-| `SandboxCreateError: no ActorTemplate mapped for image …` | The spec named an image with no template. Pre-provision a template and add it to `create.image_templates`, or set `provider_options.template` |
+| `SandboxCreateError: … rootfs_image … pinned by digest` (`InvalidArgument`) | `SandboxSpec.image` is a tag. Use `repo@sha256:<digest>` (`crane digest --platform linux/amd64 <tag>`), or map the image to a registered template under `create.image_templates` |
 | `SandboxCreateError: … UNAVAILABLE` at once | `api_url` unreachable — port-forward died, or wrong kubectl context (`kubectl config current-context`) |
 | Create times out (`SandboxCreateVerificationError: … UNAVAILABLE` / `INTERNAL`) | Check warm workers exist (`kubectl get pods -n ate-env`) and the template is Ready (`kubectl get actortemplate -n ate-env`). More parallel creates than warm workers will queue. If the message says `server closed the stream without sending trailers`, the router is not carrying gRPC to actors (see Prerequisites #1) |
 | Create times out and the actor is `RUNNING` | The template's image does not run `ate-env-guest` — the actor is up but nothing serves the guest API. See "Task images" |
