@@ -127,6 +127,10 @@ pip install ./integrations/nemo-gym                # nemo-gym-substrate
 pip install './integrations/nemo-gym[gym]'
 ```
 
+The `gym` extra resolves only on Python ≥ 3.13.14, the floor the current `nemo-gym` release on PyPI
+(0.7.0) declares. The provider, its tests and CI run on Python ≥ 3.10 without it: structural mirrors
+of the `nemo_gym` base types stand in.
+
 The entry point makes the provider discoverable immediately:
 
 ```python

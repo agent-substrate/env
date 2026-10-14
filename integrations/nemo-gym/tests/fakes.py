@@ -56,6 +56,8 @@ class FakeProc:
             command=self.argv,
             pid=4242,
             state=self.state,
+            # proto3 int32 has no unset value: the real guest serializes 0 for
+            # a running process too, and `state` is the discriminator.
             exit_code=self.exit_code or 0,
         )
 
