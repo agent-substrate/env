@@ -73,7 +73,7 @@ class LoopRunner:
                 pass
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._thread.join(timeout=2.0)
-            if not self._loop.is_closed():
+            if not self._thread.is_alive() and not self._loop.is_closed():
                 self._loop.close()
 
     def __del__(self) -> None:

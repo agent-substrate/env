@@ -118,3 +118,10 @@ def test_mock_runtime_file_round_trip(name):
 def test_read_missing_file_raises_file_not_found():
     with pytest.raises(FileNotFoundError):
         MockRuntimeHook().read_file_bytes("/missing.txt")
+
+
+def test_fleet_step_timeout_applies_to_handle():
+    fleet = SandboxFleet(FleetConfig(backend="mock", step_timeout_s=42.0))
+    h = fleet.acquire("t1")
+    assert h.default_timeout_s == 42.0
+    h.release()
