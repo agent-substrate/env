@@ -24,7 +24,7 @@ import enum
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from ._gen.ateenv.v1alpha import env_pb2, guest_pb2
 
@@ -217,9 +217,9 @@ class ResourceLimits:
 @dataclass(frozen=True)
 class PlacementSpec:
     """Placement constraints and worker hardware selectors."""
-    node_selector: Dict[str, str] = field(default_factory=dict)
-    tolerations: List[Dict[str, Any]] = field(default_factory=list)
-    worker_family: Optional[str] = None  # e.g., "c2", "n2", "c3"
+    node_selector: dict[str, str] = field(default_factory=dict)
+    tolerations: list[dict[str, Any]] = field(default_factory=list)
+    worker_family: str | None = None  # e.g., "c2", "n2", "c3"
 
 
 @dataclass(frozen=True)
@@ -229,7 +229,7 @@ class EnvironmentSpec:
     runtime_bundle: str = "default-guest"
     limits: ResourceLimits = field(default_factory=ResourceLimits)
     placement: PlacementSpec = field(default_factory=PlacementSpec)
-    snapshot_storage_uri: Optional[str] = None
+    snapshot_storage_uri: str | None = None
 
     def template_key(self) -> str:
         """Derive canonical template ID including CPU family and bundle digest."""
@@ -245,8 +245,8 @@ class Task:
     """Single workload/task definition (e.g. one SWE-bench instance)."""
     id: str
     image: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    template: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    template: str | None = None
 
 
 @dataclass
@@ -267,7 +267,7 @@ class ExecResult:
     terminated by an external signal (such as an out-of-memory killer) near
     its deadline.
     """
-    exit_code: Optional[int]
+    exit_code: int | None
     stdout: str
     stderr: str
     duration_s: float = 0.0
@@ -300,7 +300,7 @@ class DataPlaneEndpoint:
     """
     protocol: Literal["grpc"] = "grpc"
     address: str = ""
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         shown = {k: ("<redacted>" if k.lower() in _SENSITIVE_HEADERS else v)
@@ -316,9 +316,9 @@ class RawSandboxInstance:
     endpoint: str
     template_id: str
     run_id: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     # Keyed by data-plane name matching FleetConfig.data_plane ("router", "grpc").
-    data_planes: Dict[str, DataPlaneEndpoint] = field(default_factory=dict)
+    data_planes: dict[str, DataPlaneEndpoint] = field(default_factory=dict)
 
 
 @dataclass
@@ -332,11 +332,11 @@ class PlanEntry:
 
 class FleetPlan:
     """The complete provisioning plan computed by SandboxFleet.plan()."""
-    def __init__(self, entries: List[PlanEntry]):
+    def __init__(self, entries: list[PlanEntry]):
         self.entries = entries
         self._by_image = {e.image: e for e in entries}
 
-    def for_image(self, image: str) -> Optional[PlanEntry]:
+    def for_image(self, image: str) -> PlanEntry | None:
         return self._by_image.get(image)
 
     @property

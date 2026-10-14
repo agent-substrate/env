@@ -34,12 +34,10 @@ Quickstart:
 
 # Layer 1: Core Client & Env
 from .client import DEFAULT_ATESPACE, Client
-from .env import Env, Process
 
 # Layer 2: High-Level Fleet Management & Abstractions
 from .config import FleetConfig
-from .fleet import SandboxFleet
-from .handle import SandboxHandle
+from .env import Env, Process
 
 # Exceptions
 from .errors import (
@@ -61,6 +59,8 @@ from .errors import (
     map_rpc_error,
 )
 from .exceptions import SandboxError
+from .fleet import SandboxFleet
+from .handle import SandboxHandle
 
 # Types
 from .types import (

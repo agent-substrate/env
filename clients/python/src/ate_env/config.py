@@ -14,9 +14,9 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING, dataclass, field, fields
 import re
-from typing import Any, Dict, List, Literal, Optional
+from dataclasses import MISSING, dataclass, field, fields
+from typing import Any, Literal
 
 BackendType = Literal["substrate", "mock"]
 StrategyType = Literal["none", "naive", "sliding", "pipelined"]
@@ -72,26 +72,26 @@ class FleetConfig:
     data_plane: Literal["ate_env"] = "ate_env"
     tenancy: str = "ate-env"
     strategy: StrategyType = "sliding"
-    template: Optional[str] = None
-    image_templates: Dict[str, str] = field(default_factory=dict)
+    template: str | None = None
+    image_templates: dict[str, str] = field(default_factory=dict)
 
     # Sizing & Rollout parameters
     batch_size: int = 8
     max_concurrent: int = 64
     max_warmpool_replicas: int = 4
-    window_size: Optional[int] = None
+    window_size: int | None = None
 
     # Hardware & placement (reserved for template placement and future scheduler extensions)
-    worker_family: Optional[str] = "c2"
-    node_selector: Dict[str, str] = field(default_factory=dict)
-    tolerations: List[Dict[str, Any]] = field(default_factory=list)
-    labels: Dict[str, str] = field(default_factory=dict)
+    worker_family: str | None = "c2"
+    node_selector: dict[str, str] = field(default_factory=dict)
+    tolerations: list[dict[str, Any]] = field(default_factory=list)
+    labels: dict[str, str] = field(default_factory=dict)
 
     # Timeouts & Breakers
     acquire_timeout_s: float = 180.0
     ready_timeout_s: float = 180.0
     step_timeout_s: float = 120.0
-    auth_token: Optional[SecretStr] = None
+    auth_token: SecretStr | None = None
 
     def __init__(self, **kwargs: Any):
         valid_fields = {f.name: f for f in fields(self)}
@@ -156,9 +156,9 @@ class FleetConfig:
         if self.auth_token is not None and not isinstance(self.auth_token, SecretStr):
             object.__setattr__(self, "auth_token", SecretStr(str(self.auth_token)))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize configuration to dict, keeping auth_token as SecretStr for safe round-tripping."""
-        res: Dict[str, Any] = {}
+        res: dict[str, Any] = {}
         for f in fields(self):
             val = getattr(self, f.name)
             res[f.name] = val
@@ -167,7 +167,7 @@ class FleetConfig:
     model_dump = to_dict
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FleetConfig":
+    def from_dict(cls, data: dict[str, Any]) -> FleetConfig:
         return cls(**data)
 
     model_validate = from_dict

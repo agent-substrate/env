@@ -15,7 +15,8 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
+
 import grpc
 import pytest
 
@@ -28,6 +29,7 @@ from ate_env.errors import (
     SandboxUnavailableError,
 )
 from ate_env.runtime.substrate_env_client import SubstrateEnvClientRuntime
+
 from .fakes import FakeProc
 
 

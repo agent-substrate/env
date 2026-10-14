@@ -15,7 +15,6 @@
 """Exec result contract, strict-mode errors, command contract, and file helpers."""
 
 import pickle
-import subprocess
 
 import pytest
 
@@ -31,7 +30,6 @@ from ate_env import (
 )
 from ate_env.exceptions import TimeoutError as SdkTimeoutError
 from ate_env.runtime.base import (
-    RuntimeGuestHook,
     command_to_argv,
 )
 from ate_env.runtime.mock import MockRuntimeHook

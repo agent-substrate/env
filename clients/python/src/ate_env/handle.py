@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 
 from .backend.base import BackendDriver
 from .errors import CommandExecutionError, CommandTimeoutError
@@ -40,13 +39,13 @@ class SandboxHandle:
     run_id: str
     backend: BackendDriver = field(repr=False)
     runtime: RuntimeGuestHook = field(repr=False)
-    data_plane: Optional[DataPlaneEndpoint] = None
+    data_plane: DataPlaneEndpoint | None = None
 
     def exec(
         self,
-        command: str | List[str],
+        command: str | list[str],
         cwd: str = "",
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
         timeout_s: float = 120.0,
         check: bool = True,
     ) -> ExecResult:
@@ -75,9 +74,9 @@ class SandboxHandle:
 
     async def exec_async(
         self,
-        command: str | List[str],
+        command: str | list[str],
         cwd: str = "",
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
         timeout_s: float = 120.0,
         check: bool = True,
     ) -> ExecResult:
@@ -107,7 +106,7 @@ class SandboxHandle:
 
     def initialize(
         self,
-        init_script: Optional[str] = None,
+        init_script: str | None = None,
         cwd: str = "",
         timeout_s: float = 120.0,
     ) -> ExecResult:
@@ -133,13 +132,13 @@ class SandboxHandle:
         finally:
             self.runtime.close()
 
-    def __enter__(self) -> "SandboxHandle":
+    def __enter__(self) -> SandboxHandle:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.release()
 
-    async def __aenter__(self) -> "SandboxHandle":
+    async def __aenter__(self) -> SandboxHandle:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:

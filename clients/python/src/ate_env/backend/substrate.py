@@ -20,10 +20,17 @@ import os
 import threading
 import time
 import uuid
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from ..client import DEFAULT_ATESPACE, Client
-from ..errors import FailedPreconditionError, InfrastructureError, NotFoundError, PreflightError, SandboxStartError
+from ..errors import (
+    FailedPreconditionError,
+    InfrastructureError,
+    NotFoundError,
+    PreflightError,
+    SandboxStartError,
+)
 from ..loop_runner import LoopRunner
 from ..types import DataPlaneEndpoint, EnvironmentSpec, RawSandboxInstance
 from .base import BackendDriver
@@ -41,18 +48,18 @@ class SubstrateBackendDriver(BackendDriver):
 
     def __init__(
         self,
-        api_endpoint: Optional[str] = None,
+        api_endpoint: str | None = None,
         atespace: str = DEFAULT_ATESPACE,
         worker_family: str = "c2",
-        auth_token: Optional[str] = None,
+        auth_token: str | None = None,
         *,
-        client: Optional[Client] = None,
-        image_templates: Optional[Mapping[str, str]] = None,
-        default_template: Optional[str] = None,
-        labels: Optional[Mapping[str, str]] = None,
+        client: Client | None = None,
+        image_templates: Mapping[str, str] | None = None,
+        default_template: str | None = None,
+        labels: Mapping[str, str] | None = None,
         acquire_timeout_s: float = 180.0,
         ready_timeout_s: float = 180.0,
-        loop_runner: Optional[LoopRunner] = None,
+        loop_runner: LoopRunner | None = None,
     ):
         target = (
             api_endpoint
@@ -81,8 +88,8 @@ class SubstrateBackendDriver(BackendDriver):
             self._owns_client = True
 
         self._lock = threading.Lock()
-        self._owned_actors: Dict[str, RawSandboxInstance] = {}
-        self._warm_paused_pool: Dict[str, List[str]] = {}
+        self._owned_actors: dict[str, RawSandboxInstance] = {}
+        self._warm_paused_pool: dict[str, list[str]] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _get_loop_runner(self) -> LoopRunner:
@@ -208,7 +215,7 @@ class SubstrateBackendDriver(BackendDriver):
         guest traffic, so ready_timeout_s does not measure readiness here.
         """
         while True:
-            actor_id: Optional[str] = None
+            actor_id: str | None = None
             with self._lock:
                 warm_list = self._warm_paused_pool.get(template_id)
                 if warm_list:
@@ -241,7 +248,7 @@ class SubstrateBackendDriver(BackendDriver):
                     template_id,
                     self.atespace,
                 )
-                last_err: Optional[Exception] = None
+                last_err: Exception | None = None
                 for attempt in range(4):
                     try:
                         await self.client.create(
@@ -277,7 +284,7 @@ class SubstrateBackendDriver(BackendDriver):
         return self._sync(self.acquire_async(template_id, run_id, timeout_s=timeout_s))
 
     async def warm_pool_async(
-        self, template_id: str, replicas: int, wait: bool = True, run_id: Optional[str] = None
+        self, template_id: str, replicas: int, wait: bool = True, run_id: str | None = None
     ) -> None:
         """Pre-warm a pool of actors by creating and suspending them."""
         logger.info("Sizing warm pool for template %s to %d paused actors...", template_id, replicas)
@@ -290,7 +297,7 @@ class SubstrateBackendDriver(BackendDriver):
         sem = asyncio.Semaphore(16)
         effective_run_id = run_id or "warm-pool"
 
-        async def _warm_one() -> Optional[str]:
+        async def _warm_one() -> str | None:
             actor_id = f"warm-{uuid.uuid4().hex[:10]}"
             async with sem:
                 try:
@@ -335,7 +342,7 @@ class SubstrateBackendDriver(BackendDriver):
                     )
 
     def warm_pool(
-        self, template_id: str, replicas: int, wait: bool = True, run_id: Optional[str] = None
+        self, template_id: str, replicas: int, wait: bool = True, run_id: str | None = None
     ) -> None:
         self._sync(self.warm_pool_async(template_id, replicas, wait=wait, run_id=run_id))
 
@@ -393,7 +400,7 @@ class SubstrateBackendDriver(BackendDriver):
     async def reap_async(self, run_id: str) -> int:
         """Force delete all environments tagged with this run_id and all warm pool actors."""
         with self._lock:
-            warm_actors: List[str] = []
+            warm_actors: list[str] = []
             for tid, actors in list(self._warm_paused_pool.items()):
                 warm_actors.extend(actors)
             self._warm_paused_pool.clear()
@@ -405,7 +412,7 @@ class SubstrateBackendDriver(BackendDriver):
             to_reap = list(dict.fromkeys(to_reap + warm_actors))
 
         sem = asyncio.Semaphore(16)
-        failed_actors: List[str] = []
+        failed_actors: list[str] = []
         reaped_count = 0
         reap_lock = asyncio.Lock()
 
@@ -438,7 +445,7 @@ class SubstrateBackendDriver(BackendDriver):
 
     def build_runtime(
         self, instance: RawSandboxInstance, data_plane: str = "ate_env"
-    ) -> tuple[Any, Optional[Any]]:
+    ) -> tuple[Any, Any | None]:
         from ..runtime.substrate_env_client import SubstrateEnvClientRuntime
 
         ep = instance.data_planes.get(data_plane) or instance.data_planes.get("ate_env")

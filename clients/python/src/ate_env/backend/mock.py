@@ -17,7 +17,7 @@ from __future__ import annotations
 import collections
 import time
 import uuid
-from typing import Dict, List, Optional, Set
+from typing import Any
 
 from ..errors import SandboxStartError
 from ..types import EnvironmentSpec, RawSandboxInstance
@@ -30,10 +30,10 @@ class MockBackendDriver(BackendDriver):
     def __init__(self, fail_preflight: bool = False, fail_acquire: bool = False):
         self.fail_preflight = fail_preflight
         self.fail_acquire = fail_acquire
-        self.templates: Dict[str, EnvironmentSpec] = {}
-        self.warm_pools: Dict[str, int] = collections.defaultdict(int)
-        self.instances: Dict[str, RawSandboxInstance] = {}
-        self.reaped_runs: Set[str] = set()
+        self.templates: dict[str, EnvironmentSpec] = {}
+        self.warm_pools: dict[str, int] = collections.defaultdict(int)
+        self.instances: dict[str, RawSandboxInstance] = {}
+        self.reaped_runs: set[str] = set()
 
     def preflight(self) -> None:
         if self.fail_preflight:
@@ -79,6 +79,6 @@ class MockBackendDriver(BackendDriver):
 
     def build_runtime(
         self, instance: RawSandboxInstance, data_plane: str = "mock"
-    ) -> tuple[Any, Optional[Any]]:
+    ) -> tuple[Any, Any | None]:
         from ..runtime.mock import MockRuntimeHook
         return MockRuntimeHook(), None
