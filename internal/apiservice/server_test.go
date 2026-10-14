@@ -42,6 +42,7 @@ type testEnv struct {
 	conn       *grpc.ClientConn
 	router     *fakerouter.Router
 	control    *fakecontrol.Server
+	srv        *apiservice.Server
 }
 
 func newTestEnv(t *testing.T) (ateenvv1alpha.EnvironmentServiceClient, *fakecontrol.Server) {
@@ -105,6 +106,7 @@ func newFullTestEnv(t *testing.T) *testEnv {
 		conn:       conn,
 		router:     router,
 		control:    control,
+		srv:        srv,
 	}
 }
 

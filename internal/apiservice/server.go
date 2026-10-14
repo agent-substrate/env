@@ -60,6 +60,9 @@ type Server struct {
 	// WakeBudget bounds how long a guest call waits for a suspended
 	// environment to wake; see ensureAwake. Zero means DefaultWakeBudget.
 	WakeBudget time.Duration
+	// WakeRunningBudget bounds the wait once the control plane reports the
+	// environment RUNNING; see ensureAwake. Zero means DefaultWakeRunningBudget.
+	WakeRunningBudget time.Duration
 }
 
 // New creates a new Server.
@@ -70,10 +73,11 @@ func New(client *ate.Client, routerAddr, hostSuffix string) *Server {
 	routerAddr = strings.TrimPrefix(routerAddr, "http://")
 	routerAddr = strings.TrimPrefix(routerAddr, "https://")
 	return &Server{
-		client:     client,
-		routerAddr: routerAddr,
-		hostSuffix: hostSuffix,
-		WakeBudget: DefaultWakeBudget,
+		client:            client,
+		routerAddr:        routerAddr,
+		hostSuffix:        hostSuffix,
+		WakeBudget:        DefaultWakeBudget,
+		WakeRunningBudget: DefaultWakeRunningBudget,
 	}
 }
 

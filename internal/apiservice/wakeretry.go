@@ -17,6 +17,7 @@ package apiservice
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
@@ -26,14 +27,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// DefaultWakeBudget bounds how long a guest call waits for its environment
-// to wake before the error reaches the caller. The first request that
-// reaches the router is what resumes a suspended actor, and the router holds
-// that request only for its own parking budget, a few seconds. A wake that
-// has to pull the environment's image onto the node or read its snapshot
-// across a region takes longer than that: 18 s for a cold image pull and 7 s
-// for a 1 GiB snapshot read across regions, measured on GKE.
+// DefaultWakeBudget bounds how long a guest call waits for an environment
+// that the control plane reports as suspended or in transition (resuming,
+// pausing, suspending) to wake before the error reaches the caller. The first
+// request that reaches the router is what resumes a suspended actor, and the
+// router holds that request only for its own parking budget, a few seconds. A
+// wake that has to pull the environment's image onto the node or read its
+// snapshot across a region takes longer than that: 18 s for a cold image pull
+// and 7 s for a 1 GiB snapshot read across regions, measured on GKE.
 const DefaultWakeBudget = 2 * time.Minute
+
+// DefaultWakeRunningBudget bounds the wait when the control plane already
+// reports the environment RUNNING but the router still answers Unavailable.
+// That has two causes: the guest is not yet listening after a restore, which
+// resolves in seconds, or the path to the worker is down, which does not.
+// A short budget covers the first without turning the second into a
+// two-minute hang per call.
+const DefaultWakeRunningBudget = 20 * time.Second
 
 const (
 	wakeRetryInitialBackoff = 200 * time.Millisecond
@@ -44,15 +54,23 @@ const (
 // and repeats it while the router answers Unavailable, which is what an
 // expired parking budget and a guest that is not yet listening both look
 // like. It returns when the guest answers anything else, when the actor has
-// crashed, when ctx ends, or when the wake budget is spent. Because the probe
-// is the first request through the router, it is also what wakes the actor;
-// the calls that follow on conn find it up.
+// crashed, when ctx ends, or when the budget for the actor's current state
+// is spent: WakeBudget while the actor is suspended or in transition,
+// WakeRunningBudget once the control plane reports it RUNNING. Because the
+// probe is the first request through the router, it is also what wakes the
+// actor; the calls that follow on conn find it up. The state is read once per
+// attempt, and the backoff caps attempts at roughly one per two seconds, so a
+// full two-minute wait costs about sixty control-plane reads.
 func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespace, id string) error {
 	budget := s.WakeBudget
 	if budget <= 0 {
 		budget = DefaultWakeBudget
 	}
-	deadline := time.Now().Add(budget)
+	runningBudget := s.WakeRunningBudget
+	if runningBudget <= 0 {
+		runningBudget = DefaultWakeRunningBudget
+	}
+	start := time.Now()
 	probe := ateenvv1alpha.NewProcessServiceClient(conn)
 	backoff := wakeRetryInitialBackoff
 	for attempt := 1; ; attempt++ {
@@ -62,19 +80,24 @@ func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespac
 			// the guest itself.
 			return nil
 		}
-		crashed, cerr := s.actorCrashed(ctx, atespace, id)
-		if cerr != nil {
-			return cerr
+		state, serr := s.actorState(ctx, atespace, id)
+		if serr != nil {
+			return serr
 		}
-		if crashed {
+		if state == ateapipb.ActorState_ACTOR_STATE_CRASHED {
 			return status.Errorf(codes.FailedPrecondition, "environment %s/%s crashed while waking: %v", atespace, id, err)
 		}
-		remaining := time.Until(deadline)
+		allowed := budget
+		if state == ateapipb.ActorState_ACTOR_STATE_RUNNING {
+			allowed = runningBudget
+		}
+		remaining := allowed - time.Since(start)
 		if remaining <= 0 {
-			return status.Errorf(codes.Unavailable, "environment %s/%s did not wake within %s (%d attempts): %v", atespace, id, budget, attempt, err)
+			return status.Errorf(codes.Unavailable, "environment %s/%s did not answer within %s while %s (%d attempts): %v",
+				atespace, id, allowed, shortState(state), attempt, err)
 		}
 		if attempt == 1 {
-			log.Printf("waiting for environment %s/%s to wake (budget %s)", atespace, id, budget)
+			log.Printf("waiting for environment %s/%s to wake (state %s, budget %s)", atespace, id, shortState(state), allowed)
 		}
 		select {
 		case <-ctx.Done():
@@ -85,12 +108,17 @@ func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespac
 	}
 }
 
-// actorCrashed reports whether the control plane has the actor in a crashed
-// state, in which case waiting for a wake is pointless.
-func (s *Server) actorCrashed(ctx context.Context, atespace, id string) (bool, error) {
+// actorState reads the actor's state from the control plane. A deleted
+// environment surfaces here as NotFound (through toGRPCError), which is the
+// right answer to a caller still holding its handle.
+func (s *Server) actorState(ctx context.Context, atespace, id string) (ateapipb.ActorState, error) {
 	actor, err := s.client.Get(ctx, atespace, id)
 	if err != nil {
-		return false, toGRPCError(err)
+		return ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED, toGRPCError(err)
 	}
-	return actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED, nil
+	return actor.GetStatus().GetState(), nil
+}
+
+func shortState(st ateapipb.ActorState) string {
+	return strings.TrimPrefix(st.String(), "ACTOR_STATE_")
 }

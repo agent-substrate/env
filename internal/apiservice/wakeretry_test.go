@@ -16,6 +16,7 @@ package apiservice_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,5 +86,50 @@ func TestGuestCallFailsFastOnCrash(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("crash took %s to report; the wake budget must not apply", elapsed)
+	}
+}
+
+// An environment that stays suspended past the wake budget fails with
+// Unavailable, naming the state and the attempt count.
+func TestGuestCallFailsWhenWakeBudgetExpires(t *testing.T) {
+	te := newFullTestEnv(t)
+	envCtx := registerGuest(t, te, "budget-test")
+	te.control.SetState("budget-test", ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
+	te.srv.WakeBudget = 1500 * time.Millisecond
+
+	start := time.Now()
+	_, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "true"}})
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("code %v (%v), want Unavailable", status.Code(err), err)
+	}
+	if msg := status.Convert(err).Message(); !strings.Contains(msg, "did not answer within") || !strings.Contains(msg, "SUSPENDED") {
+		t.Errorf("message %q should name the budget and the state", msg)
+	}
+	if elapsed := time.Since(start); elapsed < 1400*time.Millisecond || elapsed > 6*time.Second {
+		t.Errorf("gave up after %s, want about the 1.5 s budget", elapsed)
+	}
+}
+
+// An environment the control plane reports RUNNING, whose guest the router
+// still cannot reach, fails after the shorter running budget rather than
+// holding the call for the full wake budget.
+func TestGuestCallCapsWaitWhenRunning(t *testing.T) {
+	te := newFullTestEnv(t)
+	envCtx := registerGuest(t, te, "running-test")
+	te.control.SetState("running-test", ateapipb.ActorState_ACTOR_STATE_RUNNING)
+	te.router.Running = func(string) bool { return false } // path down: 503 regardless of state
+	te.srv.WakeBudget = time.Minute
+	te.srv.WakeRunningBudget = time.Second
+
+	start := time.Now()
+	_, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "true"}})
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("code %v (%v), want Unavailable", status.Code(err), err)
+	}
+	if msg := status.Convert(err).Message(); !strings.Contains(msg, "RUNNING") {
+		t.Errorf("message %q should name the RUNNING state", msg)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("waited %s; the running budget (1 s) must apply, not the wake budget (1 min)", elapsed)
 	}
 }
