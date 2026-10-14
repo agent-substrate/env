@@ -233,6 +233,7 @@ class SandboxFleet:
             backend=self.backend,
             runtime=runtime,
             data_plane=data_plane,
+            default_timeout_s=self.config.step_timeout_s,
         )
 
     def _build_runtime(

@@ -40,13 +40,14 @@ class SandboxHandle:
     backend: BackendDriver = field(repr=False)
     runtime: RuntimeGuestHook = field(repr=False)
     data_plane: DataPlaneEndpoint | None = None
+    default_timeout_s: float = 120.0
 
     def exec(
         self,
         command: str | list[str],
         cwd: str = "",
         env: dict[str, str] | None = None,
-        timeout_s: float = 120.0,
+        timeout_s: float | None = None,
         check: bool = True,
     ) -> ExecResult:
         """Execute command inside the sandbox.
@@ -57,10 +58,11 @@ class SandboxHandle:
         of ``check``.
         Returns ExecResult.
         """
-        res = self.runtime.exec(command, cwd=cwd, env=env, timeout_s=timeout_s)
+        to_s = self.default_timeout_s if timeout_s is None else timeout_s
+        res = self.runtime.exec(command, cwd=cwd, env=env, timeout_s=to_s)
         if check and res.timed_out:
             raise CommandTimeoutError(
-                f"Command '{command}' timed out after {timeout_s:g}s:\n"
+                f"Command '{command}' timed out after {to_s:g}s:\n"
                 f"STDOUT: {res.stdout}\nSTDERR: {res.stderr}",
                 result=res,
             )
@@ -77,14 +79,15 @@ class SandboxHandle:
         command: str | list[str],
         cwd: str = "",
         env: dict[str, str] | None = None,
-        timeout_s: float = 120.0,
+        timeout_s: float | None = None,
         check: bool = True,
     ) -> ExecResult:
         """Asynchronously execute command inside the sandbox."""
-        res = await self.runtime.exec_async(command, cwd=cwd, env=env, timeout_s=timeout_s)
+        to_s = self.default_timeout_s if timeout_s is None else timeout_s
+        res = await self.runtime.exec_async(command, cwd=cwd, env=env, timeout_s=to_s)
         if check and res.timed_out:
             raise CommandTimeoutError(
-                f"Command '{command}' timed out after {timeout_s:g}s:\n"
+                f"Command '{command}' timed out after {to_s:g}s:\n"
                 f"STDOUT: {res.stdout}\nSTDERR: {res.stderr}",
                 result=res,
             )
