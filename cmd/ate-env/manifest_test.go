@@ -92,6 +92,9 @@ func TestBuildManifests(t *testing.T) {
 	if ns.Name != "ate-env" {
 		t.Errorf("namespace = %q, want ate-env", ns.Name)
 	}
+	if got := ns.Labels[apiAccessLabel]; got != "true" {
+		t.Errorf("namespace label %s = %q, want \"true\" (ate-system admits API clients by it)", apiAccessLabel, got)
+	}
 
 	pool := objs[1].(*atev1alpha1.WorkerPool)
 	if pool.Namespace != cfg.namespace || pool.Name != "default-template-workerpool" {
@@ -210,6 +213,7 @@ func TestWriteManifests(t *testing.T) {
 	}
 	for _, want := range []string{
 		"kind: Namespace",
+		"ate.dev/api-access: \"true\"",
 		"kind: WorkerPool",
 		"kind: Deployment",
 		"kind: Service",

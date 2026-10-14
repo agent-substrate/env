@@ -352,10 +352,19 @@ func prune(v any) any {
 	}
 }
 
+// apiAccessLabel is the namespace label Substrate's network policy requires of
+// in-cluster API clients: ate-system denies ingress by default and admits
+// non-worker pods from namespaces carrying it (substrate #2522). Without it
+// ate-env-api cannot reach ateapi and crash-loops on its startup atespace check.
+const apiAccessLabel = "ate.dev/api-access"
+
 func buildNamespace(cfg manifestConfig) *corev1.Namespace {
 	return &corev1.Namespace{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
-		ObjectMeta: metav1.ObjectMeta{Name: cfg.namespace},
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   cfg.namespace,
+			Labels: map[string]string{apiAccessLabel: "true"},
+		},
 	}
 }
 
