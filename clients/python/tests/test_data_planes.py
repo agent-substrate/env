@@ -17,11 +17,9 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
-import pytest
 
-from ate_env import DataPlaneEndpoint, FleetConfig, SandboxFleet
+from ate_env import FleetConfig, SandboxFleet
 from ate_env.backend.substrate import SubstrateBackendDriver
-from ate_env.errors import SandboxStartError
 from ate_env.runtime.mock import MockRuntimeHook
 from ate_env.runtime.substrate_env_client import SubstrateEnvClientRuntime
 from ate_env.types import EnvironmentSpec

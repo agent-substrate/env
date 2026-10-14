@@ -18,22 +18,19 @@ import collections
 import logging
 import threading
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from .backend.base import BackendDriver
 from .backend.mock import MockBackendDriver
 from .backend.substrate import SubstrateBackendDriver
 from .config import FleetConfig
-from .errors import SandboxStartError
 from .handle import SandboxHandle
 from .runtime.base import RuntimeGuestHook
-from .runtime.mock import MockRuntimeHook
 from .strategies import STRATEGIES
 from .types import (
     DataPlaneEndpoint,
-    EnvironmentSpec,
     FleetPlan,
-    PlacementSpec,
     PlanEntry,
     RawSandboxInstance,
     Task,
@@ -49,12 +46,12 @@ class SandboxFleet:
     task acquisition, and execution strategies across any backend driver.
     """
 
-    def __init__(self, config: Optional[FleetConfig] = None, driver: Optional[BackendDriver] = None):
+    def __init__(self, config: FleetConfig | None = None, driver: BackendDriver | None = None):
         self.config = config or FleetConfig()
         self.run_id = uuid.uuid4().hex[:12]
-        self._tasks: List[Task] = []
-        self._image_to_template: Dict[str, str] = {}
-        self._plan: Optional[FleetPlan] = None
+        self._tasks: list[Task] = []
+        self._image_to_template: dict[str, str] = {}
+        self._plan: FleetPlan | None = None
         self._lock = threading.Lock()
 
         # Initialize Backend Driver
@@ -78,7 +75,7 @@ class SandboxFleet:
         else:
             raise NotImplementedError(f"Backend '{self.config.backend}' is not yet supported or requires extras")
 
-    def __enter__(self) -> "SandboxFleet":
+    def __enter__(self) -> SandboxFleet:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -89,7 +86,7 @@ class SandboxFleet:
                 raise
 
     def close(self) -> None:
-        teardown_err: Optional[Exception] = None
+        teardown_err: Exception | None = None
         try:
             self.teardown()
         except Exception as e:
@@ -105,12 +102,12 @@ class SandboxFleet:
             raise teardown_err
 
     @property
-    def tasks(self) -> List[Task]:
+    def tasks(self) -> list[Task]:
         return self._tasks
 
-    def load_tasks(self, tasks: List[Any]) -> None:
+    def load_tasks(self, tasks: list[Any]) -> None:
         """Load tasks into the fleet (supports list of Task or dicts)."""
-        normalized: List[Task] = []
+        normalized: list[Task] = []
         for t in tasks:
             if isinstance(t, Task):
                 normalized.append(t)
@@ -127,9 +124,9 @@ class SandboxFleet:
         logger.info("Fleet loaded %d tasks (%d unique images)",
                     len(self._tasks), len(self.image_counts()))
 
-    def image_counts(self) -> Dict[str, int]:
+    def image_counts(self) -> dict[str, int]:
         """Return task count per unique image."""
-        counts: Dict[str, int] = collections.defaultdict(int)
+        counts: dict[str, int] = collections.defaultdict(int)
         for t in self._tasks:
             counts[t.image] += 1
         return dict(counts)
@@ -140,7 +137,7 @@ class SandboxFleet:
 
     def plan(self) -> FleetPlan:
         """Compute provisioning sizing for all tasks."""
-        entries: List[PlanEntry] = []
+        entries: list[PlanEntry] = []
         counts = self.image_counts()
         for img, task_count in counts.items():
             template_id = self._ensure_template_for_image(img)
@@ -155,7 +152,7 @@ class SandboxFleet:
         self._plan = FleetPlan(entries)
         return self._plan
 
-    def setup(self, tasks: Optional[List[Any]] = None) -> None:
+    def setup(self, tasks: list[Any] | None = None) -> None:
         """Run preflight, plan, and pre-warm all planned images."""
         if tasks is not None:
             self.load_tasks(tasks)
@@ -165,7 +162,7 @@ class SandboxFleet:
             if entry.replicas > 0:
                 self.backend.warm_pool(entry.template_id, entry.replicas, wait=True)
 
-    def warm_images(self, images: List[str], replicas: Optional[int] = None, wait: bool = True) -> None:
+    def warm_images(self, images: list[str], replicas: int | None = None, wait: bool = True) -> None:
         """Warm up pools for specific images (used by windowed strategies)."""
         rep = replicas if replicas is not None else self.config.max_warmpool_replicas
         for img in images:
@@ -181,8 +178,8 @@ class SandboxFleet:
     def acquire(
         self,
         task: Task | str | Sequence[Task | str],
-        timeout_s: Optional[float] = None,
-    ) -> SandboxHandle | List[SandboxHandle]:
+        timeout_s: float | None = None,
+    ) -> SandboxHandle | list[SandboxHandle]:
         """Acquire one or more live sandboxes bound to tasks.
 
         If a list or tuple of tasks is given, returns a list of SandboxHandle.
@@ -195,7 +192,7 @@ class SandboxFleet:
     def _acquire_one(
         self,
         task: Task | str,
-        timeout_s: Optional[float] = None,
+        timeout_s: float | None = None,
     ) -> SandboxHandle:
         task_obj: Task
         if isinstance(task, str):
@@ -240,7 +237,7 @@ class SandboxFleet:
 
     def _build_runtime(
         self, raw_inst: RawSandboxInstance
-    ) -> Tuple[RuntimeGuestHook, Optional[DataPlaneEndpoint]]:
+    ) -> tuple[RuntimeGuestHook, DataPlaneEndpoint | None]:
         """Build the RuntimeGuestHook from this sandbox's own data-plane coordinates."""
         if hasattr(self.backend, "build_runtime"):
             return self.backend.build_runtime(raw_inst, data_plane=self.config.data_plane)
@@ -272,7 +269,7 @@ class SandboxFleet:
         self.backend.reap(self.run_id)
 
     def run(self, process_fn: Callable[[Task, SandboxHandle], Any],
-            concurrency: Optional[int] = None) -> List[Any]:
+            concurrency: int | None = None) -> list[Any]:
         """Execute all tasks using the configured strategy."""
         strat_fn = STRATEGIES.get(self.config.strategy)
         if not strat_fn:

@@ -83,7 +83,7 @@ workflow's `GITHUB_TOKEN`, under the repository. Once:
 
 - The guest's base image is pinned by digest in [`.ko.yaml`](../.ko.yaml). It
   is a `bash` image so that templates whose container is the guest itself have
-  a shell for `shell()`; for task-image templates only the static binary is
+  a shell for `shell()`; for rootfs-image templates only the static binary is
   used. Bump the pin deliberately and mention it in the release notes.
 - The API image uses ko's default distroless base.
 - The actions both workflows use are pinned by commit SHA, with the version in

@@ -19,7 +19,7 @@ import warnings
 
 from . import env_pb2 as ateenv_dot_v1alpha_dot_env__pb2
 
-GRPC_GENERATED_VERSION = '1.81.1'
+GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -40,10 +40,7 @@ if _version_not_supported:
 
 
 class EnvironmentServiceStub:
-    """TODO(jbd): Migrate data plane (shell/fs) to guest.proto (ProcessService/FileSystemService).
-    TODO(jbd): Remove env legacy HTTP REST endpoints for environment lifecycle.
-    TODO(jbd): Update remaining examples and documentation.
-    TODO(jbd): Add ListEnvironments to EnvironmentService.
+    """TODO(jbd): Add ListEnvironments to EnvironmentService.
 
     ============================================================================
     --- SERVICES ---
@@ -81,10 +78,7 @@ class EnvironmentServiceStub:
 
 
 class EnvironmentServiceServicer:
-    """TODO(jbd): Migrate data plane (shell/fs) to guest.proto (ProcessService/FileSystemService).
-    TODO(jbd): Remove env legacy HTTP REST endpoints for environment lifecycle.
-    TODO(jbd): Update remaining examples and documentation.
-    TODO(jbd): Add ListEnvironments to EnvironmentService.
+    """TODO(jbd): Add ListEnvironments to EnvironmentService.
 
     ============================================================================
     --- SERVICES ---
@@ -153,10 +147,7 @@ def add_EnvironmentServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class EnvironmentService:
-    """TODO(jbd): Migrate data plane (shell/fs) to guest.proto (ProcessService/FileSystemService).
-    TODO(jbd): Remove env legacy HTTP REST endpoints for environment lifecycle.
-    TODO(jbd): Update remaining examples and documentation.
-    TODO(jbd): Add ListEnvironments to EnvironmentService.
+    """TODO(jbd): Add ListEnvironments to EnvironmentService.
 
     ============================================================================
     --- SERVICES ---

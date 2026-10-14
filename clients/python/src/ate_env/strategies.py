@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import collections
 import logging
-import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from .handle import SandboxHandle
 from .types import Task
@@ -26,10 +26,10 @@ from .types import Task
 logger = logging.getLogger("ate_env.strategies")
 
 
-def process_parallel(fleet: Any, tasks: List[Task], process_fn: Callable[[Task, SandboxHandle], Any],
-                     concurrency: int) -> List[Any]:
+def process_parallel(fleet: Any, tasks: list[Task], process_fn: Callable[[Task, SandboxHandle], Any],
+                     concurrency: int) -> list[Any]:
     """Execute acquire -> process_fn -> release across tasks up to concurrency."""
-    results: List[Any] = [None] * len(tasks)
+    results: list[Any] = [None] * len(tasks)
 
     def _execute_single(task: Task) -> Any:
         handle = fleet.acquire(task)
@@ -61,7 +61,7 @@ def process_parallel(fleet: Any, tasks: List[Task], process_fn: Callable[[Task, 
 
 
 def run_none(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
-             concurrency: int, teardown: bool = True) -> List[Any]:
+             concurrency: int, teardown: bool = True) -> list[Any]:
     """No pre-warming: on-demand 1:1 acquisition per task."""
     try:
         return process_parallel(fleet, fleet.tasks, process_fn, concurrency)
@@ -71,7 +71,7 @@ def run_none(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
 
 
 def run_naive(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
-              concurrency: int, teardown: bool = True) -> List[Any]:
+              concurrency: int, teardown: bool = True) -> list[Any]:
     """Pre-warm every image up front, process all tasks in parallel, tear down."""
     try:
         fleet.setup()
@@ -82,18 +82,18 @@ def run_naive(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
 
 
 def run_sliding(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
-                concurrency: int, teardown: bool = True) -> List[Any]:
+                concurrency: int, teardown: bool = True) -> list[Any]:
     """Keep only a sliding window of image pools warm at a time (bounded footprint)."""
     fleet.preflight()
     fleet.plan()
     window = fleet.config.window_size or fleet.config.batch_size
     images = list(fleet.image_counts().keys())
 
-    by_image: Dict[str, List[tuple[int, Task]]] = collections.defaultdict(list)
+    by_image: dict[str, list[tuple[int, Task]]] = collections.defaultdict(list)
     for i, t in enumerate(fleet.tasks):
         by_image[t.image].append((i, t))
 
-    results: List[Any] = [None] * len(fleet.tasks)
+    results: list[Any] = [None] * len(fleet.tasks)
     try:
         for start in range(0, len(images), window):
             batch = images[start:start + window]
@@ -117,7 +117,7 @@ def run_sliding(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
 
 
 def run_pipelined(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
-                  concurrency: int, teardown: bool = True) -> List[Any]:
+                  concurrency: int, teardown: bool = True) -> list[Any]:
     """
     Double-buffered pipelined sliding window.
     
@@ -129,11 +129,11 @@ def run_pipelined(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
     window = fleet.config.window_size or fleet.config.batch_size
     images = list(fleet.image_counts().keys())
 
-    by_image: Dict[str, List[tuple[int, Task]]] = collections.defaultdict(list)
+    by_image: dict[str, list[tuple[int, Task]]] = collections.defaultdict(list)
     for i, t in enumerate(fleet.tasks):
         by_image[t.image].append((i, t))
 
-    results: List[Any] = [None] * len(fleet.tasks)
+    results: list[Any] = [None] * len(fleet.tasks)
     batches = [images[s:s + window] for s in range(0, len(images), window)]
 
     prefetch_executor = ThreadPoolExecutor(max_workers=1)
@@ -171,7 +171,7 @@ def run_pipelined(fleet: Any, process_fn: Callable[[Task, SandboxHandle], Any],
     return results
 
 
-STRATEGIES: Dict[str, Callable[..., List[Any]]] = {
+STRATEGIES: dict[str, Callable[..., list[Any]]] = {
     "none": run_none,
     "naive": run_naive,
     "sliding": run_sliding,

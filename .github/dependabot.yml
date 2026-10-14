@@ -1,0 +1,41 @@
+# Dependabot: weekly, grouped, one PR per ecosystem. The Substrate module is
+# kept out of the Go group on purpose: its bumps change the API the manifests
+# and the client are generated from and go through the bump procedure, not
+# through an automated PR. integrations/nemo-gym is not listed: its
+# ate-env-client dependency is a path source Dependabot cannot resolve, and
+# nothing in it is pinned.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7 # a release has to be a week old before it is proposed
+    labels: [dependencies]
+    groups:
+      go-deps:
+        patterns: ["*"]
+        exclude-patterns: ["github.com/agent-substrate/substrate"]
+    ignore:
+      - dependency-name: github.com/agent-substrate/substrate
+  - package-ecosystem: pip
+    directory: /clients/python
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7 # a release has to be a week old before it is proposed
+    labels: [dependencies]
+    groups:
+      python-deps:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7 # a release has to be a week old before it is proposed
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]

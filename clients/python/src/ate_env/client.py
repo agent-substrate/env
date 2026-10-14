@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import collections
+
 import grpc
 import grpc.aio
 
@@ -35,9 +37,6 @@ def _normalize_target(endpoint: str) -> str:
         if target.startswith(prefix):
             target = target[len(prefix) :]
     return target
-
-
-import collections
 
 
 class _ClientCallDetails(

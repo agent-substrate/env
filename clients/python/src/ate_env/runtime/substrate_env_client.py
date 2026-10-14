@@ -20,7 +20,8 @@ import logging
 import queue
 import threading
 import time
-from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 import grpc
 
@@ -28,7 +29,6 @@ from ..client import Client as AteClient
 from ..env import Env as AteEnv
 from ..errors import (
     CommandStartError,
-    EnvError,
     InfrastructureError,
     InvalidArgumentError,
     NotFoundError,
@@ -54,11 +54,11 @@ class SubstrateEnvClientRuntime(RuntimeGuestHook):
         self,
         env_id: str,
         *,
-        endpoint: Optional[str] = None,
+        endpoint: str | None = None,
         atespace: str = "ate-env",
-        client: Optional[AteClient] = None,
-        env: Optional[AteEnv] = None,
-        loop_runner: Optional[LoopRunner] = None,
+        client: AteClient | None = None,
+        env: AteEnv | None = None,
+        loop_runner: LoopRunner | None = None,
     ):
         if not env_id:
             raise ValueError("env_id is required for SubstrateEnvClientRuntime")
@@ -134,9 +134,9 @@ class SubstrateEnvClientRuntime(RuntimeGuestHook):
 
     async def exec_async(
         self,
-        command: str | List[str],
+        command: str | list[str],
         cwd: str = "",
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
         timeout_s: float = 120.0,
     ) -> ExecResult:
         """Native async execution honoring command contract: argv list runs directly, string runs in shell."""
@@ -247,9 +247,9 @@ class SubstrateEnvClientRuntime(RuntimeGuestHook):
 
     def exec(
         self,
-        command: str | List[str],
+        command: str | list[str],
         cwd: str = "",
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
         timeout_s: float = 120.0,
     ) -> ExecResult:
         """Synchronous wrapper for exec_async."""
@@ -257,9 +257,9 @@ class SubstrateEnvClientRuntime(RuntimeGuestHook):
 
     async def stream_process_async(
         self,
-        argv: List[str],
+        argv: list[str],
         cwd: str = "",
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
     ) -> AsyncIterator[str]:
         """Stream real-time output chunks from running process inside guest."""
         self._check_open()
@@ -277,13 +277,13 @@ class SubstrateEnvClientRuntime(RuntimeGuestHook):
 
     def stream_process(
         self,
-        argv: List[str],
+        argv: list[str],
         cwd: str = "",
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
     ) -> Iterator[str]:
         """Synchronously stream output chunks in real time."""
         self._check_open()
-        q: queue.Queue[tuple[Optional[str], Optional[Exception]]] = queue.Queue()
+        q: queue.Queue[tuple[str | None, Exception | None]] = queue.Queue()
 
         async def _pump():
             try:

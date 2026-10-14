@@ -362,6 +362,3 @@ func wrapGRPCError(err error) error {
 	}
 	return err
 }
-
-// TODO(jbd): Allow setting a non-default atespace.
-// TODO(jbd): Allow setting default atespace.

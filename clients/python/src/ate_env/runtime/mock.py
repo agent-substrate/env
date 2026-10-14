@@ -14,8 +14,7 @@
 
 from __future__ import annotations
 
-import io
-from typing import Dict, Iterator, List, Optional, Union
+from collections.abc import Iterator
 
 from ..types import ExecResult
 from .base import RuntimeGuestHook
@@ -25,17 +24,17 @@ class MockRuntimeHook(RuntimeGuestHook):
     """In-memory mock guest hook implementing file operations and command responses."""
 
     def __init__(self):
-        self.files: Dict[str, bytes] = {}
-        self.executed_commands: List[str] = []
-        self.custom_responses: Dict[str, Union[ExecResult, BaseException]] = {}
+        self.files: dict[str, bytes] = {}
+        self.executed_commands: list[str] = []
+        self.custom_responses: dict[str, ExecResult | BaseException] = {}
 
     def set_response(self, command_substring: str,
-                     result: Union[ExecResult, BaseException]) -> None:
+                     result: ExecResult | BaseException) -> None:
         """Preset a result, or an exception (e.g. SandboxUnavailableError) to raise."""
         self.custom_responses[command_substring] = result
 
-    def exec(self, command: str | List[str], cwd: str = "",
-             env: Optional[Dict[str, str]] = None, timeout_s: float = 120.0) -> ExecResult:
+    def exec(self, command: str | list[str], cwd: str = "",
+             env: dict[str, str] | None = None, timeout_s: float = 120.0) -> ExecResult:
         cmd_str = command if isinstance(command, str) else " ".join(command)
         self.executed_commands.append(cmd_str)
 
@@ -60,8 +59,8 @@ class MockRuntimeHook(RuntimeGuestHook):
 
         return ExecResult(exit_code=0, stdout=f"Mock exec ok: {cmd_str}\n", stderr="")
 
-    def stream_process(self, argv: List[str], cwd: str = "",
-                       env: Optional[Dict[str, str]] = None) -> Iterator[str]:
+    def stream_process(self, argv: list[str], cwd: str = "",
+                       env: dict[str, str] | None = None) -> Iterator[str]:
         cmd_str = " ".join(argv)
         yield f"Process started: {cmd_str}\n"
         yield "Process completed.\n"

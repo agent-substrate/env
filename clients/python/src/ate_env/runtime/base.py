@@ -15,12 +15,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional
+from collections.abc import Iterator
 
 from ..types import ExecResult
 
 
-def command_to_argv(command: str | List[str]) -> List[str]:
+def command_to_argv(command: str | list[str]) -> list[str]:
     """Command contract shared by every runtime.
 
     A ``str`` is a shell command and always runs as ``bash -c <command>``. A
@@ -45,8 +45,8 @@ class RuntimeGuestHook(ABC):
     """
 
     @abstractmethod
-    def exec(self, command: str | List[str], cwd: str = "",
-             env: Optional[Dict[str, str]] = None, timeout_s: float = 120.0) -> ExecResult:
+    def exec(self, command: str | list[str], cwd: str = "",
+             env: dict[str, str] | None = None, timeout_s: float = 120.0) -> ExecResult:
         """Execute command inside the guest container/actor.
 
         Returns an ExecResult only if the guest ran the command and it either
@@ -56,8 +56,8 @@ class RuntimeGuestHook(ABC):
         """
 
     @abstractmethod
-    def stream_process(self, argv: List[str], cwd: str = "",
-                       env: Optional[Dict[str, str]] = None) -> Iterator[str]:
+    def stream_process(self, argv: list[str], cwd: str = "",
+                       env: dict[str, str] | None = None) -> Iterator[str]:
         """Stream real-time output chunks from a running guest process."""
 
     @abstractmethod
@@ -68,8 +68,8 @@ class RuntimeGuestHook(ABC):
     def read_file_bytes(self, path: str) -> bytes:
         """Read binary file content from the guest filesystem."""
 
-    async def exec_async(self, command: str | List[str], cwd: str = "",
-                         env: Optional[Dict[str, str]] = None, timeout_s: float = 120.0) -> ExecResult:
+    async def exec_async(self, command: str | list[str], cwd: str = "",
+                         env: dict[str, str] | None = None, timeout_s: float = 120.0) -> ExecResult:
         """Asynchronously execute command inside the guest container/actor."""
         import asyncio
         return await asyncio.to_thread(self.exec, command, cwd=cwd, env=env, timeout_s=timeout_s)
@@ -84,7 +84,7 @@ class RuntimeGuestHook(ABC):
         import asyncio
         return await asyncio.to_thread(self.read_file_bytes, path)
 
-    def initialize(self, init_script: Optional[str] = None, cwd: str = "",
+    def initialize(self, init_script: str | None = None, cwd: str = "",
                    timeout_s: float = 120.0) -> ExecResult:
         """Run post-boot initialization script inside the guest."""
         if not init_script:
