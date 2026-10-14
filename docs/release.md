@@ -53,6 +53,11 @@ A valid signature proves the image was built by this repository's `release`
 workflow from a tag: the identity is the workflow file at a `refs/tags/` ref,
 so a signature from another workflow or from a branch run does not verify.
 
+The workflow signs with Cosign 3 (the version `sigstore/cosign-installer` v4
+installs by default), which writes the standardized bundle format and stores
+it as an OCI 1.1 referring artifact next to the image. Verify with Cosign 3 or
+newer; a Cosign 2 client does not find these signatures.
+
 ## Cutting a release
 
 ```bash
