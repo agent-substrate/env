@@ -301,6 +301,16 @@ its path; the API strips the three headers. The router resumes a suspended envir
 curl -H 'X-Env-Id: dev1' -H 'X-Env-Port: 6000' localhost:7777/health
 ```
 
+Clients that cannot set headers, such as WebSocket clients and browsers, put the target in the path
+instead: `/v1alpha/envs/{id}/ports/{port}/...`, or `/v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/...`
+outside `ate-env`. The API strips that prefix and forwards the rest, so a client given
+`http://localhost:7777/v1alpha/envs/dev1/ports/6000` as its base URL works unchanged. WebSocket upgrades pass
+through either form; gRPC to the daemon is not supported yet.
+
+```bash
+curl localhost:7777/v1alpha/envs/dev1/ports/6000/health
+```
+
 `--atenet-connect` names the router's CONNECT listener (default
 `atenet-router.ate-system.svc.cluster.local:8081`); an empty value turns the forwarding off.
 

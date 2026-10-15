@@ -264,7 +264,8 @@ actor network.
 Limits:
 
 - **HTTP/1.1 only.** The router tunnels HTTP to the port, not raw TCP. Streamed responses are
-  flushed as they arrive; gRPC and WebSocket to the daemon are not supported or tested yet.
+  flushed as they arrive and WebSocket upgrades pass through; gRPC to the daemon is not supported
+  yet.
 - **The daemon must be self-contained.** A layer cannot rely on the task image's libraries: ship a
   static binary, or put the interpreter and its packages in the layer. NeMo Skills' sandbox server
   (Flask on CPython, port 6000, `POST /execute`, `GET /health`) fits only with a relocatable Python

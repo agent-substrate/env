@@ -96,10 +96,14 @@ sidecar, run under two different rootfs images.
 
   ```bash
   curl -H 'X-Env-Id: py1' -H 'X-Env-Port: 44772' localhost:7777/ready
+  curl localhost:7777/v1alpha/envs/py1/ports/44772/ready   # the same, for clients without headers
   ```
 
-  The tunnel carries HTTP/1.1, not raw TCP. Streamed responses are flushed as
-  they arrive; gRPC and WebSocket to the runtime are not supported or tested
+  The path form, `/v1alpha/envs/{id}/ports/{port}/...` (or
+  `/v1alpha/atespaces/{atespace}/envs/...`), is for clients that cannot set
+  headers: the prefix is stripped, so it works as a base URL. The tunnel
+  carries HTTP/1.1, not raw TCP. Streamed responses are flushed as they arrive
+  and WebSocket upgrades pass through; gRPC to the runtime is not supported
   yet. The NeMo Gym
   provider hands this out as its `endpoint(handle, port)`
   ([integrations/nemo-gym](../../integrations/nemo-gym/README.md)).
