@@ -54,13 +54,15 @@ const (
 // and repeats it while the router answers Unavailable, which is what an
 // expired parking budget and a guest that is not yet listening both look
 // like. It returns when the guest answers anything else, when the actor has
-// crashed, when ctx ends, or when the budget for the actor's current state
-// is spent: WakeBudget while the actor is suspended or in transition,
-// WakeRunningBudget once the control plane reports it RUNNING. Because the
-// probe is the first request through the router, it is also what wakes the
-// actor; the calls that follow on conn find it up. The state is read once per
-// attempt, and the backoff caps attempts at roughly one per two seconds, so a
-// full two-minute wait costs about sixty control-plane reads.
+// crashed, when ctx ends, or when a budget is spent: WakeBudget bounds the
+// whole wait, and WakeRunningBudget bounds the part of it that starts with
+// the first attempt that sees the actor RUNNING, so a long suspended phase
+// does not eat the time the guest needs to start listening after the state
+// flips. Because the probe is the first request through the router, it is
+// also what wakes the actor; the calls that follow on conn find it up. The
+// state is read once per attempt, and the backoff caps attempts at roughly
+// one per two seconds, so a full two-minute wait costs about sixty
+// control-plane reads.
 func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespace, id string) error {
 	budget := s.WakeBudget
 	if budget <= 0 {
@@ -71,6 +73,7 @@ func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespac
 		runningBudget = DefaultWakeRunningBudget
 	}
 	start := time.Now()
+	var runningSince time.Time // first attempt that saw the actor RUNNING
 	probe := ateenvv1alpha.NewProcessServiceClient(conn)
 	backoff := wakeRetryInitialBackoff
 	for attempt := 1; ; attempt++ {
@@ -87,17 +90,25 @@ func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespac
 		if state == ateapipb.ActorState_ACTOR_STATE_CRASHED {
 			return status.Errorf(codes.FailedPrecondition, "environment %s/%s crashed while waking: %v", atespace, id, err)
 		}
-		allowed := budget
+		allowed, since, which := budget, start, "wake budget"
 		if state == ateapipb.ActorState_ACTOR_STATE_RUNNING {
-			allowed = runningBudget
+			if runningSince.IsZero() {
+				runningSince = time.Now()
+			}
+			allowed, since, which = runningBudget, runningSince, "running budget"
+		} else {
+			runningSince = time.Time{}
 		}
-		remaining := allowed - time.Since(start)
+		remaining := allowed - time.Since(since)
+		if overall := budget - time.Since(start); overall < remaining {
+			remaining, allowed, which = overall, budget, "wake budget"
+		}
 		if remaining <= 0 {
-			return status.Errorf(codes.Unavailable, "environment %s/%s did not answer within %s while %s (%d attempts): %v",
-				atespace, id, allowed, shortState(state), attempt, err)
+			return status.Errorf(codes.Unavailable, "environment %s/%s did not answer within the %s of %s while %s (%d attempts): %v",
+				atespace, id, which, allowed, shortState(state), attempt, err)
 		}
 		if attempt == 1 {
-			log.Printf("waiting for environment %s/%s to wake (state %s, budget %s)", atespace, id, shortState(state), allowed)
+			log.Printf("waiting for environment %s/%s to wake (state %s, %s %s)", atespace, id, shortState(state), which, allowed)
 		}
 		select {
 		case <-ctx.Done():

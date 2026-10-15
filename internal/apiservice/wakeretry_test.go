@@ -133,3 +133,31 @@ func TestGuestCallCapsWaitWhenRunning(t *testing.T) {
 		t.Errorf("waited %s; the running budget (1 s) must apply, not the wake budget (1 min)", elapsed)
 	}
 }
+
+// A wake whose suspended phase outlasts the running budget must still get
+// the running budget once the actor is RUNNING: the guest listens a moment
+// after the state flips.
+func TestGuestCallRunningBudgetStartsAtRunning(t *testing.T) {
+	te := newFullTestEnv(t)
+	envCtx := registerGuest(t, te, "late-running-test")
+	te.control.SetState("late-running-test", ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
+	te.srv.WakeBudget = time.Minute
+	te.srv.WakeRunningBudget = 3 * time.Second
+
+	start := time.Now()
+	flip := start.Add(2500 * time.Millisecond)   // the control plane reports RUNNING; the next attempt is at ~3.0 s
+	listen := start.Add(4500 * time.Millisecond) // the guest answers 2 s later, inside the 3 s running budget
+	te.router.Running = func(string) bool { return time.Now().After(listen) }
+	go func() {
+		time.Sleep(time.Until(flip))
+		te.control.SetState("late-running-test", ateapipb.ActorState_ACTOR_STATE_RUNNING)
+	}()
+
+	_, err := te.procClient.StartProcess(envCtx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "true"}})
+	if err != nil {
+		t.Fatalf("StartProcess after a 2.5 s suspended phase and a 2 s listen lag: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 4400*time.Millisecond {
+		t.Errorf("call returned after %s, before the guest was listening", elapsed)
+	}
+}
