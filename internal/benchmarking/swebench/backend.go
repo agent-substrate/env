@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"sync/atomic"
 	"time"
 
 	env "github.com/agent-substrate/env/clients/go"
@@ -53,29 +54,58 @@ type Backend interface {
 }
 
 // EnvBackend is the Backend over the ate-env API through the Go SDK.
+//
+// It holds several connections and hands them out round-robin per
+// environment: a Kubernetes Service balances per connection, so one
+// connection would put every task on one API replica, and gRPC caps the
+// concurrent streams on a connection.
 type EnvBackend struct {
-	client       *env.Client
+	clients      []*env.Client
+	next         atomic.Uint64
 	atespace     string
 	baseTemplate string
 }
 
-// NewEnvBackend dials the ate-env API. Environments are created in atespace
-// from baseTemplate with the task image as rootfs; the API derives and bakes
-// one template per distinct image on first use.
-func NewEnvBackend(endpoint, atespace, baseTemplate string) (*EnvBackend, error) {
-	c, err := env.NewClient(env.ClientOptions{Endpoint: endpoint})
-	if err != nil {
-		return nil, err
+// NewEnvBackend dials the ate-env API over connections connections (at
+// least one). Environments are created in atespace from baseTemplate with
+// the task image as rootfs; the API derives and bakes one template per
+// distinct image on first use.
+func NewEnvBackend(endpoint, atespace, baseTemplate string, connections int) (*EnvBackend, error) {
+	if connections < 1 {
+		connections = 1
 	}
-	return &EnvBackend{client: c, atespace: atespace, baseTemplate: baseTemplate}, nil
+	b := &EnvBackend{atespace: atespace, baseTemplate: baseTemplate}
+	for i := 0; i < connections; i++ {
+		c, err := env.NewClient(env.ClientOptions{Endpoint: endpoint})
+		if err != nil {
+			b.Close()
+			return nil, err
+		}
+		b.clients = append(b.clients, c)
+	}
+	return b, nil
 }
 
-// Close releases the API connection.
-func (b *EnvBackend) Close() error { return b.client.Close() }
+// Close releases the API connections.
+func (b *EnvBackend) Close() error {
+	var first error
+	for _, c := range b.clients {
+		if err := c.Close(); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
 
-// Create implements Backend.
+// pick returns the next connection round-robin.
+func (b *EnvBackend) pick() *env.Client {
+	return b.clients[int(b.next.Add(1)-1)%len(b.clients)]
+}
+
+// Create implements Backend. The environment keeps the connection it was
+// created on for the rest of its life.
 func (b *EnvBackend) Create(ctx context.Context, id, image string) (Sandbox, error) {
-	e, err := b.client.Create(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
+	e, err := b.pick().Create(ctx, &ateenvv1alpha.CreateEnvironmentRequest{
 		Id:          id,
 		Atespace:    b.atespace,
 		Template:    &ateenvv1alpha.Template{Name: b.baseTemplate, Atespace: b.atespace},

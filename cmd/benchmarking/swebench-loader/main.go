@@ -67,6 +67,7 @@ func runCmd(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	var (
 		endpoint      = fs.String("endpoint", "localhost:7777", "ate-env API address (host:port).")
+		connections   = fs.Int("connections", 4, "gRPC connections to the API, handed out round-robin per environment; a Service balances per connection, so use at least the number of API replicas.")
 		atespace      = fs.String("atespace", "ate-env", "Atespace the environments are created in.")
 		baseTemplate  = fs.String("base-template", "default-template", "Base ActorTemplate the per-image templates derive from (ate-env manifest template).")
 		dataset       = fs.String("dataset", "", "JSONL manifest from benchmarking/swebench/make-dataset.py; a path or an http(s) URL. Required.")
@@ -142,7 +143,7 @@ func runCmd(args []string) error {
 		return nil
 	}
 
-	backend, err := swebench.NewEnvBackend(*endpoint, *atespace, *baseTemplate)
+	backend, err := swebench.NewEnvBackend(*endpoint, *atespace, *baseTemplate, *connections)
 	if err != nil {
 		return err
 	}
