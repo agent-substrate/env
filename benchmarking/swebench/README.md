@@ -27,8 +27,9 @@ The trajectory is YAML (`internal/benchmarking/swebench/trajectories/`,
 or `-trajectory FILE`). The built-in `swebench-gold` does what a SWE agent
 does on a task, with the gold patch as the model's edit: explore, read, write
 the patch, `git apply`, write the harness eval script, run it. The reward is
-the eval script's exit code, so a healthy run rewards every task and a drop
-in reward rate is a correctness regression. Steps carry think times, the
+the `Test Exit Code` marker the harness script prints (its own exit code is
+not the verdict), so a healthy run rewards every task and a drop in reward
+rate is a correctness regression. Steps carry think times, the
 simulated policy latency between commands.
 
 ## What is measured
@@ -100,6 +101,15 @@ the API. `-keep` leaves the fleet in place for inspection.
 For the 500-wide shapes run inside the cluster so the loader sits next to the
 API: `manifests/loader-job.yaml` (fill the `${...}` values with `envsubst`;
 the image comes from `ko build ./cmd/benchmarking/swebench-loader`).
+
+## Two things the first runs showed
+
+- Commands run as start, poll, read rather than through the SDK's streaming
+  shell: the router's route timeout (five minutes by default) cuts a single
+  streamed request, and SWE-bench test runs regularly exceed it.
+- On a large pool a new actor rarely lands on a node that already has its
+  image, so time to first instruction is the cold pull plus the golden bake
+  (about 20 s) for nearly every task. Report cold and warm passes separately.
 
 ## Record with every run
 
