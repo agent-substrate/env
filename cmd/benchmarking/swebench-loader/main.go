@@ -72,6 +72,7 @@ func runCmd(args []string) error {
 		dataset       = fs.String("dataset", "", "JSONL manifest from benchmarking/swebench/make-dataset.py; a path or an http(s) URL. Required.")
 		images        = fs.Int("images", 0, "Use the first N instances of the dataset; 0 means all.")
 		instances     = fs.String("instances", "", "Comma-separated instance ids to use instead of the first N.")
+		excludeFile   = fs.String("exclude-file", "", "File of instance ids to leave out, one per line, text after the id is a comment (e.g. benchmarking/swebench/offline-exclusions.txt).")
 		trajectory    = fs.String("trajectory", swebench.DefaultTrajectory, fmt.Sprintf("Trajectory file or built-in name (%s).", strings.Join(swebench.Names(), ", ")))
 		mode          = fs.String("mode", string(swebench.ModeEval), "eval (images x tasks-per-image, each create/replay/delete) or steps (images x rollouts kept across steps).")
 		width         = fs.Int("width", 50, "Most tasks in flight at once.")
@@ -81,8 +82,8 @@ func runCmd(args []string) error {
 		park          = fs.String("park", string(swebench.ParkSuspend), "steps: what happens between steps: suspend, delete or none.")
 		createTimeout = fs.Duration("create-timeout", 5*time.Minute, "Deadline for one create call.")
 		stepTimeout   = fs.Duration("step-timeout", 10*time.Minute, "Default deadline for a run step without its own timeout.")
-		wakeRetries   = fs.Int("wake-retries", 10, "Retries of a task's first command while the API reports the environment unavailable.")
-		wakeBackoff   = fs.Duration("wake-backoff", 2*time.Second, "Pause between wake retries.")
+		wakeBudget    = fs.Duration("wake-budget", 3*time.Minute, "How long a task's first command is retried while the environment is still waking or its image is still being baked.")
+		wakeBackoff   = fs.Duration("wake-backoff", 2*time.Second, "Initial pause between wake retries; doubles up to five times this.")
 		runID         = fs.String("run-id", "", "Run id, prefix of every environment name; default swe-<unix time>.")
 		out           = fs.String("out", "", "JSONL events file; default <run-id>.jsonl in the working directory.")
 		keep          = fs.Bool("keep", false, "Leave the environments in place when the run ends.")
@@ -110,7 +111,13 @@ func runCmd(args []string) error {
 	if *instances != "" {
 		ids = strings.Split(*instances, ",")
 	}
-	selected, err := swebench.Select(all, ids, *images)
+	var exclude []string
+	if *excludeFile != "" {
+		if exclude, err = swebench.ReadIDList(*excludeFile); err != nil {
+			return err
+		}
+	}
+	selected, err := swebench.Select(all, ids, exclude, *images)
 	if err != nil {
 		return err
 	}
@@ -165,7 +172,7 @@ func runCmd(args []string) error {
 		Park:          swebench.Park(*park),
 		CreateTimeout: *createTimeout,
 		StepTimeout:   *stepTimeout,
-		WakeRetries:   *wakeRetries,
+		WakeBudget:    *wakeBudget,
 		WakeBackoff:   *wakeBackoff,
 		Keep:          *keep,
 	})

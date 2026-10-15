@@ -350,7 +350,7 @@ func TestFirstCommandRetriesUnavailable(t *testing.T) {
 	cfg.Mode = ModeEval
 	cfg.TasksPerImage = 1
 	cfg.Instances = instances(1)
-	cfg.WakeRetries = 3
+	cfg.WakeBudget = time.Second
 	tr, err := ParseTrajectory([]byte("name: t\nsteps:\n  - {name: a, run: \"true\", reward: true}\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -364,16 +364,41 @@ func TestFirstCommandRetriesUnavailable(t *testing.T) {
 		t.Fatalf("summary %+v", sum)
 	}
 
+	rep := Build(parseEvents(t, out.String()))
+	if s := stat(rep, EventTTFI); s.Count != 1 {
+		t.Fatalf("ttfi %+v", s)
+	}
+	for _, e := range parseEvents(t, out.String()) {
+		if e.Event == EventTTFI && e.Attempts != 3 {
+			t.Fatalf("ttfi attempts = %d, want 3", e.Attempts)
+		}
+	}
+
 	f = newFake()
-	f.unavailable = 5
+	f.unavailable = 1000
 	cfg.Backend = f
-	cfg.WakeRetries = 1
+	cfg.WakeBudget = 5 * time.Millisecond
+	cfg.WakeBackoff = 2 * time.Millisecond
 	sum, err = Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sum.Failed != 1 {
-		t.Fatalf("retries exhausted must fail the task: %+v", sum)
+		t.Fatalf("budget exhausted must fail the task: %+v", sum)
+	}
+}
+
+func TestIsTransient(t *testing.T) {
+	for code, want := range map[codes.Code]bool{
+		codes.Unavailable: true, codes.Unknown: true, codes.Internal: true, codes.Aborted: true, codes.DeadlineExceeded: true,
+		codes.InvalidArgument: false, codes.NotFound: false, codes.FailedPrecondition: false, codes.AlreadyExists: false,
+	} {
+		if got := isTransient(status.Error(code, "x")); got != want {
+			t.Errorf("%v: transient = %v, want %v", code, got, want)
+		}
+	}
+	if isTransient(errors.New("plain")) {
+		t.Error("a non-status error is not transient")
 	}
 }
 

@@ -72,10 +72,13 @@ type Config struct {
 	// run step without its own timeout.
 	CreateTimeout time.Duration
 	StepTimeout   time.Duration
-	// WakeRetries is how often the first command after a create or a park
-	// is retried when the API reports the environment unavailable, with
-	// WakeBackoff between attempts.
-	WakeRetries int
+	// WakeBudget is how long the first command after a create or a park is
+	// retried on transient errors: a wake that outlasts the router's parking
+	// budget answers Unavailable, and a first create whose image is still
+	// being golden-baked answers Unknown until the bake is done. WakeBackoff
+	// is the initial pause between attempts; it doubles up to five times
+	// that.
+	WakeBudget  time.Duration
 	WakeBackoff time.Duration
 	// Keep leaves the environments in place when the run ends.
 	Keep bool
@@ -134,6 +137,9 @@ func (c *Config) defaults() {
 	}
 	if c.StepTimeout <= 0 {
 		c.StepTimeout = 10 * time.Minute
+	}
+	if c.WakeBudget <= 0 {
+		c.WakeBudget = 3 * time.Minute
 	}
 	if c.WakeBackoff <= 0 {
 		c.WakeBackoff = time.Second
@@ -419,10 +425,12 @@ func (r *runner) replay(ctx context.Context, e *environment, step int) {
 		if firstStart.IsZero() {
 			firstStart = stepStart
 		}
-		res, err := r.doStep(ctx, e, s, first)
+		res, attempts, err := r.doStep(ctx, e, s, first)
 		dur := time.Since(stepStart)
 		if first {
-			r.rec.Record(r.event(firstEvent, e, step, time.Since(firstStart), err))
+			fe := r.event(firstEvent, e, step, time.Since(firstStart), err)
+			fe.Attempts = attempts
+			r.rec.Record(fe)
 			first = false
 		}
 		ev := r.event(EventStep, e, step, dur, err)
@@ -465,19 +473,17 @@ func (r *runner) replay(ctx context.Context, e *environment, step int) {
 	}
 }
 
-// doStep performs one step. The first step of a task retries while the API
-// reports the environment unavailable, which is how a wake that outlasts
-// the router's parking budget surfaces.
-func (r *runner) doStep(ctx context.Context, e *environment, s Step, first bool) (Result, error) {
-	attempts := 1
-	if first {
-		attempts += r.cfg.WakeRetries
-	}
+// doStep performs one step and reports how many attempts it took. The
+// first step of a task retries transient errors within WakeBudget: the
+// environment may still be waking, or its image may still be baking.
+func (r *runner) doStep(ctx context.Context, e *environment, s Step, first bool) (Result, int, error) {
+	deadline := time.Now().Add(r.cfg.WakeBudget)
+	wait := r.cfg.WakeBackoff
 	var (
 		res Result
 		err error
 	)
-	for i := 0; i < attempts; i++ {
+	for attempt := 1; ; attempt++ {
 		if s.Write != nil {
 			mode, _ := s.Write.FileMode()
 			err = e.sb.WriteFile(ctx, s.Write.Path, []byte(s.Write.Content), mode)
@@ -490,20 +496,32 @@ func (r *runner) doStep(ctx context.Context, e *environment, s Step, first bool)
 			res, err = e.sb.Run(sctx, s.Run, timeout)
 			cancel()
 		}
-		if err == nil || !isUnavailable(err) || ctx.Err() != nil {
-			return res, err
+		if err == nil || !first || !isTransient(err) || ctx.Err() != nil || time.Now().Add(wait).After(deadline) {
+			return res, attempt, err
 		}
 		select {
 		case <-ctx.Done():
-			return res, err
-		case <-time.After(r.cfg.WakeBackoff):
+			return res, attempt, err
+		case <-time.After(wait):
 		}
+		wait = min(wait*2, 5*r.cfg.WakeBackoff)
 	}
-	return res, err
 }
 
-func isUnavailable(err error) bool {
-	return status.Code(err) == codes.Unavailable
+// isTransient reports whether a first-command error is worth another try.
+// Unavailable is the router giving up on a wake; Unknown, Internal and
+// Aborted are what a resume that races the golden bake or a worker restart
+// surfaces as. Argument and precondition errors are not retried.
+func isTransient(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	switch st.Code() {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Unknown, codes.Internal, codes.Aborted:
+		return true
+	}
+	return false
 }
 
 func (r *runner) suspend(ctx context.Context, e *environment, step int) {
