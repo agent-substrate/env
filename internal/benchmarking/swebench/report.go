@@ -34,6 +34,16 @@ type Stat struct {
 	P50MS  float64 `json:"p50_ms"`
 	P95MS  float64 `json:"p95_ms"`
 	MaxMS  float64 `json:"max_ms"`
+	// Retried counts ttfi and wake events that took more than one attempt:
+	// the environment was not serving when first asked.
+	Retried int `json:"retried,omitempty"`
+}
+
+// Unresolved is an instance whose reward step scored 0, with the grader's
+// verdict when the step's output ended in one.
+type Unresolved struct {
+	Instance string `json:"instance"`
+	Reason   string `json:"reason"`
 }
 
 // StepStat is one training step in steps mode.
@@ -62,6 +72,8 @@ type Report struct {
 	Steps      []StepStat `json:"steps,omitempty"`
 	// Errors counts distinct error strings, most frequent first.
 	Errors []ErrorCount `json:"errors,omitempty"`
+	// Unresolved lists the instances whose reward was 0, once each.
+	Unresolved []Unresolved `json:"unresolved,omitempty"`
 }
 
 // ErrorCount is one error string and how often it occurred.
@@ -98,6 +110,8 @@ func Build(events []Event) *Report {
 	type key struct{ event, name string }
 	durs := map[key][]float64{}
 	failed := map[key]int{}
+	retried := map[key]int{}
+	unresolved := map[string]string{}
 	var order []key
 	steps := map[int]*StepStat{}
 	wakes := map[int][]float64{}
@@ -114,6 +128,14 @@ func Build(events []Event) *Report {
 		if _, ok := durs[k]; !ok {
 			order = append(order, k)
 			durs[k] = nil
+		}
+		if e.Attempts > 1 {
+			retried[k]++
+		}
+		if e.Event == EventStep && e.Reward != nil && *e.Reward == 0 {
+			if _, seen := unresolved[e.Instance]; !seen {
+				unresolved[e.Instance] = verdict(e.Tail)
+			}
 		}
 		if e.OK {
 			durs[k] = append(durs[k], e.DurMS)
@@ -162,7 +184,7 @@ func Build(events []Event) *Report {
 		d := durs[k]
 		sort.Float64s(d)
 		rep.Stats = append(rep.Stats, Stat{Event: k.event, Name: k.name, Count: len(d) + failed[k], Failed: failed[k],
-			P50MS: percentile(d, 0.50), P95MS: percentile(d, 0.95), MaxMS: percentile(d, 1)})
+			P50MS: percentile(d, 0.50), P95MS: percentile(d, 0.95), MaxMS: percentile(d, 1), Retried: retried[k]})
 	}
 	for step, s := range steps {
 		w := wakes[step]
@@ -175,6 +197,10 @@ func Build(events []Event) *Report {
 	for msg, n := range errs {
 		rep.Errors = append(rep.Errors, ErrorCount{Err: msg, Count: n})
 	}
+	for inst, why := range unresolved {
+		rep.Unresolved = append(rep.Unresolved, Unresolved{Instance: inst, Reason: why})
+	}
+	sort.Slice(rep.Unresolved, func(i, j int) bool { return rep.Unresolved[i].Instance < rep.Unresolved[j].Instance })
 	sort.Slice(rep.Errors, func(i, j int) bool {
 		if rep.Errors[i].Count != rep.Errors[j].Count {
 			return rep.Errors[i].Count > rep.Errors[j].Count
@@ -182,6 +208,37 @@ func Build(events []Event) *Report {
 		return rep.Errors[i].Err < rep.Errors[j].Err
 	})
 	return rep
+}
+
+// verdict extracts the grader's verdict from the end of a reward step's
+// output: "invalid run", "f2p A/B p2p C/D", or "reward 0" when the output
+// does not end in the grader's JSON line.
+func verdict(tail string) string {
+	i := strings.LastIndex(tail, `{"valid"`)
+	if i < 0 {
+		return "reward 0"
+	}
+	var g struct {
+		Valid bool   `json:"valid"`
+		F2P   string `json:"f2p"`
+		P2P   string `json:"p2p"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(tail[i:])), &g); err != nil {
+		return "reward 0"
+	}
+	if !g.Valid {
+		return "invalid run"
+	}
+	return fmt.Sprintf("f2p %s p2p %s", g.F2P, g.P2P)
+}
+
+// WriteExclusions writes the unresolved instances in the exclude-file format:
+// one id per line followed by the reason as a comment.
+func (rep *Report) WriteExclusions(w io.Writer, header string) {
+	fmt.Fprintf(w, "# %s\n# Generated from run %s: %d of %d tasks unresolved.\n", header, rep.RunID, len(rep.Unresolved), rep.Tasks)
+	for _, u := range rep.Unresolved {
+		fmt.Fprintf(w, "%s  %s\n", u.Instance, u.Reason)
+	}
 }
 
 func stepStat(m map[int]*StepStat, step int) *StepStat {
@@ -216,9 +273,9 @@ func (rep *Report) WriteText(w io.Writer) {
 	fmt.Fprintf(w, "run %s mode=%s tasks=%d failed=%d rewarded=%d reward_rate=%.3f run=%.1fs\n\n",
 		rep.RunID, rep.Mode, rep.Tasks, rep.Failed, rep.Rewarded, rep.RewardRate, rep.RunMS/1000)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "event\tname\tcount\tfailed\tp50_ms\tp95_ms\tmax_ms")
+	fmt.Fprintln(tw, "event\tname\tcount\tfailed\tretried\tp50_ms\tp95_ms\tmax_ms")
 	for _, s := range rep.Stats {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%.0f\t%.0f\t%.0f\n", s.Event, s.Name, s.Count, s.Failed, s.P50MS, s.P95MS, s.MaxMS)
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%.0f\t%.0f\t%.0f\n", s.Event, s.Name, s.Count, s.Failed, s.Retried, s.P50MS, s.P95MS, s.MaxMS)
 	}
 	tw.Flush()
 	if len(rep.Steps) > 0 {
@@ -230,6 +287,9 @@ func (rep *Report) WriteText(w io.Writer) {
 				s.BarrierMS/1000, s.ParkMS/1000, s.WakeP50MS, s.WakeP95MS)
 		}
 		tw.Flush()
+	}
+	if len(rep.Unresolved) > 0 {
+		fmt.Fprintf(w, "\nunresolved: %d instances (report -unresolved FILE writes them in exclude-file format)\n", len(rep.Unresolved))
 	}
 	if len(rep.Errors) > 0 {
 		fmt.Fprintln(w)

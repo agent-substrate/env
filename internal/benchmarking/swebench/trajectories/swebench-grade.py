@@ -261,8 +261,8 @@ def grade(instance, content):
         "resolved": resolved,
         "f2p": f"{len(f2p_ok)}/{len(f2p)}",
         "p2p": f"{len(p2p_ok)}/{len(p2p)}",
-        "f2p_failed": [t for t in f2p if t not in f2p_ok][:10],
-        "p2p_failed": [t for t in p2p if t not in p2p_ok][:10],
+        "f2p_failed": [t for t in f2p if t not in f2p_ok][:5],
+        "p2p_failed": [t for t in p2p if t not in p2p_ok][:5],
     }
 
 
