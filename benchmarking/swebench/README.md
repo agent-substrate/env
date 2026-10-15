@@ -103,8 +103,29 @@ go run ./cmd/benchmarking/swebench-loader report smoke.jsonl
 the API. `-keep` leaves the fleet in place for inspection.
 
 For the 500-wide shapes run inside the cluster so the loader sits next to the
-API: `manifests/loader-job.yaml` (fill the `${...}` values with `envsubst`;
-the image comes from `ko build ./cmd/benchmarking/swebench-loader`).
+API and spreads over its replicas (`-connections`, default 4):
+
+```bash
+KO_DOCKER_REPO=gcr.io/PROJECT/repo benchmarking/swebench/run-in-cluster.sh swe-eval500x6 swebench-verified.jsonl \
+  -mode eval -images 500 -tasks-per-image 6 -width 500 -connections 8
+```
+
+The script bakes the dataset and the exclusion list into the loader image,
+runs a Job next to ate-env-api, follows the log, copies the events file back
+to the current directory and prints the report.
+
+## Network and the offline exclusion list
+
+Actors have no network until an egress policy is created for them, which the
+env SDK cannot do yet, and the SWE-bench harness assumes network (matplotlib's
+eval scripts pip-install, requests and django have tests that open sockets).
+`offline-exclusions.txt` lists the Verified instances that do not resolve
+without egress, with the grader's verdict as the reason; pass it with
+`-exclude-file` and every remaining instance should resolve. Regenerate it
+from a full pass when the dataset, the images or the sandbox network change,
+and review the diff: a new entry is either a regression or a new
+network-dependent test, never silently accepted. Egress at scale is a
+benchmark of its own.
 
 ## Two things the first runs showed
 
