@@ -15,6 +15,8 @@
 package swebench
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,19 +62,41 @@ func TestSelect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := Select(all, nil, 2)
+	got, err := Select(all, nil, nil, 2)
 	if err != nil || len(got) != 2 || got[1].InstanceID != "b" {
 		t.Fatalf("limit: got %+v, %v", got, err)
 	}
-	got, err = Select(all, []string{"c", "a"}, 0)
+	got, err = Select(all, []string{"c", "a"}, nil, 0)
 	if err != nil || len(got) != 2 || got[0].InstanceID != "a" || got[1].InstanceID != "c" {
 		t.Fatalf("ids keep manifest order: got %+v, %v", got, err)
 	}
-	got, err = Select(all, []string{"c", "a"}, 1)
+	got, err = Select(all, []string{"c", "a"}, nil, 1)
 	if err != nil || len(got) != 1 || got[0].InstanceID != "a" {
 		t.Fatalf("ids then limit: got %+v, %v", got, err)
 	}
-	if _, err := Select(all, []string{"zz"}, 0); err == nil {
+	if _, err := Select(all, []string{"zz"}, nil, 0); err == nil {
 		t.Fatal("unknown id must error")
+	}
+}
+
+func TestSelectExcludeAndIDList(t *testing.T) {
+	all, err := ParseDataset(strings.NewReader(manifest("a", "b", "c")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Select(all, nil, []string{"b", "unknown"}, 0)
+	if err != nil || len(got) != 2 || got[0].InstanceID != "a" || got[1].InstanceID != "c" {
+		t.Fatalf("exclude: got %+v, %v", got, err)
+	}
+	if _, err := Select(all, []string{"b"}, []string{"b"}, 0); err == nil {
+		t.Fatal("an excluded id asked for by name must error")
+	}
+	path := filepath.Join(t.TempDir(), "ids.txt")
+	if err := os.WriteFile(path, []byte("# known network-dependent\nb needs pypi\n\n  c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := ReadIDList(path)
+	if err != nil || len(ids) != 2 || ids[0] != "b" || ids[1] != "c" {
+		t.Fatalf("ReadIDList: %v, %v", ids, err)
 	}
 }

@@ -58,6 +58,9 @@ type Event struct {
 	Count int `json:"count,omitempty"`
 	// Tail is the last bytes of a failed or reward step's output.
 	Tail string `json:"tail,omitempty"`
+	// Attempts is how many tries a ttfi or wake took; above 1 means the
+	// environment was not serving when first asked.
+	Attempts int `json:"attempts,omitempty"`
 }
 
 // Recorder writes events as JSON lines. It is safe for concurrent use.

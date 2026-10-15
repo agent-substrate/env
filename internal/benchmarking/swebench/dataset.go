@@ -129,10 +129,25 @@ func ParseDataset(r io.Reader) ([]Instance, error) {
 	return out, nil
 }
 
-// Select narrows a dataset: ids keeps only the named instances (in manifest
-// order) and errors on an unknown id; limit > 0 then keeps the first limit.
-func Select(all []Instance, ids []string, limit int) ([]Instance, error) {
+// Select narrows a dataset: exclude drops the named instances first (a
+// known-bad list; unknown names are ignored), ids then keeps only the named
+// instances (in manifest order) and errors on an unknown id, and limit > 0
+// keeps the first limit of what is left.
+func Select(all []Instance, ids, exclude []string, limit int) ([]Instance, error) {
 	out := all
+	if len(exclude) > 0 {
+		drop := map[string]bool{}
+		for _, id := range exclude {
+			drop[id] = true
+		}
+		out = nil
+		for _, in := range all {
+			if !drop[in.InstanceID] {
+				out = append(out, in)
+			}
+		}
+		all = out
+	}
 	if len(ids) > 0 {
 		want := map[string]bool{}
 		for _, id := range ids {
@@ -157,4 +172,25 @@ func Select(all []Instance, ids []string, limit int) ([]Instance, error) {
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// ReadIDList reads instance ids from a file, one per line. Blank lines and
+// lines starting with '#' are skipped, and anything after the first
+// whitespace on a line is a comment, so a list can say why each id is there.
+func ReadIDList(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var ids []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		ids = append(ids, strings.Fields(line)[0])
+	}
+	return ids, sc.Err()
 }
