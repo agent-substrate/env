@@ -16,6 +16,7 @@ A runtime layer is three things:
 | the binary | an image volume on the ActorTemplate (`--layer name=image@sha256:...=/mount`) | mounts the runtime's image read-only at a path of your choice, next to the guest at `/ate` |
 | the process | a guest flag (`--sidecar '/mount/binary args...'`) | the guest starts it after it is listening, logs its output with a prefix, and restarts it with backoff if it exits |
 | its readiness | a guest flag (`--sidecar-readyz http://127.0.0.1:PORT/health`) | the guest's `/readyz`, which is the actor's wakeup probe, answers 503 until every such URL has answered 2xx once |
+| its configuration | a template flag (`--env NAME=VALUE`) | sets a variable on the container; the guest passes its environment to sidecars |
 
 The guest is the container's only process by contract, which is why it is the
 one that supervises the others. Sidecars run without a shell or `PATH` lookup,
@@ -76,7 +77,9 @@ file endpoints.
 A verified stand-in for the mechanics, which needs nothing from any registry
 but Docker Hub, is in [`examples/runtime-layers`](../../examples/runtime-layers):
 the static `busybox:1.37-musl` mounted as the layer and its `httpd` as the
-sidecar, run under two different rootfs images.
+sidecar, run under two different rootfs images. A real daemon, the OpenHands agent-server in
+any image, configured by `--env` and driven by OpenHands' own CodeAct agent, is
+in [`examples/openhands-agent-server`](../../examples/openhands-agent-server).
 
 ## Who can reach the second runtime
 
