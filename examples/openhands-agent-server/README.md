@@ -2,7 +2,8 @@
 
 Runs the [OpenHands](https://github.com/OpenHands/software-agent-sdk) agent-server inside an
 unmodified image (a coding-task image, a language base image, anything with `/bin/sh`) and drives
-it from outside the cluster, including OpenHands' own CodeAct agent:
+it from outside the cluster: commands and files, OpenHands' own CodeAct agent, and CodeAct
+trajectories executed step by step from a client:
 
 - the agent-server comes from a runtime layer mounted read-only at `/opt/oh`
   ([docs/rootfs-images/RUNTIMES.md](../../docs/rootfs-images/RUNTIMES.md)); the image is not rebuilt;
@@ -19,6 +20,9 @@ it from outside the cluster, including OpenHands' own CodeAct agent:
 | [`ate_env_workspace.py`](ate_env_workspace.py) | `workspace_for(env)`: an OpenHands `RemoteWorkspace` for an environment |
 | [`codeact_agent.py`](codeact_agent.py) | runs OpenHands' CodeAct agent in an environment, with a model or `--scripted` |
 | [`scripted_llm.py`](scripted_llm.py) | a stand-in model that replays a fixed CodeAct trajectory, for runs without a model |
+| [`run_trajectory.py`](run_trajectory.py) | executes a CodeAct trajectory in an environment from outside and records the observations |
+| [`oh_tool.py`](oh_tool.py) | serves OpenHands' `file_editor` inside the environment for `run_trajectory.py` |
+| [`trajectories/`](trajectories) | `hello.json` for any image; `django-11099.json` and `-grade.json` for the SWE-bench `django__django-11099` image |
 
 ## 1. Build the layer
 
@@ -107,6 +111,56 @@ agent loop, its tools and the event stream run for real, only the decisions are 
 status: finished after 2.0s
 ```
 
+### Execute a trajectory from outside
+
+`run_trajectory.py` connects to an environment and executes a CodeAct trajectory there: the tool
+calls an agent makes, in OpenHands' vocabulary (`terminal`, `file_editor`, `finish`), as a JSON list
+of `{"tool", "args", "thought"}`. Terminal commands go through the agent-server's command endpoint.
+File edits go through OpenHands' own `file_editor`, served inside the environment by `oh_tool.py` on
+the layer's Python and reached through ate-env-api like the agent-server, so observations read
+exactly as the agent sees them, and `undo_edit` works across steps. Each observation is printed and,
+with `--out`, recorded next to its call. Nothing inside the environment calls a model: put a model
+call before each step and this is a client-side agent, with the model wherever it is reachable.
+
+```bash
+SESSION_KEY=<key> python examples/openhands-agent-server/run_trajectory.py <env> \
+  examples/openhands-agent-server/trajectories/django-11099.json --out run.json
+```
+
+On the SWE-bench `django__django-11099` image (username validators accept a trailing newline):
+
+```
+[2] thought  Reproduce: $ matches before a trailing newline.
+[2] terminal   {"command": "/opt/miniconda3/envs/testbed/bin/python -c \"from django.conf import settings; …
+      ASCIIUsernameValidator accepts a trailing newline
+      UnicodeUsernameValidator accepts a trailing newline
+      [exit 0]
+      -> ok in 0.41s
+…
+[4] thought  Anchor at the true end of string with \Z, in both validators.
+[4] file_editor{"command": "str_replace", "path": "/testbed/django/contrib/auth/validators.py", …
+      The file /testbed/django/contrib/auth/validators.py has been edited. …
+          10	    regex = r'^[\w.@+-]+\Z'
+      -> ok in 0.31s
+…
+[6] thought  Check the reproduction again.
+      ASCIIUsernameValidator rejects a trailing newline
+      UnicodeUsernameValidator rejects a trailing newline
+      -> ok in 0.44s
+[7] thought  Run the validator tests.
+      Ran 22 tests in 0.208s
+      OK
+      -> ok in 0.84s
+…
+9 steps in 5.2s
+```
+
+`django-11099-grade.json` is the reward step, run the same way afterwards: it applies SWE-bench's
+hidden test change for that instance and runs the target tests with the fix (`OK`) and with the fix
+stashed (`FAILED (failures=2)`).
+
+### The plain-HTTP demo
+
 `demo.sh` does steps 2 and 3 over plain HTTP for a list of images:
 
 ```bash
@@ -142,6 +196,10 @@ GKE with gVisor workers, Substrate from 2026-10-12, ate-env-api with the port pr
   command saw the image's Python 3.11.5, not the layer's 3.12. After a suspend, the next SDK call woke
   the environment and returned within 9 s.
 - On that cluster actors had no route to the internet (connection reset), hence `--scripted`.
+- `run_trajectory.py` in the same SWE-bench environment: `django-11099.json` fixed the issue in 9
+  steps and 5.2 s (file edits 0.3 s each once the tool runner was up), and `django-11099-grade.json`
+  showed the instance's target tests failing without the fix and passing with it. `hello.json` ran on
+  the same image.
 - The arm64 build of the layer: the agent-server answered `/health` within 9 s in an arm64 Ubuntu 22.04
   container (local Docker); the CodeAct flow ran the same way locally before the cluster run.
 
@@ -151,4 +209,7 @@ GKE with gVisor workers, Substrate from 2026-10-12, ate-env-api with the port pr
   templates, and shared by the templates derived from it.
 - The agent-server runs as the image's user and keeps its state under that user's home. The first
   environment on a node pulls the layer.
-- The model is called from inside the environment (see above).
+- `codeact_agent.py` calls the model from inside the environment (see above); `run_trajectory.py`
+  and a client-side agent built on it do not.
+- A daemon reached through ate-env-api must listen on all interfaces, not 127.0.0.1: the router
+  delivers to the actor's address, and a loopback-only listener answers `502 bad gateway`.

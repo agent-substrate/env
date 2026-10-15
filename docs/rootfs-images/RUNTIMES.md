@@ -102,6 +102,10 @@ in [`examples/openhands-agent-server`](../../examples/openhands-agent-server).
   curl localhost:7777/v1alpha/envs/py1/ports/44772/ready   # the same, for clients without headers
   ```
 
+  The runtime must listen on all interfaces, not 127.0.0.1: the router
+  delivers to the actor's address, and a loopback-only listener answers
+  `502 bad gateway`.
+
   The path form, `/v1alpha/envs/{id}/ports/{port}/...` (or
   `/v1alpha/atespaces/{atespace}/envs/...`), is for clients that cannot set
   headers: the prefix is stripped, so it works as a base URL. The tunnel
