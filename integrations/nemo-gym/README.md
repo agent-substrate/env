@@ -206,6 +206,74 @@ To share one `ate_env.Client` between the provider and other code, pass it in:
 
 Unknown keys are rejected at `create()` time, as are unknown keys anywhere in the config block.
 
+### Services inside the sandbox: an injected daemon
+
+Some NeMo components talk to a service inside the sandbox instead of running commands through
+`exec`: an exec server, a code-execution sandbox server, a tool daemon. The task images do not
+contain it, and rebuilding hundreds of thousands of SWE-bench images to add it is not an option.
+ate-env attaches such a daemon at runtime the same way it attaches its own guest: as a read-only
+OCI image volume, a *runtime layer*, that the guest starts and supervises next to itself
+([docs/rootfs-images/RUNTIMES.md](../../docs/rootfs-images/RUNTIMES.md)). The provider implements
+nemo-gym 0.7's `SupportsSandboxEndpoint`, so Gym reaches the daemon from outside the cluster's
+actor network.
+
+1. **Put the daemon on the base template, once.** Every environment created from this base with a
+   task image (`rootfs_image`) gets the daemon; the task images stay unmodified.
+
+   ```bash
+   ate-env manifest template --template gym-base \
+     --layer          nemo=<registry>/nemo-daemon@sha256:<digest>=/opt/nemo \
+     --sidecar        '/opt/nemo/daemon --port 6000' \
+     --sidecar-readyz http://127.0.0.1:6000/health \
+     --snapshots-bucket gs://<bucket>/ate-env/ | kubectl-ate create actor-template -f -
+   ```
+
+   The actor reports ready only once the daemon answers its readiness URL, so `create()` returns
+   a sandbox whose daemon is up.
+
+2. **Select the base and declare the port.**
+
+   ```yaml
+   sandbox:
+     substrate:
+       connection:
+         api_url: ate-env-api.ate-env:7777
+         # endpoint_url: http://ate-env-api.ate-env:7777   # default: api_url
+       create:
+         template: gym-base
+   ```
+
+   ```python
+   handle = await provider.create(SandboxSpec(image=task_image, ports=(6000,)))
+   ```
+
+3. **Resolve the endpoint and call the daemon.**
+
+   ```python
+   ep = await provider.endpoint(handle, 6000)
+   async with httpx.AsyncClient(base_url=ep.endpoint, headers=ep.headers) as http:
+       r = await http.post("/execute", json={"generated_code": "print(1)", "language": "python"})
+   ```
+
+   `ep.endpoint` is ate-env-api, and `ep.headers` (`X-Env-Id`, `X-Env-Atespace`, `X-Env-Port`)
+   route each request through the Substrate router to port 6000 in this sandbox. `endpoint()`
+   wakes a parked sandbox before it returns. A port that `SandboxSpec.ports` did not declare is
+   a `ValueError`, as in Gym's Docker provider. Set `connection.endpoint_url` when the code that
+   calls the daemon reaches ate-env-api at another address than the provider does.
+
+Limits:
+
+- **HTTP/1.1 only.** The router tunnels HTTP to the port, not raw TCP. Streamed responses are
+  flushed as they arrive; gRPC and WebSocket to the daemon are not supported or tested yet.
+- **The daemon must be self-contained.** A layer cannot rely on the task image's libraries: ship a
+  static binary, or put the interpreter and its packages in the layer. NeMo Skills' sandbox server
+  (Flask on CPython, port 6000, `POST /execute`, `GET /health`) fits only with a relocatable Python
+  inside its layer; Gym's ECS exec server needs `python3` in the task image.
+- Port 80 belongs to the guest. The daemon shares the task image's user, environment and
+  filesystem.
+- Each distinct task image yields one derived ActorTemplate on its base, created on first use and
+  reused after; the daemon adds no templates.
+
 ## Testing
 
 ```bash

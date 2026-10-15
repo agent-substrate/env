@@ -82,10 +82,41 @@ except ImportError:  # pragma: no cover - the in-repo test path
         pass
 
 
+# SandboxEndpoint is newer than the rest (nemo-gym 0.7): an installed 0.5
+# has the base module without it, so it falls back on its own.
+try:  # pragma: no cover - exercised only with nemo-gym >= 0.7
+    from nemo_gym.sandbox.providers.base import SandboxEndpoint  # type: ignore
+except ImportError:  # pragma: no cover - the in-repo test path and nemo-gym 0.5
+    from collections.abc import Mapping as _Mapping
+    from dataclasses import dataclass as _dataclass
+    from dataclasses import field as _field
+    from urllib.parse import urlsplit as _urlsplit
+
+    @_dataclass(frozen=True)
+    class SandboxEndpoint:  # type: ignore[no-redef]
+        endpoint: str
+        headers: dict[str, str] = _field(default_factory=dict)
+
+        def __post_init__(self) -> None:
+            if not isinstance(self.endpoint, str) or not self.endpoint.strip():
+                raise ValueError("Sandbox endpoint must be a non-empty absolute URL")
+            endpoint = self.endpoint.strip()
+            parsed = _urlsplit(endpoint)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError("Sandbox endpoint must be a non-empty absolute URL")
+            if not isinstance(self.headers, _Mapping):
+                raise TypeError("Sandbox endpoint headers must be a mapping")
+            object.__setattr__(self, "endpoint", endpoint)
+            object.__setattr__(
+                self, "headers", {str(k): str(v) for k, v in self.headers.items()}
+            )
+
+
 __all__ = [
     "NEMO_GYM_AVAILABLE",
     "SandboxCreateError",
     "SandboxCreateVerificationError",
+    "SandboxEndpoint",
     "SandboxExecResult",
     "SandboxHandle",
     "SandboxSpec",

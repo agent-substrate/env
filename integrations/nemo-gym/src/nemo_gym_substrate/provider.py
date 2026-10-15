@@ -46,6 +46,7 @@ from ate_env import Client, Env, EnvError, EnvironmentStatus, NotFoundError, Pro
 from ._compat import (
     SandboxCreateError,
     SandboxCreateVerificationError,
+    SandboxEndpoint,
     SandboxExecResult,
     SandboxHandle,
     SandboxSpec,
@@ -68,6 +69,12 @@ _PROBE_TIMEOUT_S = 10.0
 _MIN_GUEST_TIMEOUT_S = 1.0
 # Exit code the guest reports for a process group it killed with SIGKILL.
 _SIGKILL_EXIT = 137
+
+# Routing headers of ate-env-api's port proxy (internal/portproxy): a plain
+# HTTP request carrying them is forwarded to that port inside the environment.
+_ENV_ID_HEADER = "X-Env-Id"
+_ENV_ATESPACE_HEADER = "X-Env-Atespace"
+_ENV_PORT_HEADER = "X-Env-Port"
 
 # Env lifecycle status -> Gym status. Parked (suspended / paused) actors report
 # RUNNING: the router resumes them on the next guest call, which is what a
@@ -116,16 +123,28 @@ class ConnectionConfig:
     api_url: str = "http://127.0.0.1:7777"
     # Deadline for each lifecycle RPC (create / get / delete).
     request_timeout_s: float = 30.0
+    # Base URL that endpoint() hands out for services inside a sandbox. Unset
+    # means api_url as an http(s) URL: ate-env-api serves its port proxy on the
+    # same listener. Set it when the code that calls the service reaches
+    # ate-env-api at another address than the provider does.
+    endpoint_url: str | None = None
 
-    _ALLOWED = frozenset({"api_url", "request_timeout_s"})
+    _ALLOWED = frozenset({"api_url", "request_timeout_s", "endpoint_url"})
 
     @classmethod
     def from_mapping(cls, options: Mapping[str, Any]) -> "ConnectionConfig":
         _require_keys(options, cls._ALLOWED, "sandbox.substrate.connection")
+        endpoint_url = options.get("endpoint_url")
         return cls(
             api_url=str(options.get("api_url", cls.api_url)).rstrip("/"),
             request_timeout_s=float(options.get("request_timeout_s", cls.request_timeout_s)),
+            endpoint_url=None if endpoint_url is None else str(endpoint_url).rstrip("/"),
         )
+
+    def endpoint_base(self) -> str:
+        if self.endpoint_url:
+            return self.endpoint_url
+        return self.api_url if "://" in self.api_url else f"http://{self.api_url}"
 
 
 @dataclass(frozen=True)
@@ -256,6 +275,9 @@ class SubstrateSandboxProvider:
                 "atespace": atespace,
                 "workdir": spec.workdir,
                 "env": dict(spec.env or {}),
+                # Ports a service inside the sandbox listens on (nemo-gym
+                # >= 0.7); endpoint() resolves only these.
+                "ports": [int(p) for p in (getattr(spec, "ports", None) or ())],
             },
         )
 
@@ -347,6 +369,35 @@ class SubstrateSandboxProvider:
             return SandboxStatus.UNKNOWN
         return _STATUS_MAP.get(info.status, SandboxStatus.UNKNOWN)
 
+    async def endpoint(self, handle: SandboxHandle, port: int) -> SandboxEndpoint:
+        """Resolve a declared service port to a caller-reachable endpoint
+        (nemo-gym's ``SupportsSandboxEndpoint``).
+
+        The service is a daemon inside the sandbox, typically one a runtime
+        layer on the base template mounts into the task image and the guest
+        starts next to itself (see README). The endpoint is ate-env-api's port
+        proxy; its headers route each plain HTTP request through the Substrate
+        router to ``port`` in this sandbox. The sandbox is woken first, so the
+        endpoint answers at once even after Substrate parked it.
+        """
+        raw = handle.raw or {}
+        declared = list(raw.get("ports") or ())
+        if port not in declared:
+            raise ValueError(
+                f"Sandbox port {port} was not declared in SandboxSpec.ports; "
+                f"declared ports: {declared!r}"
+            )
+        env = self._env(handle)
+        await self._wait_ready(env, self._create.ready_timeout_s, error=RuntimeError)
+        return SandboxEndpoint(
+            endpoint=self._connection.endpoint_base(),
+            headers={
+                _ENV_ID_HEADER: handle.sandbox_id,
+                _ENV_ATESPACE_HEADER: self._atespace_of(raw),
+                _ENV_PORT_HEADER: str(port),
+            },
+        )
+
     async def close(self, handle: SandboxHandle) -> None:
         await self._best_effort_delete(handle.sandbox_id, self._atespace_of(handle.raw or {}))
 
@@ -401,10 +452,17 @@ class SubstrateSandboxProvider:
             return self._create.template, spec.image
         return self._create.template, None
 
-    async def _wait_ready(self, env: Env, timeout_s: float) -> None:
+    async def _wait_ready(
+        self,
+        env: Env,
+        timeout_s: float,
+        *,
+        error: type[Exception] = SandboxCreateVerificationError,
+    ) -> None:
         """Poll a trivial command until the guest answers it. A fresh actor may
         still be booting, and a guest call made before it serves fails with a
-        transport-level error; both are retried until the deadline."""
+        transport-level error; both are retried until the deadline, then
+        ``error`` is raised. The first call also resumes a parked actor."""
         deadline = time.monotonic() + timeout_s
         last_error = "no probe attempted"
         while True:
@@ -420,9 +478,7 @@ class SubstrateSandboxProvider:
             if time.monotonic() >= deadline:
                 break
             await asyncio.sleep(self._create.ready_poll_interval_s)
-        raise SandboxCreateVerificationError(
-            f"substrate env {env.id!r} not ready after {timeout_s}s: {last_error}"
-        )
+        raise error(f"substrate env {env.id!r} not ready after {timeout_s}s: {last_error}")
 
     @staticmethod
     async def _collect(process: Process) -> SandboxExecResult:

@@ -36,6 +36,7 @@ from nemo_gym_substrate import provider as provider_mod
 from nemo_gym_substrate._compat import (
     SandboxCreateError,
     SandboxCreateVerificationError,
+    SandboxEndpoint,
     SandboxSpec,
     SandboxStatus,
 )
@@ -45,11 +46,16 @@ from .fakes import FakeAteEnv, serve
 
 
 @contextlib.asynccontextmanager
-async def stack(create: dict | None = None, *, state: FakeAteEnv | None = None):
+async def stack(
+    create: dict | None = None,
+    *,
+    state: FakeAteEnv | None = None,
+    connection: dict | None = None,
+):
     """A provider dialing a fake ate-env-api; yields ``(provider, fake)``."""
     async with serve(state) as (target, fake):
         config = {
-            "connection": {"api_url": target, "request_timeout_s": 5.0},
+            "connection": {"api_url": target, "request_timeout_s": 5.0, **(connection or {})},
             "create": {
                 "ready_poll_interval_s": 0.01,
                 "image_templates": {"img:1": "tpl-img1"},
@@ -444,3 +450,78 @@ def test_https_api_url_uses_a_tls_channel():
         assert provider._channel is None  # noqa: SLF001
 
     run(t())
+
+
+# -- endpoint(): services inside the sandbox ---------------------------------
+
+
+def test_endpoint_routes_a_declared_port_through_the_api():
+    async def t():
+        async with stack() as (provider, fake):
+            handle = await provider.create(SandboxSpec(ports=(6000,)))
+            assert handle.raw["ports"] == [6000]
+            probes = _probe_count(fake)
+            ep = await provider.endpoint(handle, 6000)
+            assert isinstance(ep, SandboxEndpoint)
+            # The port proxy shares ate-env-api's listener.
+            assert ep.endpoint == provider._connection.endpoint_base()
+            assert ep.endpoint.startswith("http://") and ep.endpoint.endswith(
+                provider._connection.api_url.split("://")[-1]
+            )
+            assert ep.headers == {
+                "X-Env-Id": handle.sandbox_id,
+                "X-Env-Atespace": "ate-env",
+                "X-Env-Port": "6000",
+            }
+            # The sandbox is woken (one guest probe) before the endpoint is handed out.
+            assert _probe_count(fake) == probes + 1
+
+    run(t())
+
+
+def test_endpoint_rejects_an_undeclared_port():
+    async def t():
+        async with stack() as (provider, _fake):
+            handle = await provider.create(SandboxSpec(ports=(6000,)))
+            with pytest.raises(ValueError, match="not declared in SandboxSpec.ports"):
+                await provider.endpoint(handle, 8080)
+            bare = await provider.create(SandboxSpec())
+            with pytest.raises(ValueError, match=r"declared ports: \[\]"):
+                await provider.endpoint(bare, 6000)
+
+    run(t())
+
+
+def test_endpoint_uses_the_configured_url_and_the_sandbox_atespace():
+    async def t():
+        async with stack(
+            {"atespace": "team-a"},
+            connection={"endpoint_url": "https://gym-proxy.example.com/"},
+        ) as (provider, _fake):
+            handle = await provider.create(SandboxSpec(ports=[6000]))
+            ep = await provider.endpoint(handle, 6000)
+            assert ep.endpoint == "https://gym-proxy.example.com"
+            assert ep.headers["X-Env-Atespace"] == "team-a"
+
+    run(t())
+
+
+def test_endpoint_raises_when_the_sandbox_does_not_answer():
+    async def t():
+        async with stack({"ready_timeout_s": 0.2}) as (provider, fake):
+            handle = await provider.create(SandboxSpec(ports=(6000,)))
+            fake.ready_after_probes = 10_000 + _probe_count(fake)
+            fake._probes = 0
+            with pytest.raises(RuntimeError, match="not ready"):
+                await provider.endpoint(handle, 6000)
+
+    run(t())
+
+
+def test_endpoint_base_defaults_to_the_api_url():
+    cfg = provider_mod.ConnectionConfig.from_mapping({"api_url": "ate-env-api.ate-env:7777"})
+    assert cfg.endpoint_base() == "http://ate-env-api.ate-env:7777"
+    cfg = provider_mod.ConnectionConfig.from_mapping({"api_url": "https://env.example.com/"})
+    assert cfg.endpoint_base() == "https://env.example.com"
+    with pytest.raises(ValueError, match="unknown option"):
+        provider_mod.ConnectionConfig.from_mapping({"endpoint": "x"})
