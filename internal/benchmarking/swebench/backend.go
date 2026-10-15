@@ -17,12 +17,17 @@ package swebench
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"time"
 
 	env "github.com/agent-substrate/env/clients/go"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // Result is what a Run step returned.
@@ -86,12 +91,87 @@ type envSandbox struct {
 	e *env.Env
 }
 
+// Polling bounds for a running process: short at first so quick commands
+// return quickly, backing off so a long test run does not hammer the API.
+const (
+	pollMin = 50 * time.Millisecond
+	pollMax = 2 * time.Second
+	// pollRetries is how many consecutive transient poll errors are
+	// tolerated before the step fails; a wake or an API pod restart costs a
+	// few.
+	pollRetries = 10
+)
+
+// Run starts the command, polls until it exits and then reads its output.
+// The SDK's streaming Shell holds one request open through the router for
+// the whole command, and the router's route timeout (five minutes by
+// default) cuts it off; SWE-bench test runs regularly take longer. Start,
+// poll and read are each short calls, so no single request can outlive it.
 func (s envSandbox) Run(ctx context.Context, command string, timeout time.Duration) (Result, error) {
-	resp, err := s.e.Run(ctx, env.ShellRequest{Command: command, Timeout: timeout})
+	start := &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", command}}
+	if timeout > 0 {
+		start.Timeout = durationpb.New(timeout)
+	}
+	proc, err := s.e.StartProcess(ctx, start)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{ExitCode: resp.ExitCode, Stdout: resp.Stdout, Stderr: resp.Stderr}, nil
+
+	wait := pollMin
+	failures := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return Result{}, ctx.Err()
+		case <-time.After(wait):
+		}
+		p, err := s.e.FindProcess(ctx, proc.ID())
+		switch {
+		case err == nil:
+			failures = 0
+			if p.GetState() == ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED {
+				return s.collect(ctx, proc, int(p.GetExitCode()))
+			}
+		case status.Code(err) == codes.Unavailable || status.Code(err) == codes.DeadlineExceeded:
+			failures++
+			if failures > pollRetries {
+				return Result{}, fmt.Errorf("poll %s: %w", proc.ID(), err)
+			}
+		default:
+			return Result{}, err
+		}
+		if wait < pollMax {
+			wait = min(wait*2, pollMax)
+		}
+	}
+}
+
+// collect reads the exited process's buffered output in one non-following
+// call.
+func (s envSandbox) collect(ctx context.Context, proc *env.Process, exitCode int) (Result, error) {
+	stream, err := proc.Output(ctx, &ateenvv1alpha.StreamProcessOutputRequest{})
+	if err != nil {
+		return Result{}, err
+	}
+	var stdout, stderr bytes.Buffer
+	for {
+		msg, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return Result{}, err
+		}
+		switch out := msg.GetOutput().(type) {
+		case *ateenvv1alpha.ProcessOutput_Stdout:
+			stdout.Write(out.Stdout)
+		case *ateenvv1alpha.ProcessOutput_Stderr:
+			stderr.Write(out.Stderr)
+		case *ateenvv1alpha.ProcessOutput_Exit:
+			exitCode = int(out.Exit.GetExitCode())
+		}
+	}
+	return Result{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}, nil
 }
 
 func (s envSandbox) WriteFile(ctx context.Context, path string, content []byte, mode fs.FileMode) error {
