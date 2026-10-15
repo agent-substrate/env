@@ -196,6 +196,8 @@ func reportCmd(args []string) error {
 	path := args[0]
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
 	jsonOut := fs.String("json", "", "Also write the summary as JSON to this path.")
+	unresolvedOut := fs.String("unresolved", "", "Write the unresolved instances to this path in -exclude-file format.")
+	unresolvedNote := fs.String("unresolved-note", "Instances graded unresolved", "First comment line of the -unresolved file.")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -209,6 +211,16 @@ func reportCmd(args []string) error {
 		return err
 	}
 	rep.WriteText(os.Stdout)
+	if *unresolvedOut != "" {
+		uf, err := os.Create(*unresolvedOut)
+		if err != nil {
+			return err
+		}
+		rep.WriteExclusions(uf, *unresolvedNote)
+		if err := uf.Close(); err != nil {
+			return err
+		}
+	}
 	if *jsonOut != "" {
 		b, err := json.MarshalIndent(rep, "", "  ")
 		if err != nil {

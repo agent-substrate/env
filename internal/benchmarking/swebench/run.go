@@ -447,7 +447,9 @@ func (r *runner) replay(ctx context.Context, e *environment, step int) {
 				*reward = 1
 			}
 			ev.Reward = reward
-			ev.Tail = tail(res.Stdout+res.Stderr, 2000)
+			// The grader's verdict is the last line of a reward step's
+			// output; keep enough of it for the report to read it back.
+			ev.Tail = tail(res.Stdout+res.Stderr, 4000)
 		case s.ExpectExit != nil && res.ExitCode != *s.ExpectExit:
 			ok = false
 			ev.OK = false
