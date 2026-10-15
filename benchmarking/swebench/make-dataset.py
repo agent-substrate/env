@@ -120,6 +120,8 @@ def main() -> int:
                 "eval_script": spec.eval_script,
                 "fail_to_pass": _as_list(row["FAIL_TO_PASS"]),
                 "pass_to_pass": _as_list(row["PASS_TO_PASS"]),
+                "log_parser": row["log_parser"],
+                "eval_type": row["eval_type"],
             }
             out.write(json.dumps(rec) + "\n")
             written += 1

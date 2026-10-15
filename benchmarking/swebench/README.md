@@ -27,9 +27,13 @@ The trajectory is YAML (`internal/benchmarking/swebench/trajectories/`,
 or `-trajectory FILE`). The built-in `swebench-gold` does what a SWE agent
 does on a task, with the gold patch as the model's edit: explore, read, write
 the patch, `git apply`, write the harness eval script, run it. The reward is
-the `Test Exit Code` marker the harness script prints (its own exit code is
-not the verdict), so a healthy run rewards every task and a drop in reward
-rate is a correctness regression. Steps carry think times, the
+the SWE-bench verdict: `swebench-grade.py` (written into the sandbox by the
+trajectory) parses the log with the repo's harness parser and checks the
+instance's FAIL_TO_PASS and PASS_TO_PASS tests, the same rules the harness
+applies. Neither the script's nor the test command's exit code is the
+verdict: unrelated tests in the same files fail routinely. A healthy run
+rewards every task and a drop in reward rate is a correctness regression.
+`python3 -m pytest benchmarking/swebench/tests` covers the grader. Steps carry think times, the
 simulated policy latency between commands.
 
 ## What is measured
