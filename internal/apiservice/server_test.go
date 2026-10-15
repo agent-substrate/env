@@ -570,8 +570,6 @@ func TestActorStatusToEnvStatus(t *testing.T) {
 		{"running", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_RUNNING},
 		{"suspending", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING},
 		{"suspended", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED},
-		{"pausing", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING},
-		{"paused", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED},
 		{"crashed", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_CRASHED}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED},
 		{"deleting", &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_DELETING}, ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_DELETING},
 	}
@@ -598,10 +596,10 @@ func seedGuestTemplate(control *fakecontrol.Server, atespace, name string) {
 			Image:       testGuestImage,
 			Command:     []string{"/ko-app/ate-env-guest"},
 			Env:         []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
+			WakeupProbe: &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
 		}},
 		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://bucket/ate-env/"},
-		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
+		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: "gvisor", ConfigName: "gvisor-default"},
 	})
 }
 

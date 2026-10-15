@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/yaml"
@@ -41,6 +42,15 @@ const apiName = "ate-env-api"
 // ActorTemplate refer to. `ate-setup deploy ate-system` installs exactly this
 // one, so a pool declared with it is schedulable on a stock install.
 const sandboxConfigName = "gvisor-default"
+
+// Default compute limits for each actor. Substrate requires both on every
+// ActorTemplate since substrate#2285: the scheduler books them against worker
+// capacity. Two CPUs and 4 GiB match the Python client's ResourceLimits
+// default; size them for the workload with --cpu and --memory.
+const (
+	defaultActorCPU    = "2"
+	defaultActorMemory = "4Gi"
+)
 
 // manifestConfig holds configuration for generating Kubernetes deployment manifests.
 type manifestConfig struct {
@@ -56,8 +66,8 @@ type manifestConfig struct {
 
 func (c *manifestConfig) resolveImages() error {
 	if c.workerImage == "" {
-		return errors.New(`--worker-image (or --ateom-image) is required: the worker image is
-ateom-gvisor from the Substrate repo and must match the Substrate version
+		return errors.New(`--worker-image is required: the worker image is
+ateworker-gvisor from the Substrate repo and must match the Substrate version
 deployed on your cluster. From a Substrate checkout at that version run
 "go run ./cmd/ate-setup publish worker-images": it pushes the images and
 prints the digest-pinned refs to use. Pin by digest: a registry's :latest
@@ -93,6 +103,10 @@ type templateConfig struct {
 	sidecars []string
 	// sidecarReadyz are URLs the guest's /readyz waits for.
 	sidecarReadyz []string
+	// cpu and memory are the actor's compute limits as Kubernetes quantities.
+	// Empty means defaultActorCPU and defaultActorMemory.
+	cpu    string
+	memory string
 }
 
 // runtimeLayer is a parsed --layer value.
@@ -147,6 +161,18 @@ binaries default it to the ate-env-guest image published with the release
 	}
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
+	}
+	for _, l := range []struct{ flag, value string }{{"--cpu", c.cpu}, {"--memory", c.memory}} {
+		if l.value == "" {
+			continue
+		}
+		q, err := resource.ParseQuantity(l.value)
+		if err != nil {
+			return fmt.Errorf("%s %q is not a Kubernetes quantity (e.g. 2, 500m, 4Gi): %w", l.flag, l.value, err)
+		}
+		if q.Sign() <= 0 {
+			return fmt.Errorf("%s must be greater than zero, got %q", l.flag, l.value)
+		}
 	}
 	if c.rootfsImage != "" {
 		if _, err := apiservice.ImageDigest(c.rootfsImage); err != nil {
@@ -203,8 +229,8 @@ the "template" subcommand: ate-env manifest template`,
 
 	cmd.Flags().StringVar(&mCfg.namespace, "namespace", apiservice.DefaultNamespace, "Kubernetes namespace to deploy into")
 	cmd.Flags().StringVar(&mCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
-	cmd.Flags().StringVar(&mCfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateom-gvisor built from the Substrate repo")
-	cmd.Flags().StringVar(&mCfg.workerImage, "ateom-image", "", "alias for --worker-image")
+	cmd.Flags().StringVar(&mCfg.workerImage, "worker-image", "", "digest-pinned worker image for the worker pool, e.g. ateworker-gvisor built from the Substrate repo")
+	cmd.Flags().StringVar(&mCfg.workerImage, "ateom-image", "", "alias for --worker-image, kept from before Substrate renamed ateom to ateworker")
 	cmd.Flags().StringVar(&mCfg.apiImage, "api-image", defaultAPIImage, imageDefaultHelp("digest-pinned ate-env-api image for the API service", defaultAPIImage))
 	cmd.Flags().Int32Var(&mCfg.apiReplicas, "api-replicas", 1, "number of API service replicas")
 	cmd.Flags().Int32Var(&mCfg.apiPort, "api-port", 7777, "port the ate-env-api service listens on")
@@ -250,6 +276,8 @@ It prints YAML to stdout without touching the cluster.`,
 	cmd.Flags().StringArrayVar(&tCfg.layers, "layer", nil, "extra runtime mounted as a read-only image volume, as name=image@sha256:...=/mount/path (repeatable)")
 	cmd.Flags().StringArrayVar(&tCfg.sidecars, "sidecar", nil, "command the guest starts and keeps running next to itself, an absolute binary path plus arguments, e.g. '/opt/opensandbox/execd --port 44772' (repeatable)")
 	cmd.Flags().StringArrayVar(&tCfg.sidecarReadyz, "sidecar-readyz", nil, "URL the actor's readiness waits for, e.g. http://127.0.0.1:44772/ready (repeatable)")
+	cmd.Flags().StringVar(&tCfg.cpu, "cpu", defaultActorCPU, "CPU limit of each actor, a Kubernetes quantity such as 2 or 500m; Substrate requires one")
+	cmd.Flags().StringVar(&tCfg.memory, "memory", defaultActorMemory, "memory limit of each actor, a Kubernetes quantity such as 4Gi; Substrate requires one")
 
 	return cmd
 }
@@ -387,7 +415,7 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 			// the SandboxConfig the workers run; the template names the same
 			// one in sandboxConfig.configName.
 			SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{
-				Name:      atev1alpha1.SandboxClassGvisor,
+				Name:      atev1alpha1.SandboxClassGvisor, // the template's sandboxConfig.sandboxClass is the same string
 				ConfigRef: &atev1alpha1.SandboxConfigReference{Name: sandboxConfigName},
 			}},
 		},
@@ -412,7 +440,7 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 				Name:  "PORT",
 				Value: "80",
 			}},
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{
+			WakeupProbe: &ateapipb.WakeupProbe{
 				HttpGet: &ateapipb.HttpGetAction{
 					Path: "/readyz",
 					Port: 80,
@@ -427,10 +455,21 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
 		},
 		SandboxConfig: &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			SandboxClass: string(atev1alpha1.SandboxClassGvisor),
 			ConfigName:   sandboxConfigName,
 		},
+		Resources: &ateapipb.Resources{Limits: []*ateapipb.Limits{
+			{Name: "cpu", Quantity: orDefault(cfg.cpu, defaultActorCPU)},
+			{Name: "memory", Quantity: orDefault(cfg.memory, defaultActorMemory)},
+		}},
 	}
+}
+
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 // buildTemplate returns the ActorTemplate for cfg: the guest template from
