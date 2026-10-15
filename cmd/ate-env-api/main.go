@@ -92,11 +92,13 @@ func main() {
 	// anything else, whatever their path: the path belongs to the daemon.
 	var handler http.Handler = mux
 	if *atenetConn != "" {
-		handler = portproxy.Dispatch(portproxy.New(portproxy.Options{
+		pp := portproxy.New(portproxy.Options{
 			ConnectAddr:     *atenetConn,
 			HostSuffix:      *hostSuffix,
 			DefaultAtespace: ate.DefaultAtespace,
-		}), mux)
+		})
+		pp.Register(mux) // the path form, /v1alpha/envs/{id}/ports/{port}/...
+		handler = portproxy.Dispatch(pp, mux)
 	}
 
 	// Enable both HTTP/1.1 (for /healthz and /v1alpha/ HTTP endpoints) and

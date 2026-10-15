@@ -16,8 +16,11 @@
 // network to a TCP port inside an environment, such as a daemon that a runtime
 // layer starts next to the guest (docs/rootfs-images/RUNTIMES.md).
 //
-// A request names its target with three headers: EnvIDHeader, EnvAtespaceHeader
-// (optional) and EnvPortHeader. The proxy opens an HTTP CONNECT tunnel through
+// A request names its target with three headers, EnvIDHeader,
+// EnvAtespaceHeader (optional) and EnvPortHeader, or, for clients that cannot
+// set headers (WebSocket clients, browsers), with a path prefix that the proxy
+// strips: /v1alpha/envs/{id}/ports/{port}/... in the default atespace, or
+// /v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/... . The proxy opens an HTTP CONNECT tunnel through
 // the atenet router's CONNECT listener, naming the actor in ate-target-actor
 // and the port in the CONNECT authority. The router resumes a suspended actor
 // before it answers, then forwards the tunnel to that port. The proxy speaks
@@ -126,6 +129,9 @@ type target struct {
 	atespace string
 	id       string
 	port     int
+	// path and rawPath, when set, replace the request's path upstream (the
+	// path form strips its routing prefix).
+	path, rawPath string
 }
 
 type targetKey struct{}
@@ -135,28 +141,59 @@ type targetKey struct{}
 var label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
 func parseTarget(r *http.Request, defaultAtespace string) (target, error) {
-	t := target{
-		id:       r.Header.Get(EnvIDHeader),
-		atespace: r.Header.Get(EnvAtespaceHeader),
+	if r.Header.Get(EnvIDHeader) == "" {
+		return target{}, fmt.Errorf("%s is required next to %s", EnvIDHeader, EnvPortHeader)
 	}
-	if t.id == "" {
-		return t, fmt.Errorf("%s is required next to %s", EnvIDHeader, EnvPortHeader)
-	}
+	return makeTarget(r.Header.Get(EnvIDHeader), r.Header.Get(EnvAtespaceHeader), r.Header.Get(EnvPortHeader), defaultAtespace)
+}
+
+// makeTarget validates a target from either form.
+func makeTarget(id, atespace, port, defaultAtespace string) (target, error) {
+	t := target{id: id, atespace: atespace}
 	if !label.MatchString(t.id) {
-		return t, fmt.Errorf("%s %q is not a valid environment id (lowercase alphanumerics and '-', at most 63)", EnvIDHeader, t.id)
+		return t, fmt.Errorf("environment id %q is not valid (lowercase alphanumerics and '-', at most 63)", t.id)
 	}
 	if t.atespace == "" {
 		t.atespace = defaultAtespace
 	}
 	if !label.MatchString(t.atespace) {
-		return t, fmt.Errorf("%s %q is not a valid atespace", EnvAtespaceHeader, t.atespace)
+		return t, fmt.Errorf("atespace %q is not valid", t.atespace)
 	}
-	port, err := strconv.Atoi(r.Header.Get(EnvPortHeader))
-	if err != nil || port < 1 || port > 65535 {
-		return t, fmt.Errorf("%s %q is not a TCP port (1-65535)", EnvPortHeader, r.Header.Get(EnvPortHeader))
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return t, fmt.Errorf("port %q is not a TCP port (1-65535)", port)
 	}
-	t.port = port
+	t.port = n
 	return t, nil
+}
+
+// Register adds the path form of the proxy to mux.
+func (p *Proxy) Register(mux *http.ServeMux) {
+	mux.HandleFunc("/v1alpha/envs/{id}/ports/{port}/{rest...}", p.servePath)
+	mux.HandleFunc("/v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/{rest...}", p.servePath)
+}
+
+func (p *Proxy) servePath(w http.ResponseWriter, r *http.Request) {
+	t, err := makeTarget(r.PathValue("id"), r.PathValue("atespace"), r.PathValue("port"), p.opts.DefaultAtespace)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	prefix := "/v1alpha/envs/" + r.PathValue("id") + "/ports/" + r.PathValue("port")
+	if a := r.PathValue("atespace"); a != "" {
+		prefix = "/v1alpha/atespaces/" + a + prefix[len("/v1alpha"):]
+	}
+	// The prefix is made of validated labels and digits, so it reads the same
+	// escaped and unescaped; what follows keeps its own escaping.
+	t.rawPath = strings.TrimPrefix(r.URL.EscapedPath(), prefix)
+	if t.path, err = url.PathUnescape(t.rawPath); err != nil {
+		http.Error(w, "bad path escaping: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if t.rawPath == t.path {
+		t.rawPath = ""
+	}
+	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), targetKey{}, t)))
 }
 
 // ServeHTTP forwards r to the environment port its headers name.
@@ -178,6 +215,9 @@ func (p *Proxy) rewrite(pr *httputil.ProxyRequest) {
 	pr.Out.URL.Host = net.JoinHostPort(t.id+"."+t.atespace, strconv.Itoa(t.port))
 	// What a client inside the environment would send.
 	pr.Out.Host = net.JoinHostPort("127.0.0.1", strconv.Itoa(t.port))
+	if t.path != "" {
+		pr.Out.URL.Path, pr.Out.URL.RawPath = t.path, t.rawPath
+	}
 	for _, h := range []string{EnvIDHeader, EnvAtespaceHeader, EnvPortHeader} {
 		pr.Out.Header.Del(h)
 	}

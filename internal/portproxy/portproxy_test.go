@@ -15,8 +15,10 @@
 package portproxy_test
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -252,5 +254,152 @@ func TestDispatch(t *testing.T) {
 	defer resp.Body.Close()
 	if b, _ := io.ReadAll(resp.Body); string(b) != "proxied" {
 		t.Errorf("request with %s got %q, want the daemon's answer", portproxy.EnvPortHeader, b)
+	}
+}
+
+// pathSetup serves the proxy the way ate-env-api does: path form on a mux,
+// header form dispatched in front of it.
+func pathSetup(t *testing.T) (*setup, string) {
+	t.Helper()
+	s := newSetup(t)
+	p := portproxy.New(portproxy.Options{ConnectAddr: s.routerAddr, DefaultAtespace: "ate-env", HandshakeTimeout: 5 * time.Second})
+	mux := http.NewServeMux()
+	p.Register(mux)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "api") })
+	srv := httptest.NewServer(portproxy.Dispatch(p, mux))
+	t.Cleanup(srv.Close)
+	return s, srv.URL
+}
+
+func TestPathFormStripsPrefix(t *testing.T) {
+	s, base := pathSetup(t)
+	var seen *http.Request
+	s.router.RegisterPort("env1", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r
+		io.WriteString(w, "daemon")
+	}))
+	resp, err := http.Get(base + "/v1alpha/envs/env1/ports/8000/api/file/download?path=/etc/os-release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != "daemon" {
+		t.Fatalf("got %d %q", resp.StatusCode, b)
+	}
+	if got := seen.URL.RequestURI(); got != "/api/file/download?path=/etc/os-release" {
+		t.Errorf("daemon saw %q, want the path after the routing prefix with its query", got)
+	}
+	if got := s.router.connects; len(got) != 1 || !strings.HasPrefix(got[0], "ate-env/env1 ") {
+		t.Errorf("router saw %q", got)
+	}
+
+	// Escaping after the prefix is kept as sent.
+	resp, err = http.Get(base + "/v1alpha/envs/env1/ports/8000/files/a%2Fb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := seen.URL.EscapedPath(); got != "/files/a%2Fb" {
+		t.Errorf("daemon saw escaped path %q, want /files/a%%2Fb", got)
+	}
+
+	// The bare prefix with a trailing slash is the daemon's root.
+	resp, err = http.Get(base + "/v1alpha/envs/env1/ports/8000/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if seen.URL.Path != "/" {
+		t.Errorf("daemon saw %q for the bare prefix, want /", seen.URL.Path)
+	}
+}
+
+func TestPathFormAtespaceAndValidation(t *testing.T) {
+	s, base := pathSetup(t)
+	s.router.RegisterPort("env1", 9000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, r.URL.Path) }))
+	resp, err := http.Get(base + "/v1alpha/atespaces/team-a/envs/env1/ports/9000/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != "/x" {
+		t.Errorf("got %d %q, want the daemon's /x", resp.StatusCode, b)
+	}
+	if got := s.router.connects; len(got) != 1 || !strings.HasPrefix(got[0], "team-a/env1 ") {
+		t.Errorf("router saw %q, want team-a/env1", got)
+	}
+	for _, path := range []string{
+		"/v1alpha/envs/Env1/ports/9000/x",
+		"/v1alpha/envs/env1/ports/0/x",
+		"/v1alpha/envs/env1/ports/http/x",
+		"/v1alpha/atespaces/A_B/envs/env1/ports/9000/x",
+	} {
+		resp, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", path, resp.StatusCode)
+		}
+	}
+	// Other paths still reach the API.
+	resp, err = http.Get(base + "/v1alpha/envs/env1/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != "api" {
+		t.Errorf("/v1alpha/envs/env1/mcp went to %q, want the API", b)
+	}
+}
+
+// An HTTP upgrade (what a WebSocket handshake is) passes through the proxy and
+// the tunnel, after which bytes flow both ways.
+func TestUpgradePassesThrough(t *testing.T) {
+	s, base := pathSetup(t)
+	s.router.RegisterPort("env1", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "echo" {
+			http.Error(w, "want Upgrade: echo", http.StatusBadRequest)
+			return
+		}
+		conn, rw, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: echo\r\n\r\n")
+		rw.Flush()
+		buf := make([]byte, 4)
+		if _, err := io.ReadFull(rw, buf); err == nil {
+			rw.Write(append([]byte("re:"), buf...))
+			rw.Flush()
+		}
+	}))
+	addr := strings.TrimPrefix(base, "http://")
+	for name, req := range map[string]string{
+		"path form":   "GET /v1alpha/envs/env1/ports/8000/sockets/events/c1 HTTP/1.1\r\nHost: " + addr + "\r\n",
+		"header form": "GET /sockets/events/c1 HTTP/1.1\r\nHost: " + addr + "\r\nX-Env-Id: env1\r\nX-Env-Port: 8000\r\n",
+	} {
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn.SetDeadline(time.Now().Add(10 * time.Second))
+		fmt.Fprint(conn, req+"Connection: Upgrade\r\nUpgrade: echo\r\n\r\n")
+		br := bufio.NewReader(conn)
+		resp, err := http.ReadResponse(br, nil)
+		if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
+			t.Fatalf("%s: upgrade answered %v, %v", name, resp, err)
+		}
+		conn.Write([]byte("ping"))
+		got := make([]byte, 7)
+		if _, err := io.ReadFull(br, got); err != nil || string(got) != "re:ping" {
+			t.Errorf("%s: after upgrade got %q, %v; want re:ping", name, got, err)
+		}
+		conn.Close()
 	}
 }
