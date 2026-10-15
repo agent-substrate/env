@@ -55,7 +55,7 @@ On the cluster:
    ate-env manifest \
      --guest-image  <ate-env-guest image> \
      --api-image    <ate-env-api image> \
-     --ateom-image  <ateom-gvisor image matching your substrate build> \
+     --worker-image <ateworker-gvisor image matching your substrate build> \
      --snapshots-bucket gs://<bucket>/ate-env/ | kubectl apply -f -
    kubectl get pods -n ate-env   # api + warm workers Running
    ```

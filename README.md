@@ -56,7 +56,7 @@ signed, and meant to be used by digest:
 
 The digests are in the release notes and in the `images_<tag>.txt` asset; the
 release's `ate-env` binary defaults to them. The worker image
-(`--worker-image`, `ateom-gvisor`) comes from the
+(`--worker-image`, `ateworker-gvisor`) comes from the
 [Substrate repo](https://github.com/agent-substrate/substrate) and must match the
 Substrate version on your cluster. See [docs/release.md](docs/release.md) for
 verification, pinning and how releases are cut.
@@ -65,10 +65,12 @@ verification, pinning and how releases are cut.
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket. ate-env is built against Substrate
-[`da35a983`](https://github.com/agent-substrate/substrate/commit/da35a983) (2026-10-13). The cluster
+[`6edd1fcc`](https://github.com/agent-substrate/substrate/commit/6edd1fcc) (2026-10-15). The cluster
 needs a Substrate recent enough to accept what ate-env writes: the WorkerPool declares
-`spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and `wakeupProbe`, and `--worker-image`
-must be the `ateom` image published by that Substrate install.
+`spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and `wakeupProbe`, names its sandbox
+class as the string `gvisor`, and declares CPU and memory limits, and `--worker-image` must be the
+`ateworker-gvisor` image published by that Substrate install. A Substrate older than 2026-10-14 rejects
+the string sandbox class; use an ate-env from before this bump with it.
 
 ### 1. Deploy the Kubernetes Resources
 
@@ -76,12 +78,12 @@ Deploy the namespace, worker pool, and API service:
 
 ```bash
 # With a release binary the API image defaults to the release's. The worker
-# image is ateom-gvisor from the Substrate repo at your cluster's version; in
+# image is ateworker-gvisor from the Substrate repo at your cluster's version; in
 # that checkout, `go run ./cmd/ate-setup publish worker-images` pushes it and
 # prints the digest-pinned ref. Use the digest: a :latest tag is whatever was
 # built last, and a stale worker image registers workers with no capacity.
 ate-env manifest \
-  --worker-image   <registry>/ateom-gvisor@sha256:<digest> | kubectl apply -f -
+  --worker-image   <registry>/ateworker-gvisor@sha256:<digest> | kubectl apply -f -
 # From a source build, add: --api-image ghcr.io/agent-substrate/env/ate-env-api@sha256:<digest>
 
 # Ensure that the pods are running:
@@ -105,6 +107,10 @@ ate-env manifest template \
   --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
 # From a source build, add: --guest-image ghcr.io/agent-substrate/env/ate-env-guest@sha256:<digest>
 ```
+
+Each actor gets 2 CPUs and 4 GiB unless you pass `--cpu` and `--memory` (Kubernetes quantities such as
+`500m` or `8Gi`). Substrate requires both limits and books them against worker capacity; templates
+derived per rootfs image inherit them.
 
 That template's container is the guest image itself. To run another image unmodified, name
 it with `--rootfs-image`: the guest is then mounted into it as a read-only OCI image volume at
