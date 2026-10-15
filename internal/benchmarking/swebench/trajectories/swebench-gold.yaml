@@ -47,8 +47,17 @@ steps:
       path: /tmp/eval.sh
       content: "{{.EvalScript}}"
       mode: "0755"
+  # The harness script runs without -e and ends by restoring the test files
+  # with a git checkout, which fails for instances whose test patch added
+  # files; its exit code is therefore not the verdict. The verdict is the
+  # ">>>>> Test Exit Code: N" marker the script prints after the test
+  # command, which is what the SWE-bench harness reads too.
   - name: run_tests
-    run: /bin/bash /tmp/eval.sh > /tmp/eval.log 2>&1; rc=$?; tail -c 4000 /tmp/eval.log; exit $rc
+    run: >-
+      /bin/bash /tmp/eval.sh > /tmp/eval.log 2>&1;
+      tail -c 4000 /tmp/eval.log;
+      rc=$(grep -o 'Test Exit Code: [0-9]*' /tmp/eval.log | tail -n 1 | grep -o '[0-9]*$');
+      exit "${rc:-1}"
     think: 1s
     timeout: 20m
     reward: true
