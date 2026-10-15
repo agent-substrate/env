@@ -60,6 +60,9 @@ const DefaultHostSuffix = "actors.resources.substrate.ate.dev"
 const (
 	DefaultControlAddr = "api.ate-system.svc.cluster.local:443"
 	DefaultRouterAddr  = "atenet-router.ate-system.svc.cluster.local:80"
+	// DefaultRouterConnectAddr is the router's plaintext CONNECT listener, which
+	// tunnels to a port on an actor other than 80.
+	DefaultRouterConnectAddr = "atenet-router.ate-system.svc.cluster.local:8081"
 )
 
 // DefaultAtespace is the Substrate atespace every environment actor lives in.

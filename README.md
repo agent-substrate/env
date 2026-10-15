@@ -289,6 +289,21 @@ Provides chunked streaming file reading and writing within the environment conta
 | `WriteFile` | Streams raw binary or text chunks directly to a target file |
 
 
+## Reaching a service inside an environment
+
+A daemon that listens on a port inside an environment, such as one a runtime layer starts next to
+the guest ([docs/rootfs-images/RUNTIMES.md](docs/rootfs-images/RUNTIMES.md)), is reachable through
+the API's listener. A plain HTTP request that carries `X-Env-Id` and `X-Env-Port` (and
+`X-Env-Atespace` outside `ate-env`) is forwarded through the Substrate router to that port, whatever
+its path; the API strips the three headers. The router resumes a suspended environment first.
+
+```bash
+curl -H 'X-Env-Id: dev1' -H 'X-Env-Port: 6000' localhost:7777/health
+```
+
+`--atenet-connect` names the router's CONNECT listener (default
+`atenet-router.ate-system.svc.cluster.local:8081`); an empty value turns the forwarding off.
+
 ## Built-in MCP Server
 
 The API exposes a streamable MCP endpoint at `POST /v1alpha/envs/{id}/mcp` serving built-in tools.

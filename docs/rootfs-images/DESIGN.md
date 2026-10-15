@@ -193,10 +193,10 @@ one golden snapshot per image. Neither is reclaimed automatically.
   with distinct images, not with environments. The plan is a last-used
   annotation updated on each create, collection by age or by last use, and
   the golden snapshot removed alongside.
-- **Reaching a second runtime from outside.** Layers and sidecars put a
-  runtime such as OpenSandbox's `execd` inside the actor and gate readiness on
-  it; an endpoint lookup on `ate-env-api` that names the runtime's port
-  through the router is what an external SDK still needs.
+- **gRPC and raw TCP to a second runtime.** `ate-env-api` forwards HTTP to a
+  runtime's port through the router's CONNECT listener (see
+  [RUNTIMES.md](RUNTIMES.md#who-can-reach-the-second-runtime)); a runtime that
+  speaks gRPC or a non-HTTP protocol needs an h2c upstream or a raw tunnel.
 - **Per-create overrides** for resources and workspace, so one base can serve
   images with different needs.
 - **Image validation at create time**, so a bad reference fails the call

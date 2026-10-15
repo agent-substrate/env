@@ -29,6 +29,7 @@ import (
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/mcp"
+	"github.com/agent-substrate/env/internal/portproxy"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 )
@@ -38,6 +39,7 @@ func main() {
 		listen            = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
 		ateapi            = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
 		atenet            = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
+		atenetConn        = flag.String("atenet-connect", ate.DefaultRouterConnectAddr, "address of the atenet router's plaintext CONNECT listener; HTTP requests carrying X-Env-Id and X-Env-Port are forwarded through it to that port in the environment. Empty disables the port proxy")
 		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
@@ -86,6 +88,17 @@ func main() {
 	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(client))
 	mux.Handle("/", grpcServer)
 
+	// Requests that name an environment port go to the port proxy before
+	// anything else, whatever their path: the path belongs to the daemon.
+	var handler http.Handler = mux
+	if *atenetConn != "" {
+		handler = portproxy.Dispatch(portproxy.New(portproxy.Options{
+			ConnectAddr:     *atenetConn,
+			HostSuffix:      *hostSuffix,
+			DefaultAtespace: ate.DefaultAtespace,
+		}), mux)
+	}
+
 	// Enable both HTTP/1.1 (for /healthz and /v1alpha/ HTTP endpoints) and
 	// unencrypted HTTP/2 (h2c, for gRPC services) on the same plaintext TCP listener.
 	var protocols http.Protocols
@@ -94,7 +107,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:      *listen,
-		Handler:   mux,
+		Handler:   handler,
 		Protocols: &protocols,
 	}
 
@@ -107,7 +120,7 @@ func main() {
 		_ = srv.Shutdown(context.Background())
 	}()
 
-	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", *listen, *ateapi, *atenet)
+	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s, atenet CONNECT %q)", *listen, *ateapi, *atenet, *atenetConn)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}
