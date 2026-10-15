@@ -17,10 +17,12 @@ package swebench
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
@@ -29,7 +31,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-//go:embed trajectories/*.yaml
+//go:embed trajectories/*
 var trajectoryFS embed.FS
 
 // DefaultTrajectory is the built-in trajectory used when none is given.
@@ -62,6 +64,10 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 type WriteSpec struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	// File names a file next to the trajectory whose contents become
+	// Content when the trajectory is loaded: a built-in asset for built-in
+	// trajectories, a path relative to the YAML file otherwise.
+	File string `json:"file,omitempty"`
 	// Mode is an octal file mode string; empty means 0644.
 	Mode string `json:"mode,omitempty"`
 }
@@ -130,13 +136,45 @@ func LoadTrajectory(source string) (*Trajectory, error) {
 		source = DefaultTrajectory
 	}
 	if data, err := os.ReadFile(source); err == nil {
-		return ParseTrajectory(data)
+		dir := filepath.Dir(source)
+		return parseWithAssets(data, func(name string) ([]byte, error) {
+			return os.ReadFile(filepath.Join(dir, name))
+		})
 	}
 	data, err := trajectoryFS.ReadFile("trajectories/" + source + ".yaml")
 	if err != nil {
 		return nil, fmt.Errorf("no file or built-in trajectory %q (built-in: %s)", source, strings.Join(Names(), ", "))
 	}
-	return ParseTrajectory(data)
+	return parseWithAssets(data, func(name string) ([]byte, error) {
+		return trajectoryFS.ReadFile("trajectories/" + name)
+	})
+}
+
+// parseWithAssets parses the trajectory and resolves every write.file
+// through read, so the loaded trajectory carries its contents.
+func parseWithAssets(data []byte, read func(name string) ([]byte, error)) (*Trajectory, error) {
+	t, err := ParseTrajectory(data)
+	if err != nil {
+		return nil, err
+	}
+	for _, steps := range [][]Step{t.Reset, t.Steps} {
+		for i := range steps {
+			w := steps[i].Write
+			if w == nil || w.File == "" {
+				continue
+			}
+			if strings.Contains(w.File, "/") || strings.Contains(w.File, "..") {
+				return nil, fmt.Errorf("trajectory %s step %s: write.file must be a plain file name", t.Name, steps[i].Name)
+			}
+			b, err := read(w.File)
+			if err != nil {
+				return nil, fmt.Errorf("trajectory %s step %s: %w", t.Name, steps[i].Name, err)
+			}
+			w.Content = string(b)
+			w.File = ""
+		}
+	}
+	return t, nil
 }
 
 // ParseTrajectory decodes and validates a YAML trajectory.
@@ -193,6 +231,8 @@ func (s Step) validate() error {
 		return fmt.Errorf("step %s: one of run or write is required", s.Name)
 	case s.Write != nil && s.Write.Path == "":
 		return fmt.Errorf("step %s: write.path is required", s.Name)
+	case s.Write != nil && s.Write.File != "" && s.Write.Content != "":
+		return fmt.Errorf("step %s: write.file and write.content are exclusive", s.Name)
 	case s.Write != nil && (s.Reward || s.ExpectExit != nil):
 		return fmt.Errorf("step %s: reward and expect_exit apply to run steps only", s.Name)
 	}
@@ -248,11 +288,20 @@ func renderSteps(tname string, steps []Step, in Instance) ([]Step, error) {
 	return out, nil
 }
 
+// templateFuncs are available in step templates. json renders a value as
+// JSON, for handing an instance's fields to a script in the sandbox.
+var templateFuncs = template.FuncMap{
+	"json": func(v any) (string, error) {
+		b, err := json.Marshal(v)
+		return string(b), err
+	},
+}
+
 func renderText(text string, in Instance) (string, error) {
 	if !strings.Contains(text, "{{") {
 		return text, nil
 	}
-	tmpl, err := template.New("step").Option("missingkey=error").Parse(text)
+	tmpl, err := template.New("step").Option("missingkey=error").Funcs(templateFuncs).Parse(text)
 	if err != nil {
 		return "", err
 	}

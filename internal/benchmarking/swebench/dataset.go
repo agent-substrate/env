@@ -46,6 +46,11 @@ type Instance struct {
 	EvalScript string   `json:"eval_script"`
 	FailToPass []string `json:"fail_to_pass"`
 	PassToPass []string `json:"pass_to_pass"`
+	// LogParser names the SWE-bench harness parser for this repo's test
+	// output (parse_log_pytest, parse_log_django, ...); EvalType is
+	// pass_and_fail or fail_only. Both come from the dataset row.
+	LogParser string `json:"log_parser"`
+	EvalType  string `json:"eval_type"`
 }
 
 var digestPinned = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)

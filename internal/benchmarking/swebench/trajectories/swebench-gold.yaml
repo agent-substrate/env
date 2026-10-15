@@ -47,17 +47,28 @@ steps:
       path: /tmp/eval.sh
       content: "{{.EvalScript}}"
       mode: "0755"
-  # The harness script runs without -e and ends by restoring the test files
-  # with a git checkout, which fails for instances whose test patch added
-  # files; its exit code is therefore not the verdict. The verdict is the
-  # ">>>>> Test Exit Code: N" marker the script prints after the test
-  # command, which is what the SWE-bench harness reads too.
+  # The harness script's exit code is not the verdict: it runs without -e,
+  # ends with a git checkout that fails when the test patch added files, and
+  # the test command itself exits nonzero when unrelated tests in the same
+  # files fail. The verdict is what the SWE-bench harness computes: parse the
+  # log with the repo's parser and check the FAIL_TO_PASS and PASS_TO_PASS
+  # tests. swebench-grade.py does that inside the sandbox from the instance
+  # record; its exit code is the reward.
   - name: run_tests
     run: >-
       /bin/bash /tmp/eval.sh > /tmp/eval.log 2>&1;
-      tail -c 4000 /tmp/eval.log;
-      rc=$(grep -o 'Test Exit Code: [0-9]*' /tmp/eval.log | tail -n 1 | grep -o '[0-9]*$');
-      exit "${rc:-1}"
+      tail -c 1500 /tmp/eval.log;
+      grep -o '>>>>> Test Exit Code: [0-9]*' /tmp/eval.log | tail -n 1
     think: 1s
     timeout: 20m
+  - name: write_grader
+    write:
+      path: /tmp/grade.py
+      file: swebench-grade.py
+  - name: write_instance
+    write:
+      path: /tmp/instance.json
+      content: "{{json .}}"
+  - name: grade
+    run: /opt/miniconda3/bin/python /tmp/grade.py /tmp/instance.json /tmp/eval.log
     reward: true

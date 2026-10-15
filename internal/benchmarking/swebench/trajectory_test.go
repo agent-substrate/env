@@ -15,6 +15,9 @@
 package swebench
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +40,11 @@ func TestBuiltinTrajectoriesLoadAndRender(t *testing.T) {
 		}
 		if len(r.Steps) != len(tr.Steps) {
 			t.Fatalf("%s: rendered %d steps, want %d", n, len(r.Steps), len(tr.Steps))
+		}
+		for _, s := range r.Steps {
+			if s.Write != nil && (s.Write.Content == "" || s.Write.File != "") {
+				t.Fatalf("%s step %s: write.file not resolved into content", n, s.Name)
+			}
 		}
 	}
 	def, err := LoadTrajectory("")
@@ -110,5 +118,53 @@ func TestParseTrajectoryRejects(t *testing.T) {
 		} else if strings.Contains(err.Error(), "panic") {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestWriteFileResolvesNextToTrajectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "asset.py"), []byte("print(1)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yamlPath := filepath.Join(dir, "t.yaml")
+	if err := os.WriteFile(yamlPath, []byte("name: t\nsteps:\n  - name: w\n    write: {path: /tmp/a.py, file: asset.py}\n  - name: r\n    run: \"true\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := LoadTrajectory(yamlPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.Steps[0].Write.Content; got != "print(1)\n" {
+		t.Fatalf("content %q", got)
+	}
+	for _, bad := range []string{"missing.py", "../asset.py", "sub/asset.py"} {
+		if err := os.WriteFile(yamlPath, []byte("name: t\nsteps:\n  - name: w\n    write: {path: /tmp/a, file: "+bad+"}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadTrajectory(yamlPath); err == nil {
+			t.Errorf("write.file %q must fail", bad)
+		}
+	}
+	if _, err := ParseTrajectory([]byte("name: t\nsteps:\n  - name: w\n    write: {path: /p, file: a, content: b}\n")); err == nil {
+		t.Error("file and content together must fail")
+	}
+}
+
+func TestJSONTemplateFunc(t *testing.T) {
+	tr, err := ParseTrajectory([]byte("name: t\nsteps:\n  - name: w\n    write: {path: /tmp/i.json, content: \"{{json .}}\"}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Instance{InstanceID: "x", Image: "reg/img@" + goodDigest, FailToPass: []string{"a::b[1]"}, LogParser: "parse_log_pytest"}
+	r, err := tr.Render(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Instance
+	if err := json.Unmarshal([]byte(r.Steps[0].Write.Content), &back); err != nil {
+		t.Fatalf("not JSON: %v: %s", err, r.Steps[0].Write.Content)
+	}
+	if back.InstanceID != "x" || back.LogParser != "parse_log_pytest" || len(back.FailToPass) != 1 {
+		t.Fatalf("round trip: %+v", back)
 	}
 }
