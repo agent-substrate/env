@@ -102,7 +102,7 @@ for _ in $(seq 1 60); do
 done
 [[ -n "${POD:-}" ]] || { echo "pod for ${JOB} did not appear" >&2; exit 1; }
 echo "pod ${POD}; following the loader log (step failures filtered)"
-kubectl -n "${NS}" logs -f "${POD}" -c loader | grep -v '"step failed"' || true
+kubectl -n "${NS}" logs -f "${POD}" -c loader | grep --line-buffered -v '"step failed"' || true
 
 until EXIT="$(kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.status.containerStatuses[?(@.name=="loader")].state.terminated.exitCode}')" && [[ -n "${EXIT}" ]]; do
   sleep 10
