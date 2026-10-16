@@ -79,8 +79,10 @@ A verified stand-in for the mechanics, which needs nothing from any registry
 but Docker Hub, is in [`examples/runtime-layers`](../../examples/runtime-layers):
 the static `busybox:1.37-musl` mounted as the layer and its `httpd` as the
 sidecar, run under two different rootfs images. A real daemon, the OpenHands agent-server in
-any image with glibc 2.31 or newer, configured by `--env` and driven by OpenHands' own CodeAct agent, is
-in [`examples/openhands-agent-server`](../../examples/openhands-agent-server).
+any image with glibc 2.31 or newer, configured by `--env`, is the
+[`integrations/openhands`](../../integrations/openhands) package: an OpenHands SDK workspace
+(`AteEnvWorkspace`, compatible with OpenHands' `AgentSandboxWorkspace`), the layer, and examples
+that drive it with OpenHands' own CodeAct agent.
 
 ## Who can reach the second runtime
 

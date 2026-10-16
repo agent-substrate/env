@@ -47,11 +47,11 @@ environment needs to reach a model. The same loop with a model call before
 each step is a client-side agent: the model stays wherever it is reachable,
 the environment only executes.
 
-    pip install openhands-sdk==1.55.0
+    pip install ./clients/python ./integrations/openhands
     SESSION_KEY=<key> python run_trajectory.py <env-id> trajectories/hello.json [--out run.json]
 
 Trajectory file: a JSON list of ``{"tool": ..., "args": {...}, "thought": ...}``
-(``thought`` optional). Environment as for ate_env_workspace.py.
+(``thought`` optional). Environment as in _common.py.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from ate_env_workspace import agent_server_url, workspace_for
+from _common import attach
 
 LAYER_PYTHON = "/opt/oh/python/bin/python3"
 TOOL_RUNNER = "/tmp/oh_tool.py"
@@ -80,10 +80,10 @@ class StepFailed(Exception):
 class ToolRunner:
     """oh_tool.py inside the environment, reached through ate-env-api."""
 
-    def __init__(self, workspace, env_id: str, key: str) -> None:
+    def __init__(self, workspace, key: str) -> None:
         self.workspace = workspace
         self.key = key
-        self.url = agent_server_url(env_id, port=TOOL_PORT)
+        self.url = workspace.port_url(TOOL_PORT)
 
     def request(self, path: str, payload: dict | None = None, timeout: float = 120) -> dict:
         data = None if payload is None else json.dumps(payload).encode()
@@ -176,8 +176,8 @@ def main() -> int:
     if not isinstance(steps, list):
         sys.exit(f"{args.trajectory}: want a JSON list of steps")
     key = os.environ["SESSION_KEY"]
-    workspace = workspace_for(args.env_id, api_key=key, working_dir=args.workdir)
-    tools = ToolRunner(workspace, args.env_id, key)
+    workspace = attach(args.env_id, api_key=key, working_dir=args.workdir)
+    tools = ToolRunner(workspace, key)
     results: list[dict] = []
     failed = 0
     try:

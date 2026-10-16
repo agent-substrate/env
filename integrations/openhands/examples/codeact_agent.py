@@ -32,12 +32,12 @@ conversation is deleted on the agent-server when the script ends.
 environment and points the agent at it, which replays a fixed CodeAct
 trajectory through the real agent loop and tools.
 
-    pip install openhands-sdk==1.55.0 openhands-tools==1.55.0
+    pip install ./clients/python './integrations/openhands[examples]'
     SESSION_KEY=<key> LLM_MODEL=<litellm model> LLM_API_KEY=<key> [LLM_BASE_URL=<url>] \\
         python codeact_agent.py <env-id> ["task"]
     SESSION_KEY=<key> python codeact_agent.py --scripted <env-id>
 
-Environment as for ate_env_workspace.py (API, ATESPACE, PORT, WORKDIR).
+Environment as in _common.py (API, ATESPACE, PORT, SESSION_KEY, WORKDIR).
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ import re
 import time
 from pathlib import Path
 
-from ate_env_workspace import workspace_for
+from _common import attach
 from openhands.sdk import LLM, Conversation
 from openhands.sdk.event import (
     ActionEvent,
@@ -110,7 +110,7 @@ def main() -> None:
     parser.add_argument("--scripted", action="store_true", help="replay a fixed trajectory instead of calling a model")
     args = parser.parse_args()
 
-    workspace = workspace_for(args.env_id)
+    workspace = attach(args.env_id)
     if args.scripted:
         llm = LLM(model="openai/scripted", base_url=start_scripted_llm(workspace), api_key="scripted",
                   native_tool_calling=True, usage_id="agent")
