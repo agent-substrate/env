@@ -27,7 +27,12 @@ from ate_env import (
 from ate_env._gen.ateenv.v1alpha import env_pb2, env_pb2_grpc, guest_pb2_grpc
 from ate_env.client import _auth_interceptors, _normalize_target
 
-from .fakes import FakeEnvironmentService, FakeFileSystemService, FakeProc, FakeProcessService
+from .fakes import (
+    FakeEnvironmentService,
+    FakeFileSystemService,
+    FakeProc,
+    FakeProcessService,
+)
 
 
 def test_normalize_target():
