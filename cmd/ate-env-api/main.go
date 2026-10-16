@@ -20,6 +20,7 @@ import (
 	"flag"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,18 +34,42 @@ import (
 	"google.golang.org/grpc"
 )
 
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func main() {
 	var (
-		listen            = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
+		listen            = flag.String("listen", "127.0.0.1:7777", "address to serve the API on")
 		ateapi            = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
 		atenet            = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
 		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
+		authTokenFile     = flag.String("auth-token-file", "", "file with a bearer token required from API and MCP callers; re-read on each request")
 		wakeBudget        = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
 		wakeRunningBudget = flag.Duration("wake-running-budget", apiservice.DefaultWakeRunningBudget, "how long a guest call waits when the environment is already RUNNING but the router still answers Unavailable (guest not yet listening vs. path down)")
 	)
 	flag.Parse()
+
+	var callerAuth *apiservice.BearerAuth
+	if *authTokenFile != "" {
+		var err error
+		callerAuth, err = apiservice.NewBearerAuthFromFile(*authTokenFile)
+		if err != nil {
+			log.Fatalf("loading --auth-token-file: %v", err)
+		}
+	} else if !isLoopbackAddr(*listen) {
+		log.Printf("WARNING: listening on %s without --auth-token-file; all gRPC and MCP callers are unauthenticated", *listen)
+	}
 
 	client, err := ate.New(ate.Options{
 		ControlAddr:     *ateapi,
@@ -74,16 +99,28 @@ func main() {
 	apisvc.WakeRunningBudget = *wakeRunningBudget
 	defer apisvc.Close()
 
-	grpcServer := grpc.NewServer()
+	var grpcOpts []grpc.ServerOption
+	if callerAuth != nil {
+		grpcOpts = append(grpcOpts,
+			grpc.UnaryInterceptor(callerAuth.UnaryInterceptor()),
+			grpc.StreamInterceptor(callerAuth.StreamInterceptor()),
+		)
+	}
+	grpcServer := grpc.NewServer(grpcOpts...)
 	ateenvv1alpha.RegisterEnvironmentServiceServer(grpcServer, apisvc)
 	ateenvv1alpha.RegisterProcessServiceServer(grpcServer, apisvc)
 	ateenvv1alpha.RegisterFileSystemServiceServer(grpcServer, apisvc)
+
+	mcpHandler := mcp.NewHandler(client)
+	if callerAuth != nil {
+		mcpHandler = callerAuth.WrapHTTP(mcpHandler)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
 	})
-	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(client))
+	mux.Handle("/v1alpha/envs/{id}/mcp", mcpHandler)
 	mux.Handle("/", grpcServer)
 
 	// Enable both HTTP/1.1 (for /healthz and /v1alpha/ HTTP endpoints) and

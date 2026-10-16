@@ -42,9 +42,10 @@ func envOr(key, fallback string) string {
 
 func newGuestCommand(id string) *cobra.Command {
 	var (
-		endpoint string
-		atespace string
-		client   *env.Client
+		endpoint  string
+		atespace  string
+		authToken string
+		client    *env.Client
 	)
 
 	guestCmd := &cobra.Command{
@@ -53,7 +54,8 @@ func newGuestCommand(id string) *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			client, err = env.NewClient(env.ClientOptions{
-				Endpoint: endpoint,
+				Endpoint:  endpoint,
+				AuthToken: authToken,
 			})
 			return err
 		},
@@ -65,6 +67,7 @@ func newGuestCommand(id string) *cobra.Command {
 	}
 	guestCmd.PersistentFlags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
 	guestCmd.PersistentFlags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
+	guestCmd.PersistentFlags().StringVar(&authToken, "auth-token", envOr("SUBSTRATE_ENV_AUTH_TOKEN", ""), "bearer token for authenticating to ate-env-api")
 
 	guestCmd.AddCommand(&cobra.Command{
 		Use:   "read <path>",
@@ -135,6 +138,7 @@ func newCreateCommand() *cobra.Command {
 	var (
 		endpoint               string
 		atespace               string
+		authToken              string
 		createTemplate         string
 		createTemplateAtespace string
 		rootfsImage            string
@@ -145,7 +149,8 @@ func newCreateCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := env.NewClient(env.ClientOptions{
-				Endpoint: endpoint,
+				Endpoint:  endpoint,
+				AuthToken: authToken,
 			})
 			if err != nil {
 				return err
@@ -173,6 +178,7 @@ func newCreateCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
 	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
+	cmd.Flags().StringVar(&authToken, "auth-token", envOr("SUBSTRATE_ENV_AUTH_TOKEN", ""), "bearer token for authenticating to ate-env-api")
 	cmd.Flags().StringVar(&createTemplate, "template", "", "ActorTemplate name (defaults to server default)")
 	cmd.Flags().StringVar(&createTemplateAtespace, "template-atespace", "", "Substrate atespace of the ActorTemplate (defaults to environment atespace)")
 	cmd.Flags().StringVar(&rootfsImage, "rootfs-image", "", "digest-pinned rootfs image to run unmodified (repo@sha256:...); the template becomes the base the guest is taken from")
@@ -181,8 +187,9 @@ func newCreateCommand() *cobra.Command {
 
 func newSuspendCommand() *cobra.Command {
 	var (
-		endpoint string
-		atespace string
+		endpoint  string
+		atespace  string
+		authToken string
 	)
 	cmd := &cobra.Command{
 		Use:   "suspend <id>",
@@ -190,7 +197,8 @@ func newSuspendCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := env.NewClient(env.ClientOptions{
-				Endpoint: endpoint,
+				Endpoint:  endpoint,
+				AuthToken: authToken,
 			})
 			if err != nil {
 				return err
@@ -202,13 +210,15 @@ func newSuspendCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
 	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
+	cmd.Flags().StringVar(&authToken, "auth-token", envOr("SUBSTRATE_ENV_AUTH_TOKEN", ""), "bearer token for authenticating to ate-env-api")
 	return cmd
 }
 
 func newDeleteCommand() *cobra.Command {
 	var (
-		endpoint string
-		atespace string
+		endpoint  string
+		atespace  string
+		authToken string
 	)
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
@@ -216,7 +226,8 @@ func newDeleteCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := env.NewClient(env.ClientOptions{
-				Endpoint: endpoint,
+				Endpoint:  endpoint,
+				AuthToken: authToken,
 			})
 			if err != nil {
 				return err
@@ -228,6 +239,7 @@ func newDeleteCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&endpoint, "api", envOr("SUBSTRATE_ENV_API", "127.0.0.1:7777"), "address of the ate-env-api service (e.g. localhost:7777)")
 	cmd.Flags().StringVar(&atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace")
+	cmd.Flags().StringVar(&authToken, "auth-token", envOr("SUBSTRATE_ENV_AUTH_TOKEN", ""), "bearer token for authenticating to ate-env-api")
 	return cmd
 }
 
