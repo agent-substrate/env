@@ -21,7 +21,8 @@ A runtime layer is three things:
 The guest is the container's only process by contract, which is why it is the
 one that supervises the others. Sidecars run without a shell or `PATH` lookup,
 so the binary is an absolute path into its mount, and the rootfs image needs
-nothing for it. They inherit the container's user, environment and filesystem.
+nothing for it beyond, for a binary that is not statically linked, a
+compatible C library (the OpenHands layer needs glibc 2.31 or newer). They inherit the container's user, environment and filesystem.
 
 Template derivation keeps all of it. A base with layers yields derived
 templates with the same layers and the same guest flags, so environments
@@ -78,7 +79,7 @@ A verified stand-in for the mechanics, which needs nothing from any registry
 but Docker Hub, is in [`examples/runtime-layers`](../../examples/runtime-layers):
 the static `busybox:1.37-musl` mounted as the layer and its `httpd` as the
 sidecar, run under two different rootfs images. A real daemon, the OpenHands agent-server in
-any image, configured by `--env` and driven by OpenHands' own CodeAct agent, is
+any image with glibc 2.31 or newer, configured by `--env` and driven by OpenHands' own CodeAct agent, is
 in [`examples/openhands-agent-server`](../../examples/openhands-agent-server).
 
 ## Who can reach the second runtime
