@@ -1,0 +1,8 @@
+# The runtime layer's top-level requirement. Change the version here, then run
+# ./lock.sh to regenerate requirements.txt; keep the client's openhands-sdk at
+# the same version (see the README).
+openhands-agent-server==1.55.0
+# The agent-server does not pin these; without the pins the layer would carry
+# whatever newer sdk/tools release exists, not the version the client runs.
+openhands-sdk==1.55.0
+openhands-tools==1.55.0
