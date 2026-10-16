@@ -20,8 +20,8 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/env/internal/apiservice"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -116,11 +116,10 @@ func TestBuildManifests(t *testing.T) {
 	if sc.Name != atev1alpha1.SandboxClassGvisor || sc.ConfigRef == nil || sc.ConfigRef.Name != sandboxConfigName {
 		t.Errorf("workerpool sandboxClasses[0] = %+v, want gvisor with configRef %q", sc, sandboxConfigName)
 	}
-	// The pool's class is a CRD string and the template's a proto enum: two
-	// vocabularies for one thing. A pool of the wrong class never hosts the
-	// template's actors.
-	tmplClass := strings.ToLower(strings.TrimPrefix(
-		buildActorTemplate(testTemplateConfig()).GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_"))
+	// The pool's class and the template's are the same string since
+	// substrate#2586 made the proto field a string. A pool of the wrong class
+	// never hosts the template's actors.
+	tmplClass := buildActorTemplate(testTemplateConfig()).GetSandboxConfig().GetSandboxClass()
 	if tmplClass != string(sc.Name) {
 		t.Errorf("workerpool sandbox class %q != template sandbox class %q", sc.Name, tmplClass)
 	}
@@ -175,6 +174,74 @@ func TestBuildActorTemplate(t *testing.T) {
 	probe := template.Containers[0].GetWakeupProbe()
 	if probe.GetHttpGet() == nil || probe.GetHttpGet().GetPath() != "/readyz" || probe.GetHttpGet().GetPort() != 80 {
 		t.Errorf("wakeupProbe = %+v, want HTTP GET /readyz on port 80", probe)
+	}
+	// Substrate rejects an ActorTemplate without both limits (substrate#2285).
+	if got := limits(template); got["cpu"] != defaultActorCPU || got["memory"] != defaultActorMemory || len(got) != 2 {
+		t.Errorf("resources.limits = %v, want cpu=%s memory=%s", got, defaultActorCPU, defaultActorMemory)
+	}
+	if got := template.GetSandboxConfig().GetSandboxClass(); got != "gvisor" {
+		t.Errorf("sandbox class = %q, want gvisor (Substrate accepts gvisor or microvm)", got)
+	}
+}
+
+func limits(tmpl *ateapipb.ActorTemplate) map[string]string {
+	m := map[string]string{}
+	for _, l := range tmpl.GetResources().GetLimits() {
+		m[l.GetName()] = l.GetQuantity()
+	}
+	return m
+}
+
+func TestBuildActorTemplateResources(t *testing.T) {
+	cfg := testTemplateConfig()
+	cfg.cpu, cfg.memory = "500m", "1Gi"
+	if got := limits(buildActorTemplate(cfg)); got["cpu"] != "500m" || got["memory"] != "1Gi" {
+		t.Errorf("resources.limits = %v, want cpu=500m memory=1Gi", got)
+	}
+}
+
+func TestTemplateConfigRejectsBadResources(t *testing.T) {
+	for _, tc := range []struct{ cpu, memory string }{
+		{"two", ""},
+		{"", "4GB!"},
+		{"0", ""},
+		{"", "-1Gi"},
+		// Substrate's bounds: cpu below 1000 cores, memory an int64 byte
+		// count, each quantity at most 32 characters.
+		{"1000", ""},
+		{"1e3", ""},
+		{"999.9991", ""},
+		{"", "9223372036854775808"},
+		{"0.0000000000000000000000000000001", ""},
+	} {
+		cfg := testTemplateConfig()
+		cfg.cpu, cfg.memory = tc.cpu, tc.memory
+		if err := cfg.validateResources(); err == nil {
+			t.Errorf("cpu=%q memory=%q: want error, got nil", tc.cpu, tc.memory)
+		}
+	}
+	for _, tc := range []struct{ cpu, memory string }{
+		{"999.999", "9223372036854775807"},
+		{"500m", "8Gi"},
+		{"", ""},
+	} {
+		cfg := testTemplateConfig()
+		cfg.cpu, cfg.memory = tc.cpu, tc.memory
+		if err := cfg.validateResources(); err != nil {
+			t.Errorf("cpu=%q memory=%q: %v, want accepted", tc.cpu, tc.memory, err)
+		}
+	}
+}
+
+func TestManifestTemplateCommandRejectsEmptyResource(t *testing.T) {
+	for _, flag := range []string{"--cpu=", "--memory="} {
+		cmd := newManifestCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"template", "--guest-image=example.com/guest@sha256:aaaa", "--snapshots-bucket=gs://b/", flag})
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "must not be empty") {
+			t.Errorf("%s: got %v, want an error about the empty value", flag, err)
+		}
 	}
 }
 
@@ -291,6 +358,8 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 		"template",
 		"--guest-image=example.com/guest@sha256:aaaa",
 		"--snapshots-bucket=gs://bucket/prefix/",
+		"--cpu=4",
+		"--memory=8Gi",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute manifest template: %v", err)
@@ -298,6 +367,11 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "image: example.com/guest@sha256:aaaa") || !strings.Contains(out, "storageLocation: gs://bucket/prefix/") {
 		t.Errorf("expected guest image and storage location in output:\n%s", out)
+	}
+	for _, want := range []string{"sandboxClass: gvisor", "name: cpu\n    quantity: \"4\"", "name: memory\n    quantity: 8Gi"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
 }
 

@@ -56,7 +56,7 @@ signed, and meant to be used by digest:
 
 The digests are in the release notes and in the `images_<tag>.txt` asset; the
 release's `ate-env` binary defaults to them. The worker image
-(`--worker-image`, `ateom-gvisor`) comes from the
+(`--worker-image`, `ateworker-gvisor`) comes from the
 [Substrate repo](https://github.com/agent-substrate/substrate) and must match the
 Substrate version on your cluster. See [docs/release.md](docs/release.md) for
 verification, pinning and how releases are cut.
@@ -65,10 +65,24 @@ verification, pinning and how releases are cut.
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket. ate-env is built against Substrate
-[`da35a983`](https://github.com/agent-substrate/substrate/commit/da35a983) (2026-10-13). The cluster
-needs a Substrate recent enough to accept what ate-env writes: the WorkerPool declares
-`spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and `wakeupProbe`, and `--worker-image`
-must be the `ateom` image published by that Substrate install.
+[`3a2ca623`](https://github.com/agent-substrate/substrate/commit/3a2ca623) (2026-10-16, Go module
+`go.ate.dev/substrate`). The cluster needs a Substrate recent enough to accept what ate-env writes:
+the WorkerPool declares `spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and
+`wakeupProbe`, names its sandbox class as the string `gvisor`, and declares CPU and memory limits.
+That means Substrate at or after
+[`63a17a92`](https://github.com/agent-substrate/substrate/commit/63a17a92) (2026-10-15), which also
+renamed the worker image: `--worker-image` must be the `ateworker-gvisor` image published by that
+Substrate install. An older Substrate rejects the string sandbox class (from
+[`9ec49759`](https://github.com/agent-substrate/substrate/commit/9ec49759)) or the limits (from
+[`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)); use an ate-env from before
+this bump with it.
+
+When you upgrade an existing cluster across that boundary, register your base templates again.
+Substrate cannot update an ActorTemplate in place, and a base registered earlier has no CPU and memory
+limits, thus each template `ate-env-api` derives from it for a rootfs image fails with
+`resources: Required`. Delete the base and its derived templates (named `<base>-<12 hex digits>`) with
+`kubectl-ate delete actor-template`, then register the base again with `ate-env manifest template`.
+Each environment created after that derives its template again, with the limits.
 
 ### 1. Deploy the Kubernetes Resources
 
@@ -76,12 +90,12 @@ Deploy the namespace, worker pool, and API service:
 
 ```bash
 # With a release binary the API image defaults to the release's. The worker
-# image is ateom-gvisor from the Substrate repo at your cluster's version; in
+# image is ateworker-gvisor from the Substrate repo at your cluster's version; in
 # that checkout, `go run ./cmd/ate-setup publish worker-images` pushes it and
 # prints the digest-pinned ref. Use the digest: a :latest tag is whatever was
 # built last, and a stale worker image registers workers with no capacity.
 ate-env manifest \
-  --worker-image   <registry>/ateom-gvisor@sha256:<digest> | kubectl apply -f -
+  --worker-image   <registry>/ateworker-gvisor@sha256:<digest> | kubectl apply -f -
 # From a source build, add: --api-image ghcr.io/agent-substrate/env/ate-env-api@sha256:<digest>
 
 # Ensure that the pods are running:
@@ -105,6 +119,10 @@ ate-env manifest template \
   --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
 # From a source build, add: --guest-image ghcr.io/agent-substrate/env/ate-env-guest@sha256:<digest>
 ```
+
+Each actor gets 2 CPUs and 4 GiB unless you pass `--cpu` and `--memory` (Kubernetes quantities such as
+`500m` or `8Gi`; CPU at most `999.999`, as Substrate requires). Substrate requires both limits and books them against worker capacity; templates
+derived per rootfs image inherit them.
 
 That template's container is the guest image itself. To run another image unmodified, name
 it with `--rootfs-image`: the guest is then mounted into it as a read-only OCI image volume at

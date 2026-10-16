@@ -26,7 +26,7 @@ and asks for both flags. `make build-cli` reproduces a release-style binary
 locally from `ATE_ENV_API_IMAGE` and `ATE_ENV_GUEST_IMAGE`.
 
 The worker image (`--worker-image`) is not published here: it is
-`ateom-gvisor` from the [Substrate repo](https://github.com/agent-substrate/substrate)
+`ateworker-gvisor` from the [Substrate repo](https://github.com/agent-substrate/substrate)
 and must match the Substrate version deployed on the cluster. From a Substrate
 checkout at that version, `go run ./cmd/ate-setup publish worker-images` builds
 and pushes it and prints the digest-pinned ref. Use the digest: a registry's

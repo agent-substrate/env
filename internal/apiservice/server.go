@@ -26,7 +26,7 @@ import (
 
 	"github.com/agent-substrate/env/internal/ate"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -540,11 +540,11 @@ func ActorStatusToEnvStatus(st *ateapipb.ActorStatus) ateenvv1alpha.EnvironmentS
 	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 		return ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDING
 	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
+		// Since substrate#2620 a paused actor is SUSPENDED too, with a
+		// node-local latest snapshot; Substrate has no PAUSED or PAUSING
+		// state. ate-env never pauses, so ENVIRONMENT_STATUS_PAUSED and
+		// _PAUSING are no longer produced.
 		return ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_SUSPENDED
-	case ateapipb.ActorState_ACTOR_STATE_PAUSING:
-		return ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSING
-	case ateapipb.ActorState_ACTOR_STATE_PAUSED:
-		return ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_PAUSED
 	case ateapipb.ActorState_ACTOR_STATE_CRASHED:
 		return ateenvv1alpha.EnvironmentStatus_ENVIRONMENT_STATUS_CRASHED
 	case ateapipb.ActorState_ACTOR_STATE_DELETING:

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -36,11 +36,27 @@ func modeABase() *ateapipb.ActorTemplate {
 			Image:       testGuestImage,
 			Command:     []string{"/ko-app/ate-env-guest", "-workspace", "/workspace"},
 			Env:         []*ateapipb.EnvVar{{Name: "PORT", Value: "80"}},
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
+			WakeupProbe: &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
 		}},
 		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://b/p/", PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY},
-		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"},
-		Status:         &ateapipb.ActorTemplateStatus{},
+		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: "gvisor", ConfigName: "gvisor-default"},
+		Resources: &ateapipb.Resources{Limits: []*ateapipb.Limits{
+			{Name: "cpu", Quantity: "2"}, {Name: "memory", Quantity: "4Gi"},
+		}},
+		Status: &ateapipb.ActorTemplateStatus{},
+	}
+}
+
+// Substrate requires cpu and memory limits on every ActorTemplate, thus a
+// derived template must carry the base's limits unchanged.
+func TestDeriveImageTemplateKeepsResources(t *testing.T) {
+	base := modeABase()
+	got, err := DeriveImageTemplate(base, "default-template-0123456789ab", testRootfsImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(got.GetResources(), base.GetResources()) {
+		t.Errorf("derived resources = %v, want the base's %v", got.GetResources(), base.GetResources())
 	}
 }
 

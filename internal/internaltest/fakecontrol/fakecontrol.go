@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -299,7 +299,8 @@ func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest
 	if err != nil {
 		return nil, err
 	}
-	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_PAUSED}
+	// Substrate reports a paused actor as SUSPENDED (substrate#2620).
+	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}
 	return &ateapipb.PauseActorResponse{Actor: clone(a)}, nil
 }
 

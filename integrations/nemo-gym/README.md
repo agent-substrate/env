@@ -53,11 +53,13 @@ On the cluster:
 
    ```bash
    ate-env manifest \
-     --guest-image  <ate-env-guest image> \
      --api-image    <ate-env-api image> \
-     --ateom-image  <ateom-gvisor image matching your substrate build> \
-     --snapshots-bucket gs://<bucket>/ate-env/ | kubectl apply -f -
+     --worker-image <ateworker-gvisor image matching your substrate build> | kubectl apply -f -
    kubectl get pods -n ate-env   # api + warm workers Running
+   # once ate-env-api is Running (it creates the ate-env atespace templates live in):
+   ate-env manifest template \
+     --guest-image  <ate-env-guest image> \
+     --snapshots-bucket gs://<bucket>/ate-env/ | kubectl-ate create actor-template -f -
    ```
 
    If your `ateapi` requires authentication (it does on any standard install), the

@@ -28,8 +28,8 @@ import (
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
 	internalmcp "github.com/agent-substrate/env/internal/mcp"
 	"github.com/agent-substrate/env/internal/tool"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 )
 
 func TestMCPServer(t *testing.T) {
