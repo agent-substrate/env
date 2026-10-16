@@ -137,13 +137,23 @@ of `{"tool", "args", "thought"}`. Terminal commands go through the agent-server'
 File edits go through OpenHands' own `file_editor`, served inside the environment by `oh_tool.py` on
 the layer's Python and reached through ate-env-api like the agent-server, so observations read
 exactly as the agent sees them, and `undo_edit` works across steps. Each observation is printed and,
-with `--out`, recorded next to its call. Nothing inside the environment calls a model: put a model
-call before each step and this is a client-side agent, with the model wherever it is reachable.
+with `--out`, recorded next to its call; the file is rewritten after each step. Nothing inside the
+environment calls a model: put a model call before each step and this is a client-side agent, with
+the model wherever it is reachable.
 
 ```bash
 SESSION_KEY=<key> python examples/openhands-agent-server/run_trajectory.py <env> \
-  examples/openhands-agent-server/trajectories/django-11099.json --out run.json
+  examples/openhands-agent-server/trajectories/django-11099.json --workdir /testbed --out run.json
 ```
+
+- Working directory: a terminal step runs in its `cwd`, else in `--workdir` (default `$WORKDIR`,
+  else `/`). The image's WORKDIR does not apply, because the agent-server runs in `/` where the guest
+  starts it; the same holds for `ate_env_workspace.py` and `codeact_agent.py` (`WORKDIR`).
+- Errors: a tool that reports an error (a non-zero exit status, a `file_editor` error) is an
+  observation like any other and the run goes on. A step that cannot be executed (a malformed step,
+  an unknown tool, an HTTP error, a timeout) is recorded with `"is_error": true, "failed": true`; the
+  run stops there unless `--keep-going` is given, and the script exits with status 1.
+- `oh_tool.py` requires the session key (below) and is stopped and removed at the end of the run.
 
 On the SWE-bench `django__django-11099` image (username validators accept a trailing newline):
 
@@ -239,5 +249,15 @@ GKE with gVisor workers, Substrate from 2026-10-12, ate-env-api with the port pr
   environment on a node pulls the layer.
 - `codeact_agent.py` calls the model from inside the environment (see above); `run_trajectory.py`
   and a client-side agent built on it do not.
+- `oh_tool.py` listens on all interfaces (port 9100), so it is reachable through ate-env-api like the
+  agent-server. It requires the agent-server's session key in `X-Session-API-Key` on every request
+  (401 otherwise, compared in constant time) and refuses to start without `OH_SESSION_API_KEYS_0`.
+  The agent-server removes that variable from the commands it runs, so `run_trajectory.py` passes it
+  in the start command; the agent-server keeps that command in its record of commands, which only
+  holders of the key can read. A malformed request gets 400, a non-numeric port is an error.
+  `run_trajectory.py` stops it with an authenticated `POST /shutdown` and deletes `/tmp/oh_tool.py`
+  and its log at the end of the run, also after an error; if the client dies first, the server
+  keeps running in the environment (and in its snapshots) until the environment is deleted or
+  someone with the key posts `/shutdown`. The file editor's undo history stays under `/tmp`.
 - A daemon reached through ate-env-api must listen on all interfaces, not 127.0.0.1: the router
   delivers to the actor's address, and a loopback-only listener answers `502 bad gateway`.

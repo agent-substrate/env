@@ -27,7 +27,11 @@ travels as the SDK sends it.
 
 Environment: ``API`` (ate-env-api address, default 127.0.0.1:7777),
 ``ATESPACE`` (default ate-env), ``PORT`` (agent-server port, default 8000),
-``WORKDIR`` (directory the command runs in; default: the image's WORKDIR).
+``WORKDIR`` (the workspace's working directory: where commands run and what
+relative paths resolve against; default ``/``). The image's WORKDIR does not
+apply: the agent-server runs in ``/``, where the guest starts it, and the SDK
+sends no directory unless given one, so set ``WORKDIR`` (``/testbed`` on a
+SWE-bench image) or pass ``working_dir`` to ``workspace_for``.
 """
 
 from __future__ import annotations
@@ -51,7 +55,11 @@ def agent_server_url(env_id: str, *, api: str | None = None, atespace: str | Non
 
 def workspace_for(env_id: str, *, api_key: str | None = None, working_dir: str | None = None,
                   **url_kwargs) -> RemoteWorkspace:
-    """A ``RemoteWorkspace`` bound to the agent-server in ``env_id``."""
+    """A ``RemoteWorkspace`` bound to the agent-server in ``env_id``.
+
+    ``working_dir`` defaults to ``$WORKDIR``, else ``/``. Pass it as ``cwd`` to
+    ``execute_command``, which otherwise runs in the agent-server's directory.
+    """
     return RemoteWorkspace(
         host=agent_server_url(env_id, **url_kwargs),
         api_key=api_key or os.environ["SESSION_KEY"],
@@ -64,7 +72,7 @@ def main() -> None:
         sys.exit(f"usage: {sys.argv[0]} <env-id> [command ...]")
     workspace = workspace_for(sys.argv[1])
     command = " ".join(sys.argv[2:]) or 'head -1 /etc/os-release; echo "cwd: $(pwd)"'
-    result = workspace.execute_command(command, cwd=os.environ.get("WORKDIR"), timeout=60)
+    result = workspace.execute_command(command, cwd=workspace.working_dir, timeout=60)
     print(f"exit {result.exit_code}\n{result.stdout}{result.stderr}", end="")
 
 
