@@ -206,11 +206,41 @@ func TestTemplateConfigRejectsBadResources(t *testing.T) {
 		{"", "4GB!"},
 		{"0", ""},
 		{"", "-1Gi"},
+		// Substrate's bounds: cpu below 1000 cores, memory an int64 byte
+		// count, each quantity at most 32 characters.
+		{"1000", ""},
+		{"1e3", ""},
+		{"999.9991", ""},
+		{"", "9223372036854775808"},
+		{"0.0000000000000000000000000000001", ""},
 	} {
 		cfg := testTemplateConfig()
 		cfg.cpu, cfg.memory = tc.cpu, tc.memory
-		if err := cfg.resolveImages(); err == nil {
+		if err := cfg.validateResources(); err == nil {
 			t.Errorf("cpu=%q memory=%q: want error, got nil", tc.cpu, tc.memory)
+		}
+	}
+	for _, tc := range []struct{ cpu, memory string }{
+		{"999.999", "9223372036854775807"},
+		{"500m", "8Gi"},
+		{"", ""},
+	} {
+		cfg := testTemplateConfig()
+		cfg.cpu, cfg.memory = tc.cpu, tc.memory
+		if err := cfg.validateResources(); err != nil {
+			t.Errorf("cpu=%q memory=%q: %v, want accepted", tc.cpu, tc.memory, err)
+		}
+	}
+}
+
+func TestManifestTemplateCommandRejectsEmptyResource(t *testing.T) {
+	for _, flag := range []string{"--cpu=", "--memory="} {
+		cmd := newManifestCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"template", "--guest-image=example.com/guest@sha256:aaaa", "--snapshots-bucket=gs://b/", flag})
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "must not be empty") {
+			t.Errorf("%s: got %v, want an error about the empty value", flag, err)
 		}
 	}
 }

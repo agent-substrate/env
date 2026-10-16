@@ -40,7 +40,23 @@ func modeABase() *ateapipb.ActorTemplate {
 		}},
 		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://b/p/", PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY},
 		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: "gvisor", ConfigName: "gvisor-default"},
-		Status:         &ateapipb.ActorTemplateStatus{},
+		Resources: &ateapipb.Resources{Limits: []*ateapipb.Limits{
+			{Name: "cpu", Quantity: "2"}, {Name: "memory", Quantity: "4Gi"},
+		}},
+		Status: &ateapipb.ActorTemplateStatus{},
+	}
+}
+
+// Substrate requires cpu and memory limits on every ActorTemplate, thus a
+// derived template must carry the base's limits unchanged.
+func TestDeriveImageTemplateKeepsResources(t *testing.T) {
+	base := modeABase()
+	got, err := DeriveImageTemplate(base, "default-template-0123456789ab", testRootfsImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(got.GetResources(), base.GetResources()) {
+		t.Errorf("derived resources = %v, want the base's %v", got.GetResources(), base.GetResources())
 	}
 }
 

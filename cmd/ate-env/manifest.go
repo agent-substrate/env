@@ -153,18 +153,29 @@ func parseLayers(values []string) ([]runtimeLayer, error) {
 	return layers, nil
 }
 
-func (c *templateConfig) resolveImages() error {
-	if c.guestImage == "" {
-		return errors.New(`--guest-image is required when ate-env is built from source; release
-binaries default it to the ate-env-guest image published with the release
-(see docs/release.md), or build and push your own with make images`)
-	}
-	if c.snapshotsBucket == "" {
-		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
-	}
-	for _, l := range []struct{ flag, value string }{{"--cpu", c.cpu}, {"--memory", c.memory}} {
+// Bounds Substrate applies to an ActorTemplate's limits
+// (go.ate.dev/substrate/internal/resources.ValidateLimit and the
+// Limits.quantity maxLength), checked here so the CLI never prints a template
+// the control plane rejects.
+const maxQuantityLen = 32
+
+var (
+	maxCPULimit    = resource.MustParse("999.999")             // the wire carries millicores below 1000 cores
+	maxMemoryLimit = resource.MustParse("9223372036854775807") // the wire carries an int64 byte count
+)
+
+// validateResources checks --cpu and --memory the way Substrate validates
+// resources.limits. An empty value means the default.
+func (c *templateConfig) validateResources() error {
+	for _, l := range []struct {
+		flag, value string
+		max         resource.Quantity
+	}{{"--cpu", c.cpu, maxCPULimit}, {"--memory", c.memory, maxMemoryLimit}} {
 		if l.value == "" {
 			continue
+		}
+		if len(l.value) > maxQuantityLen {
+			return fmt.Errorf("%s %q is longer than %d characters, which Substrate rejects", l.flag, l.value, maxQuantityLen)
 		}
 		q, err := resource.ParseQuantity(l.value)
 		if err != nil {
@@ -173,6 +184,21 @@ binaries default it to the ate-env-guest image published with the release
 		if q.Sign() <= 0 {
 			return fmt.Errorf("%s must be greater than zero, got %q", l.flag, l.value)
 		}
+		if q.Cmp(l.max) > 0 {
+			return fmt.Errorf("%s %q is above Substrate's maximum of %s", l.flag, l.value, l.max.String())
+		}
+	}
+	return nil
+}
+
+func (c *templateConfig) resolveImages() error {
+	if c.guestImage == "" {
+		return errors.New(`--guest-image is required when ate-env is built from source; release
+binaries default it to the ate-env-guest image published with the release
+(see docs/release.md), or build and push your own with make images`)
+	}
+	if c.snapshotsBucket == "" {
+		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
 	}
 	if c.rootfsImage != "" {
 		if _, err := apiservice.ImageDigest(c.rootfsImage); err != nil {
@@ -256,6 +282,15 @@ It prints YAML to stdout without touching the cluster.`,
 				tCfg.template = apiservice.DefaultTemplate
 			}
 			if err := tCfg.resolveImages(); err != nil {
+				return err
+			}
+			// An empty --cpu or --memory would silently mean the default.
+			for _, f := range []string{"cpu", "memory"} {
+				if cmd.Flags().Changed(f) && cmd.Flags().Lookup(f).Value.String() == "" {
+					return fmt.Errorf("--%s must not be empty; omit it for the default", f)
+				}
+			}
+			if err := tCfg.validateResources(); err != nil {
 				return err
 			}
 			tmpl, err := buildTemplate(tCfg)

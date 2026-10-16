@@ -77,6 +77,13 @@ Substrate install. An older Substrate rejects the string sandbox class (from
 [`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)); use an ate-env from before
 this bump with it.
 
+When you upgrade an existing cluster across that boundary, register your base templates again.
+Substrate cannot update an ActorTemplate in place, and a base registered earlier has no CPU and memory
+limits, thus each template `ate-env-api` derives from it for a rootfs image fails with
+`resources: Required`. Delete the base and its derived templates (named `<base>-<12 hex digits>`) with
+`kubectl-ate delete actor-template`, then register the base again with `ate-env manifest template`.
+Each environment created after that derives its template again, with the limits.
+
 ### 1. Deploy the Kubernetes Resources
 
 Deploy the namespace, worker pool, and API service:
@@ -114,7 +121,7 @@ ate-env manifest template \
 ```
 
 Each actor gets 2 CPUs and 4 GiB unless you pass `--cpu` and `--memory` (Kubernetes quantities such as
-`500m` or `8Gi`). Substrate requires both limits and books them against worker capacity; templates
+`500m` or `8Gi`; CPU at most `999.999`, as Substrate requires). Substrate requires both limits and books them against worker capacity; templates
 derived per rootfs image inherit them.
 
 That template's container is the guest image itself. To run another image unmodified, name
