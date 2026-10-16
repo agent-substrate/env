@@ -201,7 +201,14 @@ examples/openhands-agent-server/demo.sh
 ```
 
 It also takes `PORT`, `AGENT_SERVER_ENV` (extra `NAME=VALUE` settings), `COMMAND`, `WORKDIR` and
-`KEEP=1` (leave the environments up for the SDK scripts); see its header.
+`KEEP=1` (leave the environments up for the SDK scripts); see its header. It exits 1 if any
+agent-server did not answer.
+
+The session key is `SESSION_KEY`, else a random one that is never printed; set it with `KEEP=1`, so
+that you can reach the environments afterwards. Templates are immutable and the key is in them, also
+in the per-image templates that creates derive (`<base>-<12 hex digits of the image digest>`). So
+before registering, the demo deletes the base template and every template derived from it, with
+their golden snapshots; with `REUSE=1` (and the same `SESSION_KEY`) it keeps them instead.
 
 ## Versions
 
