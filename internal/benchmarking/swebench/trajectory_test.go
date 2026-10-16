@@ -46,6 +46,9 @@ func TestBuiltinTrajectoriesLoadAndRender(t *testing.T) {
 				t.Fatalf("%s step %s: write.file not resolved into content", n, s.Name)
 			}
 		}
+		if len(r.Setup) != len(tr.Setup) || len(r.Reset) != len(tr.Reset) {
+			t.Fatalf("%s: setup/reset not rendered", n)
+		}
 	}
 	def, err := LoadTrajectory("")
 	if err != nil || def.Name != DefaultTrajectory {
@@ -107,6 +110,7 @@ func TestParseTrajectoryRejects(t *testing.T) {
 		"neither":       "name: t\nsteps:\n  - name: a\n",
 		"two rewards":   "name: t\nsteps:\n  - {name: a, run: x, reward: true}\n  - {name: b, run: y, reward: true}\n",
 		"reward reset":  "name: t\nreset:\n  - {name: a, run: x, reward: true}\nsteps:\n  - {name: b, run: y}\n",
+		"reward setup":  "name: t\nsetup:\n  - {name: a, run: x, reward: true}\nsteps:\n  - {name: b, run: y}\n",
 		"write reward":  "name: t\nsteps:\n  - name: a\n    write: {path: /p}\n    reward: true\n",
 		"bad mode":      "name: t\nsteps:\n  - name: a\n    write: {path: /p, mode: \"zz\"}\n",
 		"bad think":     "name: t\nsteps:\n  - name: a\n    run: x\n    think: soon\n",

@@ -21,13 +21,21 @@
 # keep the repository and its interpreter. Think times are the simulated
 # policy latency between commands.
 name: swebench-gold
-# Editable installs keep their metadata in an untracked egg-info directory
-# inside the repository; cleaning it breaks the import of the package under
-# test (sphinx: zero tests ran on every step after the first), so untracked
-# removal spares it.
+# The image's working tree is the state a rollout starts from, and it is not
+# the git HEAD: SWE-bench edits files when it builds the image (sphinx's
+# tox.ini gains the per-test output flag the grader reads) and editable
+# installs leave metadata in untracked directories. Setup commits that state
+# as a local baseline once per environment; reset returns to it.
+setup:
+  - name: baseline
+    run: >-
+      cd /testbed &&
+      git -c user.email=bench@localhost -c user.name=bench add -A &&
+      git -c user.email=bench@localhost -c user.name=bench commit -q --allow-empty -m "benchmark baseline"
+    expect_exit: 0
 reset:
   - name: reset_repo
-    run: cd /testbed && git checkout -q -- . && git clean -qfd -e '*.egg-info'
+    run: cd /testbed && git reset -q --hard && git clean -qfd
     expect_exit: 0
 steps:
   - name: explore

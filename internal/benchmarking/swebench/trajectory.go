@@ -107,8 +107,12 @@ type Step struct {
 // Trajectory is the scripted rollout replayed in every environment.
 type Trajectory struct {
 	Name string `json:"name"`
-	// Reset runs before Steps on every step after the first in steps mode,
-	// so a rollout starts from the image's state again (the gold patch
+	// Setup runs once per environment, before its first rollout, for
+	// example to record the image's working state as the baseline that
+	// Reset returns to.
+	Setup []Step `json:"setup,omitempty"`
+	// Reset runs before Steps on every later step an environment survives
+	// into, so a rollout starts from the image's state again (the gold patch
 	// cannot be applied twice).
 	Reset []Step `json:"reset,omitempty"`
 	Steps []Step `json:"steps"`
@@ -157,7 +161,7 @@ func parseWithAssets(data []byte, read func(name string) ([]byte, error)) (*Traj
 	if err != nil {
 		return nil, err
 	}
-	for _, steps := range [][]Step{t.Reset, t.Steps} {
+	for _, steps := range [][]Step{t.Setup, t.Reset, t.Steps} {
 		for i := range steps {
 			w := steps[i].Write
 			if w == nil || w.File == "" {
@@ -209,12 +213,14 @@ func (t *Trajectory) Validate() error {
 	if rewards > 1 {
 		return fmt.Errorf("trajectory %s: more than one reward step", t.Name)
 	}
-	for _, s := range t.Reset {
-		if err := s.validate(); err != nil {
-			return fmt.Errorf("trajectory %s reset: %w", t.Name, err)
-		}
-		if s.Reward {
-			return fmt.Errorf("trajectory %s reset: step %s cannot be a reward step", t.Name, s.Name)
+	for section, steps := range map[string][]Step{"setup": t.Setup, "reset": t.Reset} {
+		for _, s := range steps {
+			if err := s.validate(); err != nil {
+				return fmt.Errorf("trajectory %s %s: %w", t.Name, section, err)
+			}
+			if s.Reward {
+				return fmt.Errorf("trajectory %s %s: step %s cannot be a reward step", t.Name, section, s.Name)
+			}
 		}
 	}
 	return nil
@@ -259,6 +265,9 @@ func (t *Trajectory) HasReward() bool {
 func (t *Trajectory) Render(in Instance) (*Trajectory, error) {
 	out := &Trajectory{Name: t.Name}
 	var err error
+	if out.Setup, err = renderSteps(t.Name, t.Setup, in); err != nil {
+		return nil, err
+	}
 	if out.Reset, err = renderSteps(t.Name, t.Reset, in); err != nil {
 		return nil, err
 	}
