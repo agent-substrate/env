@@ -60,5 +60,6 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e 'clients/python[dev]' -e 'integrations/nemo-gym[test]'
       - run: python -m pytest clients/python/tests -q
+      - run: python -m pytest internal/benchmarking/swebench/trajectories -q
       - run: ruff check clients/python
       - run: python -m pytest integrations/nemo-gym/tests -q

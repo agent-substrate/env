@@ -1,0 +1,86 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The default trajectory: what a SWE agent does on a SWE-bench task, with the
+# gold patch standing in for the model's edit so the reward is known in
+# advance. A healthy run rewards every task; a drop in reward rate is a
+# correctness regression, not a model result.
+#
+# /testbed and /opt/miniconda3/envs/testbed are where SWE-bench task images
+# keep the repository and its interpreter. Think times are the simulated
+# policy latency between commands.
+name: swebench-gold
+# The image's working tree is the state a rollout starts from, and it is not
+# the git HEAD: SWE-bench edits files when it builds the image (sphinx's
+# tox.ini gains the per-test output flag the grader reads) and editable
+# installs leave metadata in untracked directories. Setup commits that state
+# as a local baseline once per environment; reset returns to it.
+setup:
+  - name: baseline
+    run: >-
+      cd /testbed &&
+      git -c user.email=bench@localhost -c user.name=bench add -A &&
+      git -c user.email=bench@localhost -c user.name=bench commit -q --allow-empty -m "benchmark baseline"
+    expect_exit: 0
+reset:
+  - name: reset_repo
+    run: cd /testbed && git reset -q --hard && git clean -qfd
+    expect_exit: 0
+steps:
+  - name: explore
+    run: cd /testbed && git status --short | head -n 20; ls
+    think: 1s
+    expect_exit: 0
+  - name: read_files
+    run: cd /testbed && git diff --stat HEAD && git log -1 --format=%H
+    think: 2s
+    expect_exit: 0
+  - name: write_patch
+    write:
+      path: /tmp/gold.diff
+      content: "{{.Patch}}"
+  - name: apply_patch
+    run: cd /testbed && git apply -v /tmp/gold.diff
+    think: 3s
+    expect_exit: 0
+  - name: write_eval
+    write:
+      path: /tmp/eval.sh
+      content: "{{.EvalScript}}"
+      mode: "0755"
+  # The harness script's exit code is not the verdict: it runs without -e,
+  # ends with a git checkout that fails when the test patch added files, and
+  # the test command itself exits nonzero when unrelated tests in the same
+  # files fail. The verdict is what the SWE-bench harness computes: parse the
+  # log with the repo's parser and check the FAIL_TO_PASS and PASS_TO_PASS
+  # tests. swebench-grade.py does that inside the sandbox from the instance
+  # record; its exit code is the reward.
+  - name: run_tests
+    run: >-
+      /bin/bash /tmp/eval.sh > /tmp/eval.log 2>&1;
+      tail -c 1500 /tmp/eval.log;
+      grep -o '>>>>> Test Exit Code: [0-9]*' /tmp/eval.log | tail -n 1
+    think: 1s
+    timeout: 20m
+  - name: write_grader
+    write:
+      path: /tmp/grade.py
+      file: swebench-grade.py
+  - name: write_instance
+    write:
+      path: /tmp/instance.json
+      content: "{{json .}}"
+  - name: grade
+    run: /opt/miniconda3/bin/python /tmp/grade.py /tmp/instance.json /tmp/eval.log
+    reward: true
