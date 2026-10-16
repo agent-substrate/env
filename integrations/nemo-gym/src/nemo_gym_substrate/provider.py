@@ -75,6 +75,29 @@ _SIGKILL_EXIT = 137
 _ENV_ID_HEADER = "X-Env-Id"
 _ENV_ATESPACE_HEADER = "X-Env-Atespace"
 _ENV_PORT_HEADER = "X-Env-Port"
+# The ate-env guest's own port in every environment: not a daemon port, and
+# the port proxy refuses it too.
+_GUEST_PORT = 80
+
+
+def _validate_ports(ports: object) -> list[int]:
+    """``SandboxSpec.ports`` as a list of TCP ports a daemon can listen on.
+
+    Checked before the actor starts, so a bad spec fails at once rather than
+    at ``endpoint()`` time. ``bool`` is excluded explicitly because it is an
+    ``int`` subclass in Python (``True == 1``)."""
+    out: list[int] = []
+    for p in ports or ():
+        if isinstance(p, bool) or not isinstance(p, int):
+            raise TypeError(f"SandboxSpec.ports entries must be integers, got {p!r}")
+        if not 1 <= p <= 65535:
+            raise ValueError(f"SandboxSpec.ports entry {p} is not a TCP port (1-65535)")
+        if p == _GUEST_PORT:
+            raise ValueError(
+                f"SandboxSpec.ports entry {p} is the ate-env guest's port; a daemon listens on another port"
+            )
+        out.append(p)
+    return out
 
 # Env lifecycle status -> Gym status. Parked (suspended / paused) actors report
 # RUNNING: the router resumes them on the next guest call, which is what a
@@ -142,9 +165,11 @@ class ConnectionConfig:
         )
 
     def endpoint_base(self) -> str:
-        if self.endpoint_url:
-            return self.endpoint_url
-        return self.api_url if "://" in self.api_url else f"http://{self.api_url}"
+        """The absolute URL of ate-env-api's port proxy: ``endpoint_url`` when
+        set, else ``api_url``; either gets ``http://`` when it names no scheme,
+        because ``SandboxEndpoint`` rejects a bare ``host:port``."""
+        base = self.endpoint_url or self.api_url
+        return base if "://" in base else f"http://{base}"
 
 
 @dataclass(frozen=True)
@@ -233,6 +258,9 @@ class SubstrateSandboxProvider:
 
     async def create(self, spec: SandboxSpec) -> SandboxHandle:
         opts = SubstrateProviderOptions.from_mapping(spec.provider_options or {})
+        # Ports a service inside the sandbox listens on (nemo-gym >= 0.7);
+        # endpoint() resolves only these.
+        ports = _validate_ports(getattr(spec, "ports", None))
         template, rootfs_image = self._resolve_template(spec, opts)
         atespace = opts.atespace or self._create.atespace
         env_id = f"gym-{uuid.uuid4().hex[:10]}"
@@ -275,9 +303,7 @@ class SubstrateSandboxProvider:
                 "atespace": atespace,
                 "workdir": spec.workdir,
                 "env": dict(spec.env or {}),
-                # Ports a service inside the sandbox listens on (nemo-gym
-                # >= 0.7); endpoint() resolves only these.
-                "ports": [int(p) for p in (getattr(spec, "ports", None) or ())],
+                "ports": ports,
             },
         )
 
@@ -377,25 +403,44 @@ class SubstrateSandboxProvider:
         layer on the base template mounts into the task image and the guest
         starts next to itself (see README). The endpoint is ate-env-api's port
         proxy; its headers route each plain HTTP request through the Substrate
-        router to ``port`` in this sandbox. The sandbox is woken first, so the
-        endpoint answers at once even after Substrate parked it.
+        router to ``port`` in this sandbox. Nothing here touches the guest: a
+        parked sandbox is resumed by the first request through the proxy,
+        which waits for the wake (ate-env-api's ``--wake-budget``). Only the
+        sandbox's existence is checked, from the control plane, so a deleted
+        or crashed sandbox raises ``RuntimeError`` here rather than on the
+        first request.
         """
         raw = handle.raw or {}
         declared = list(raw.get("ports") or ())
-        if port not in declared:
+        if isinstance(port, bool) or port not in declared:
             raise ValueError(
-                f"Sandbox port {port} was not declared in SandboxSpec.ports; "
+                f"Sandbox port {port!r} was not declared in SandboxSpec.ports; "
                 f"declared ports: {declared!r}"
             )
-        env = self._env(handle)
-        await self._wait_ready(
-            env, self._create.ready_timeout_s, error=RuntimeError, stop_on_not_found=True
-        )
+        atespace = self._atespace_of(raw)
+        try:
+            info = await asyncio.wait_for(
+                self._ate().get(handle.sandbox_id, atespace=atespace),
+                timeout=self._connection.request_timeout_s,
+            )
+        except NotFoundError as exc:
+            raise RuntimeError(f"substrate env {handle.sandbox_id!r} does not exist") from exc
+        except EnvError as exc:
+            raise RuntimeError(
+                f"substrate env {handle.sandbox_id!r}: {_describe(exc)}"
+            ) from exc
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"substrate env {handle.sandbox_id!r}: no answer from "
+                f"{self._connection.api_url} within {self._connection.request_timeout_s}s"
+            ) from exc
+        if info.status == EnvironmentStatus.CRASHED:
+            raise RuntimeError(f"substrate env {handle.sandbox_id!r} crashed")
         return SandboxEndpoint(
             endpoint=self._connection.endpoint_base(),
             headers={
                 _ENV_ID_HEADER: handle.sandbox_id,
-                _ENV_ATESPACE_HEADER: self._atespace_of(raw),
+                _ENV_ATESPACE_HEADER: atespace,
                 _ENV_PORT_HEADER: str(port),
             },
         )

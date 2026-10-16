@@ -256,11 +256,14 @@ actor network.
    ```
 
    `ep.endpoint` is ate-env-api, and `ep.headers` (`X-Env-Id`, `X-Env-Atespace`, `X-Env-Port`)
-   route each request through the Substrate router to port 6000 in this sandbox. `endpoint()`
-   wakes a parked sandbox before it returns, and raises `RuntimeError` at once for a sandbox that
-   no longer exists. A port that `SandboxSpec.ports` did not declare is a `ValueError`, as in Gym's
-   Docker provider. Set `connection.endpoint_url` when the code that
-   calls the daemon reaches ate-env-api at another address than the provider does.
+   route each request through the Substrate router to port 6000 in this sandbox. `endpoint()` does
+   not touch the guest: the first request through the proxy resumes a parked sandbox, and the proxy
+   waits for the wake (ate-env-api's `--wake-budget`, two minutes by default, the same wait as a
+   guest call). It checks only that the sandbox exists, and raises `RuntimeError` at once for one
+   that is deleted or crashed. A port that `SandboxSpec.ports` did not declare is a `ValueError`,
+   as in Gym's Docker provider; `create()` rejects a spec whose ports are outside 1-65535 or name
+   the guest's port 80. Set `connection.endpoint_url` when the code that calls the daemon reaches
+   ate-env-api at another address than the provider does.
 
 Limits:
 
@@ -351,7 +354,6 @@ Known limits (tracked in the RL-on-Substrate proposal):
 - `spec.ttl_s` is **not enforced** — substrate has no server-side TTL yet; clean up via
   `close()`. A crashed harness leaks actors until deleted.
 - `exec(user=…)` raises: commands run as the actor's configured user.
-- `spec.ports` / `SandboxEndpoint` exposure is not implemented in this demo.
 
 ## Troubleshooting
 

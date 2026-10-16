@@ -70,18 +70,22 @@ func newSetup(t *testing.T) *setup {
 		ConnectAddr:      addr,
 		DefaultAtespace:  "ate-env",
 		HandshakeTimeout: 5 * time.Second,
+		WakeBudget:       2 * time.Second,
 	})
 	proxy := httptest.NewServer(p)
 	t.Cleanup(proxy.Close)
 	return &setup{router: rr, routerAddr: addr, proxy: proxy}
 }
 
+// mustNew builds a proxy and drops its idle tunnels when the test ends, so
+// the fake router's tunnel goroutines end with the test.
 func mustNew(t *testing.T, opts portproxy.Options) *portproxy.Proxy {
 	t.Helper()
 	p, err := portproxy.New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(p.Close)
 	return p
 }
 
@@ -200,6 +204,7 @@ func TestRejectsBadTargets(t *testing.T) {
 		"port with sign":  {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "+8000"},
 		"port zero-led":   {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "08000"},
 		"bad atespace":    {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "8000", portproxy.EnvAtespaceHeader: "x y"},
+		"guest port":      {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "80"},
 	} {
 		if resp, body := s.do(t, http.MethodGet, "/", "", h); resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s: got %d %q, want 400", name, resp.StatusCode, body)
@@ -233,6 +238,61 @@ func TestPassesRouterRefusals(t *testing.T) {
 	}
 	if resp, body := s.do(t, http.MethodGet, "/", "", target("asleep", 8000)); resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, "ate-env/asleep port 8000") {
 		t.Errorf("not running: got %d %q, want 503 naming the target", resp.StatusCode, body)
+	}
+}
+
+// A suspended environment answers 503 at the router until it is back; the
+// proxy tries again within its wake budget instead of passing the first 503
+// on, the way ate-env-api's guest calls do.
+func TestRetriesWhileTheEnvironmentWakes(t *testing.T) {
+	s := newSetup(t)
+	s.router.RegisterPort("waking", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "awake") }))
+	var mu sync.Mutex
+	refusals := 0
+	s.router.Running = func(id string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if refusals < 2 {
+			refusals++
+			return false
+		}
+		return true
+	}
+	resp, body := s.do(t, http.MethodGet, "/", "", target("waking", 8000))
+	if resp.StatusCode != http.StatusOK || body != "awake" {
+		t.Fatalf("got %d %q, want the daemon's answer after the wake", resp.StatusCode, body)
+	}
+	if n := s.router.connectCount(); n != 3 {
+		t.Errorf("router saw %d CONNECTs, want 3 (two refused while waking, one accepted)", n)
+	}
+}
+
+func TestWakeBudgetBoundsTheWait(t *testing.T) {
+	s := newSetup(t)
+	p := mustNew(t, portproxy.Options{ConnectAddr: s.routerAddr, DefaultAtespace: "ate-env", HandshakeTimeout: 5 * time.Second, WakeBudget: 300 * time.Millisecond})
+	srv := httptest.NewServer(p)
+	t.Cleanup(srv.Close)
+	s.router.RegisterPort("asleep", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s.router.Running = func(string) bool { return false }
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	for k, v := range target("asleep", 8000) {
+		req.Header.Set(k, v)
+	}
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(b), "not available") {
+		t.Errorf("got %d %q, want 503 once the wake budget is spent", resp.StatusCode, b)
+	}
+	if took := time.Since(start); took < 300*time.Millisecond || took > 3*time.Second {
+		t.Errorf("waited %s, want about the 300ms budget", took)
+	}
+	if n := s.router.connectCount(); n < 2 {
+		t.Errorf("router saw %d CONNECTs, want at least 2 (the budget allows retries)", n)
 	}
 }
 

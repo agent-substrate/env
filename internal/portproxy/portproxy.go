@@ -66,6 +66,33 @@ const (
 // answer to CONNECT, which includes resuming a suspended actor.
 const DefaultHandshakeTimeout = 2 * time.Minute
 
+// DefaultWakeBudget bounds how long a request waits for a suspended
+// environment to wake. The router's CONNECT is what resumes a suspended
+// actor, and the router holds it only for its own parking budget, a few
+// seconds; a wake that pulls an image or reads a snapshot across a region
+// takes longer. The same two minutes as ate-env-api's guest calls
+// (apiservice.DefaultWakeBudget).
+const DefaultWakeBudget = 2 * time.Minute
+
+// Idle tunnels: each one is a TCP stream from the API to an actor, held open
+// by the router and the worker. Keep few, and not for long, so an idle
+// environment is not held awake and a large fleet does not pin thousands
+// of sockets in the API pod.
+const (
+	idleTunnelTimeout  = 10 * time.Second
+	idleTunnelsPerPort = 4
+	idleTunnelsTotal   = 1024
+)
+
+const (
+	wakeRetryInitialBackoff = 200 * time.Millisecond
+	wakeRetryMaxBackoff     = 2 * time.Second
+)
+
+// guestPort is where the ate-env guest listens in every environment. It is
+// not a daemon port: the API already serves it, and a daemon cannot bind it.
+const guestPort = 80
+
 // Options configures a Proxy.
 type Options struct {
 	// ConnectAddr is the router's plaintext CONNECT listener, host:port.
@@ -86,6 +113,10 @@ type Options struct {
 	// TrustedOrigins are browser origins (scheme://host[:port]) allowed to use
 	// the path form from a page they serve, next to the listener's own origin.
 	TrustedOrigins []string
+	// WakeBudget bounds how long a request waits while the router answers
+	// 503 for an environment that is suspended or still waking. Zero means
+	// DefaultWakeBudget.
+	WakeBudget time.Duration
 }
 
 // Proxy is an http.Handler that forwards each request to the environment port
@@ -93,6 +124,7 @@ type Options struct {
 type Proxy struct {
 	opts Options
 	rp   *httputil.ReverseProxy
+	tr   *http.Transport
 	cop  *http.CrossOriginProtection
 }
 
@@ -104,23 +136,28 @@ func New(opts Options) (*Proxy, error) {
 	if opts.HandshakeTimeout <= 0 {
 		opts.HandshakeTimeout = DefaultHandshakeTimeout
 	}
+	if opts.WakeBudget <= 0 {
+		opts.WakeBudget = DefaultWakeBudget
+	}
 	p := &Proxy{opts: opts, cop: http.NewCrossOriginProtection()}
 	for _, o := range opts.TrustedOrigins {
 		if err := p.cop.AddTrustedOrigin(o); err != nil {
 			return nil, fmt.Errorf("trusted origin: %w", err)
 		}
 	}
+	p.tr = &http.Transport{
+		DialContext:           p.dial,
+		MaxIdleConnsPerHost:   idleTunnelsPerPort,
+		MaxIdleConns:          idleTunnelsTotal,
+		IdleConnTimeout:       idleTunnelTimeout,
+		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
+		// Pass encodings through untouched; the daemon and the caller
+		// negotiate them.
+		DisableCompression: true,
+	}
 	p.rp = &httputil.ReverseProxy{
-		Rewrite: p.rewrite,
-		Transport: &http.Transport{
-			DialContext:           p.dial,
-			MaxIdleConnsPerHost:   16,
-			IdleConnTimeout:       90 * time.Second,
-			ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
-			// Pass encodings through untouched; the daemon and the caller
-			// negotiate them.
-			DisableCompression: true,
-		},
+		Rewrite:   p.rewrite,
+		Transport: p.tr,
 		// Flush each write at once, so streamed responses (server-sent events,
 		// chunked output) reach the caller as the daemon produces them.
 		FlushInterval: -1,
@@ -132,6 +169,9 @@ func New(opts Options) (*Proxy, error) {
 // Wants reports whether r uses the header form: it carries EnvPortHeader and
 // is not a gRPC call. Callers of the gRPC API never send the header, and the
 // tunnel carries HTTP/1.1 only.
+// Close drops the idle tunnels. Requests in flight are not affected.
+func (p *Proxy) Close() { p.tr.CloseIdleConnections() }
+
 func Wants(r *http.Request) bool {
 	return r.Header.Get(EnvPortHeader) != "" &&
 		!strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc")
@@ -200,6 +240,9 @@ func makeTarget(id, atespace, portStr, defaultAtespace string) (target, error) {
 	n, err := strconv.Atoi(portStr)
 	if !canonicalPort.MatchString(portStr) || err != nil || n > 65535 {
 		return t, fmt.Errorf("port %q is not a TCP port (1-65535)", portStr)
+	}
+	if n == guestPort {
+		return t, fmt.Errorf("port %d is the ate-env guest, which ate-env-api serves itself; a daemon listens on another port", guestPort)
 	}
 	t.port = n
 	return t, nil
@@ -324,14 +367,42 @@ func (e *routerError) Error() string {
 }
 
 // dial opens a CONNECT tunnel to the environment port encoded in addr (see
-// rewrite).
+// rewrite). While the router answers 503, which is what a suspended actor
+// and one still waking both look like, it tries again with backoff until
+// WakeBudget is spent: the first CONNECT is what resumes the actor, and the
+// router holds it only for its own parking budget.
 func (p *Proxy) dial(ctx context.Context, _, addr string) (net.Conn, error) {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
 	id, atespace, _ := strings.Cut(host, ".")
+	deadline := time.Now().Add(p.opts.WakeBudget)
+	backoff := wakeRetryInitialBackoff
+	for attempt := 1; ; attempt++ {
+		conn, err := p.connect(ctx, id, atespace, portStr)
+		var re *routerError
+		if !errors.As(err, &re) || re.status != http.StatusServiceUnavailable {
+			return conn, err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("environment %s/%s did not wake within %s (%d attempts): %w", atespace, id, p.opts.WakeBudget, attempt, err)
+		}
+		if attempt == 1 {
+			log.Printf("port proxy: waiting for environment %s/%s to wake (wake budget %s)", atespace, id, p.opts.WakeBudget)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(min(backoff, remaining)):
+		}
+		backoff = min(backoff*2, wakeRetryMaxBackoff)
+	}
+}
 
+// connect sends one CONNECT for the environment port and returns the tunnel.
+func (p *Proxy) connect(ctx context.Context, id, atespace, portStr string) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.opts.HandshakeTimeout)
 	defer cancel()
 	var d net.Dialer
@@ -383,6 +454,16 @@ type bufferedConn struct {
 
 func (c *bufferedConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 
+// CloseWrite half-closes the tunnel when the connection can: after an
+// upgrade, httputil.ReverseProxy half-closes the backend once the client
+// side is done, and embedding net.Conn would otherwise hide the method.
+func (c *bufferedConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
+}
+
 // handleError answers a failed forward. The body names the target and a
 // short cause; the full error, which can name the router's address, goes to
 // the log only.
@@ -408,6 +489,10 @@ func (p *Proxy) handleError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout():
 		status, cause = http.StatusGatewayTimeout, "did not answer in time"
 	}
-	log.Printf("port proxy: %s/%s port %d: %v", t.atespace, t.id, t.port, err)
+	// A 404 or 503 from the router is the caller's answer, not an operator's
+	// problem; a log line for each would flood the log when a fleet wakes.
+	if status != http.StatusNotFound && status != http.StatusServiceUnavailable {
+		log.Printf("port proxy: %s/%s port %d: %v", t.atespace, t.id, t.port, err)
+	}
 	http.Error(w, fmt.Sprintf("environment %s/%s port %d %s", t.atespace, t.id, t.port, cause), status)
 }

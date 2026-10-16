@@ -474,8 +474,9 @@ def test_endpoint_routes_a_declared_port_through_the_api():
                 "X-Env-Atespace": "ate-env",
                 "X-Env-Port": "6000",
             }
-            # The sandbox is woken (one guest probe) before the endpoint is handed out.
-            assert _probe_count(fake) == probes + 1
+            # Nothing touches the guest: the first request through the proxy
+            # wakes a parked sandbox, and the proxy waits for it.
+            assert _probe_count(fake) == probes
 
     run(t())
 
@@ -507,14 +508,55 @@ def test_endpoint_uses_the_configured_url_and_the_sandbox_atespace():
     run(t())
 
 
-def test_endpoint_raises_when_the_sandbox_does_not_answer():
+def test_endpoint_raises_for_a_crashed_sandbox():
     async def t():
-        async with stack({"ready_timeout_s": 0.2}) as (provider, fake):
+        async with stack() as (provider, fake):
             handle = await provider.create(SandboxSpec(ports=(6000,)))
-            fake.ready_after_probes = 10_000 + _probe_count(fake)
-            fake._probes = 0
-            with pytest.raises(RuntimeError, match="not ready"):
+            fake.set_status(handle.sandbox_id, EnvironmentStatus.CRASHED)
+            with pytest.raises(RuntimeError, match="crashed"):
                 await provider.endpoint(handle, 6000)
+
+    run(t())
+
+
+def test_endpoint_does_not_wake_a_parked_sandbox():
+    async def t():
+        async with stack() as (provider, fake):
+            handle = await provider.create(SandboxSpec(ports=(6000,)))
+            fake.set_status(handle.sandbox_id, EnvironmentStatus.SUSPENDED)
+            before = len(fake.starts)
+            ep = await provider.endpoint(handle, 6000)
+            assert ep.headers["X-Env-Port"] == "6000"
+            assert len(fake.starts) == before  # no probe exec, so no wake-up
+
+    run(t())
+
+
+def test_create_rejects_invalid_ports():
+    async def t():
+        async with stack() as (provider, fake):
+            cases = [
+                ((0,), ValueError, "not a TCP port"),
+                ((70000,), ValueError, "not a TCP port"),
+                ((80,), ValueError, "guest"),
+                ((True,), TypeError, "integers"),  # bool is an int subclass
+                (("6000",), TypeError, "integers"),
+            ]
+            for ports, error, why in cases:
+                before = len(fake.envs)
+                with pytest.raises(error, match=why):
+                    await provider.create(SandboxSpec(ports=ports))
+                assert len(fake.envs) == before, "a bad spec must fail before the actor starts"
+
+    run(t())
+
+
+def test_endpoint_rejects_a_bool_port():
+    async def t():
+        async with stack() as (provider, _fake):
+            handle = await provider.create(SandboxSpec(ports=(1,)))
+            with pytest.raises(ValueError, match="not declared"):
+                await provider.endpoint(handle, True)  # True == 1 in Python
 
     run(t())
 
@@ -537,5 +579,11 @@ def test_endpoint_base_defaults_to_the_api_url():
     assert cfg.endpoint_base() == "http://ate-env-api.ate-env:7777"
     cfg = provider_mod.ConnectionConfig.from_mapping({"api_url": "https://env.example.com/"})
     assert cfg.endpoint_base() == "https://env.example.com"
+    # A bare host:port endpoint_url gets a scheme too; SandboxEndpoint rejects it otherwise.
+    cfg = provider_mod.ConnectionConfig.from_mapping(
+        {"api_url": "ate-env-api.ate-env:7777", "endpoint_url": "gym-proxy.example.com:8080"}
+    )
+    assert cfg.endpoint_base() == "http://gym-proxy.example.com:8080"
+    SandboxEndpoint(endpoint=cfg.endpoint_base(), headers={})
     with pytest.raises(ValueError, match="unknown option"):
         provider_mod.ConnectionConfig.from_mapping({"endpoint": "x"})

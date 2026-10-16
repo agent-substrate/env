@@ -197,5 +197,8 @@ func (l *oneConnListener) Accept() (net.Conn, error) {
 	return nil, net.ErrClosed
 }
 
-func (l *oneConnListener) Close() error   { return nil }
+func (l *oneConnListener) Close() error {
+	l.closed.Do(func() { close(l.done) })
+	return nil
+}
 func (l *oneConnListener) Addr() net.Addr { return l.conn.LocalAddr() }

@@ -295,7 +295,9 @@ A daemon that listens on a port inside an environment, such as one a runtime lay
 the guest ([docs/rootfs-images/RUNTIMES.md](docs/rootfs-images/RUNTIMES.md)), is reachable through
 the API's listener. A plain HTTP request that carries `X-Env-Id` and `X-Env-Port` (and
 `X-Env-Atespace` outside `ate-env`) is forwarded through the Substrate router to that port, whatever
-its path; the API strips the three headers. The router resumes a suspended environment first.
+its path; the API strips the three headers. The router resumes a suspended environment first,
+and the proxy waits for the wake up to `--wake-budget` (the same wait as a guest call) before it
+answers 503.
 
 ```bash
 curl -H 'X-Env-Id: dev1' -H 'X-Env-Port: 6000' localhost:7777/health

@@ -46,7 +46,7 @@ func main() {
 		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
-		wakeBudget        = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
+		wakeBudget        = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call or a port-proxy request waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
 		wakeRunningBudget = flag.Duration("wake-running-budget", apiservice.DefaultWakeRunningBudget, "how long a guest call waits when the environment is already RUNNING but the router still answers Unavailable (guest not yet listening vs. path down)")
 	)
 	flag.Parse()
@@ -107,6 +107,7 @@ func main() {
 			DefaultAtespace:       ate.DefaultAtespace,
 			ResponseHeaderTimeout: *ppHeaderTimeout,
 			TrustedOrigins:        origins,
+			WakeBudget:            *wakeBudget,
 		})
 		if err != nil {
 			log.Fatalf("--port-proxy-trusted-origins: %v", err)
