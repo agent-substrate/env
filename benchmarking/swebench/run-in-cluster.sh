@@ -24,8 +24,8 @@
 #   benchmarking/swebench/run-in-cluster.sh RUN_ID DATASET.jsonl [swebench-loader run flags...]
 #
 # RUN_ID must be a DNS label (lowercase letters, digits, '-'). Results land in
-# ./RUN_ID.jsonl and ./RUN_ID.json in the current directory. NAMESPACE
-# defaults to ate-env.
+# ./RUN_ID.jsonl and ./RUN_ID.json in the directory the script is run from,
+# which can be outside the repository. NAMESPACE defaults to ate-env.
 
 set -o errexit -o nounset -o pipefail
 
@@ -41,7 +41,9 @@ NS="${NAMESPACE:-ate-env}"
 [[ "${RUN_ID}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || { echo "RUN_ID must be a DNS label" >&2; exit 2; }
 OUT_DIR="$(pwd)"
 
-ROOT="$(git rev-parse --show-toplevel)"
+# The repository is found from the script's own location, so the script can
+# run from any directory and the results land where it was invoked.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 KODATA=cmd/benchmarking/swebench-loader/kodata
 rm -rf "${KODATA}" && mkdir -p "${KODATA}"
