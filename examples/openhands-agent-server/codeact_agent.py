@@ -48,6 +48,7 @@ import re
 import time
 from pathlib import Path
 
+from ate_env_workspace import workspace_for
 from openhands.sdk import LLM, Conversation
 from openhands.sdk.event import (
     ActionEvent,
@@ -56,8 +57,6 @@ from openhands.sdk.event import (
     ObservationEvent,
 )
 from openhands.tools.preset.default import get_default_agent
-
-from ate_env_workspace import workspace_for
 
 DEFAULT_TASK = (
     "Inspect this sandbox: report the operating system, the working directory and the "
