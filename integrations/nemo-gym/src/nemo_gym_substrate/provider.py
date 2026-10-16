@@ -46,6 +46,7 @@ from ate_env import Client, Env, EnvError, EnvironmentStatus, NotFoundError, Pro
 from ._compat import (
     SandboxCreateError,
     SandboxCreateVerificationError,
+    SandboxEndpoint,
     SandboxExecResult,
     SandboxHandle,
     SandboxSpec,
@@ -68,6 +69,35 @@ _PROBE_TIMEOUT_S = 10.0
 _MIN_GUEST_TIMEOUT_S = 1.0
 # Exit code the guest reports for a process group it killed with SIGKILL.
 _SIGKILL_EXIT = 137
+
+# Routing headers of ate-env-api's port proxy (internal/portproxy): a plain
+# HTTP request carrying them is forwarded to that port inside the environment.
+_ENV_ID_HEADER = "X-Env-Id"
+_ENV_ATESPACE_HEADER = "X-Env-Atespace"
+_ENV_PORT_HEADER = "X-Env-Port"
+# The ate-env guest's own port in every environment: not a daemon port, and
+# the port proxy refuses it too.
+_GUEST_PORT = 80
+
+
+def _validate_ports(ports: object) -> list[int]:
+    """``SandboxSpec.ports`` as a list of TCP ports a daemon can listen on.
+
+    Checked before the actor starts, so a bad spec fails at once rather than
+    at ``endpoint()`` time. ``bool`` is excluded explicitly because it is an
+    ``int`` subclass in Python (``True == 1``)."""
+    out: list[int] = []
+    for p in ports or ():
+        if isinstance(p, bool) or not isinstance(p, int):
+            raise TypeError(f"SandboxSpec.ports entries must be integers, got {p!r}")
+        if not 1 <= p <= 65535:
+            raise ValueError(f"SandboxSpec.ports entry {p} is not a TCP port (1-65535)")
+        if p == _GUEST_PORT:
+            raise ValueError(
+                f"SandboxSpec.ports entry {p} is the ate-env guest's port; a daemon listens on another port"
+            )
+        out.append(p)
+    return out
 
 # Env lifecycle status -> Gym status. Parked (suspended / paused) actors report
 # RUNNING: the router resumes them on the next guest call, which is what a
@@ -116,16 +146,30 @@ class ConnectionConfig:
     api_url: str = "http://127.0.0.1:7777"
     # Deadline for each lifecycle RPC (create / get / delete).
     request_timeout_s: float = 30.0
+    # Base URL that endpoint() hands out for services inside a sandbox. Unset
+    # means api_url as an http(s) URL: ate-env-api serves its port proxy on the
+    # same listener. Set it when the code that calls the service reaches
+    # ate-env-api at another address than the provider does.
+    endpoint_url: str | None = None
 
-    _ALLOWED = frozenset({"api_url", "request_timeout_s"})
+    _ALLOWED = frozenset({"api_url", "request_timeout_s", "endpoint_url"})
 
     @classmethod
     def from_mapping(cls, options: Mapping[str, Any]) -> "ConnectionConfig":
         _require_keys(options, cls._ALLOWED, "sandbox.substrate.connection")
+        endpoint_url = options.get("endpoint_url")
         return cls(
             api_url=str(options.get("api_url", cls.api_url)).rstrip("/"),
             request_timeout_s=float(options.get("request_timeout_s", cls.request_timeout_s)),
+            endpoint_url=None if endpoint_url is None else str(endpoint_url).rstrip("/"),
         )
+
+    def endpoint_base(self) -> str:
+        """The absolute URL of ate-env-api's port proxy: ``endpoint_url`` when
+        set, else ``api_url``; either gets ``http://`` when it names no scheme,
+        because ``SandboxEndpoint`` rejects a bare ``host:port``."""
+        base = self.endpoint_url or self.api_url
+        return base if "://" in base else f"http://{base}"
 
 
 @dataclass(frozen=True)
@@ -214,6 +258,9 @@ class SubstrateSandboxProvider:
 
     async def create(self, spec: SandboxSpec) -> SandboxHandle:
         opts = SubstrateProviderOptions.from_mapping(spec.provider_options or {})
+        # Ports a service inside the sandbox listens on (nemo-gym >= 0.7);
+        # endpoint() resolves only these.
+        ports = _validate_ports(getattr(spec, "ports", None))
         template, rootfs_image = self._resolve_template(spec, opts)
         atespace = opts.atespace or self._create.atespace
         env_id = f"gym-{uuid.uuid4().hex[:10]}"
@@ -256,6 +303,7 @@ class SubstrateSandboxProvider:
                 "atespace": atespace,
                 "workdir": spec.workdir,
                 "env": dict(spec.env or {}),
+                "ports": ports,
             },
         )
 
@@ -347,6 +395,56 @@ class SubstrateSandboxProvider:
             return SandboxStatus.UNKNOWN
         return _STATUS_MAP.get(info.status, SandboxStatus.UNKNOWN)
 
+    async def endpoint(self, handle: SandboxHandle, port: int) -> SandboxEndpoint:
+        """Resolve a declared service port to a caller-reachable endpoint
+        (nemo-gym's ``SupportsSandboxEndpoint``).
+
+        The service is a daemon inside the sandbox, typically one a runtime
+        layer on the base template mounts into the task image and the guest
+        starts next to itself (see README). The endpoint is ate-env-api's port
+        proxy; its headers route each plain HTTP request through the Substrate
+        router to ``port`` in this sandbox. Nothing here touches the guest: a
+        parked sandbox is resumed by the first request through the proxy,
+        which waits for the wake (ate-env-api's ``--wake-budget``). Only the
+        sandbox's existence is checked, from the control plane, so a deleted
+        or crashed sandbox raises ``RuntimeError`` here rather than on the
+        first request.
+        """
+        raw = handle.raw or {}
+        declared = list(raw.get("ports") or ())
+        if isinstance(port, bool) or port not in declared:
+            raise ValueError(
+                f"Sandbox port {port!r} was not declared in SandboxSpec.ports; "
+                f"declared ports: {declared!r}"
+            )
+        atespace = self._atespace_of(raw)
+        try:
+            info = await asyncio.wait_for(
+                self._ate().get(handle.sandbox_id, atespace=atespace),
+                timeout=self._connection.request_timeout_s,
+            )
+        except NotFoundError as exc:
+            raise RuntimeError(f"substrate env {handle.sandbox_id!r} does not exist") from exc
+        except EnvError as exc:
+            raise RuntimeError(
+                f"substrate env {handle.sandbox_id!r}: {_describe(exc)}"
+            ) from exc
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"substrate env {handle.sandbox_id!r}: no answer from "
+                f"{self._connection.api_url} within {self._connection.request_timeout_s}s"
+            ) from exc
+        if info.status == EnvironmentStatus.CRASHED:
+            raise RuntimeError(f"substrate env {handle.sandbox_id!r} crashed")
+        return SandboxEndpoint(
+            endpoint=self._connection.endpoint_base(),
+            headers={
+                _ENV_ID_HEADER: handle.sandbox_id,
+                _ENV_ATESPACE_HEADER: atespace,
+                _ENV_PORT_HEADER: str(port),
+            },
+        )
+
     async def close(self, handle: SandboxHandle) -> None:
         await self._best_effort_delete(handle.sandbox_id, self._atespace_of(handle.raw or {}))
 
@@ -401,10 +499,20 @@ class SubstrateSandboxProvider:
             return self._create.template, spec.image
         return self._create.template, None
 
-    async def _wait_ready(self, env: Env, timeout_s: float) -> None:
+    async def _wait_ready(
+        self,
+        env: Env,
+        timeout_s: float,
+        *,
+        error: type[Exception] = SandboxCreateVerificationError,
+        stop_on_not_found: bool = False,
+    ) -> None:
         """Poll a trivial command until the guest answers it. A fresh actor may
         still be booting, and a guest call made before it serves fails with a
-        transport-level error; both are retried until the deadline."""
+        transport-level error; both are retried until the deadline, then
+        ``error`` is raised. The first call also resumes a parked actor. With
+        ``stop_on_not_found``, a sandbox that no longer exists raises ``error``
+        at once instead of after the deadline."""
         deadline = time.monotonic() + timeout_s
         last_error = "no probe attempted"
         while True:
@@ -413,6 +521,10 @@ class SubstrateSandboxProvider:
                 if result.exit_code == 0:
                     return
                 last_error = f"probe exited {result.exit_code}: {result.stderr.strip()[:200]}"
+            except NotFoundError as exc:
+                if stop_on_not_found:
+                    raise error(f"substrate env {env.id!r} does not exist") from exc
+                last_error = _describe(exc)
             except EnvError as exc:
                 last_error = _describe(exc)
             except asyncio.TimeoutError:
@@ -420,9 +532,7 @@ class SubstrateSandboxProvider:
             if time.monotonic() >= deadline:
                 break
             await asyncio.sleep(self._create.ready_poll_interval_s)
-        raise SandboxCreateVerificationError(
-            f"substrate env {env.id!r} not ready after {timeout_s}s: {last_error}"
-        )
+        raise error(f"substrate env {env.id!r} not ready after {timeout_s}s: {last_error}")
 
     @staticmethod
     async def _collect(process: Process) -> SandboxExecResult:

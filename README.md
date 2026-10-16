@@ -289,6 +289,56 @@ Provides chunked streaming file reading and writing within the environment conta
 | `WriteFile` | Streams raw binary or text chunks directly to a target file |
 
 
+## Reaching a service inside an environment
+
+A daemon that listens on a port inside an environment, such as one a runtime layer starts next to
+the guest ([docs/rootfs-images/RUNTIMES.md](docs/rootfs-images/RUNTIMES.md)), is reachable through
+the API's listener. A plain HTTP request that carries `X-Env-Id` and `X-Env-Port` (and
+`X-Env-Atespace` outside `ate-env`) is forwarded through the Substrate router to that port, whatever
+its path; the API strips the three headers. The router resumes a suspended environment first,
+and the proxy waits for the wake up to `--wake-budget` (the same wait as a guest call) before it
+answers 503.
+
+```bash
+curl -H 'X-Env-Id: dev1' -H 'X-Env-Port: 6000' localhost:7777/health
+```
+
+Clients that cannot set headers, such as WebSocket clients and browsers, put the target in the path
+instead: `/v1alpha/envs/{id}/ports/{port}/...`, or `/v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/...`
+outside `ate-env`. The API strips that prefix and forwards the rest, so a client given
+`http://localhost:7777/v1alpha/envs/dev1/ports/6000` as its base URL works unchanged. WebSocket upgrades pass
+through either form; gRPC to the daemon is not supported yet.
+
+```bash
+curl localhost:7777/v1alpha/envs/dev1/ports/6000/health
+```
+
+The path form reaches the daemon exactly as sent: a path without the trailing slash is the daemon's
+root, and `//` or `..` after the prefix are not cleaned or redirected.
+
+**Who can use it.** The forwarding does not authenticate callers. Whoever can reach the API's
+listener can reach any TCP port of any actor the Substrate router serves, in any atespace,
+including actors that ate-env did not create. The guest API already reaches each actor that runs
+the guest; the forwarding extends that reach to every port. Keep the listener inside the cluster
+(the manifest's Service is `ClusterIP`), restrict it with a NetworkPolicy where other workloads
+share the cluster, and make each daemon check its own credential.
+
+**Browsers.** The path form refuses a state-changing request or a WebSocket handshake that a browser
+sends from a page of another origin, so a web page cannot drive a daemon through a `kubectl
+port-forward`. A page served by the forwarded daemon itself is same-origin and passes. All daemons
+behind one listener share that origin, thus a page from one daemon can call another.
+`--port-proxy-trusted-origins` adds origins, such as a UI on its own host. The header form needs no
+check: a browser sends custom headers to another origin only after a CORS preflight, which the API
+never approves. DNS rebinding, where a page on an attacker's name resolves to the forwarded
+listener, is not blocked yet; it needs a check of the `Host` header across the whole listener, the
+MCP endpoint included.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--atenet-connect` | `atenet-router.ate-system.svc.cluster.local:8081` | The router's CONNECT listener. An empty value turns the forwarding off. |
+| `--port-proxy-trusted-origins` | none | Comma-separated browser origins allowed to use the path form. |
+| `--port-proxy-response-header-timeout` | `0`, no limit | Bound on the wait for a daemon's response headers. Without it, the caller's deadline ends the wait. |
+
 ## Built-in MCP Server
 
 The API exposes a streamable MCP endpoint at `POST /v1alpha/envs/{id}/mcp` serving built-in tools.

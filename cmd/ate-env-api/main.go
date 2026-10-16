@@ -23,12 +23,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/agent-substrate/env/internal/apiservice"
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/mcp"
+	"github.com/agent-substrate/env/internal/portproxy"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
 )
@@ -38,10 +40,13 @@ func main() {
 		listen            = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
 		ateapi            = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
 		atenet            = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
+		atenetConn        = flag.String("atenet-connect", ate.DefaultRouterConnectAddr, "address of the atenet router's plaintext CONNECT listener; HTTP requests carrying X-Env-Id and X-Env-Port, or to /v1alpha/envs/{id}/ports/{port}/..., are forwarded through it to that port in the environment. The forwarding does not authenticate callers and reaches any port of any actor the router serves. Empty disables it")
+		ppOrigins         = flag.String("port-proxy-trusted-origins", "", "comma-separated browser origins (scheme://host[:port]) whose pages may use the port proxy's path form, next to the listener's own origin")
+		ppHeaderTimeout   = flag.Duration("port-proxy-response-header-timeout", 0, "how long the port proxy waits for a daemon's response headers; 0 means no limit, and the caller's deadline applies")
 		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
-		wakeBudget        = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
+		wakeBudget        = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call or a port-proxy request waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
 		wakeRunningBudget = flag.Duration("wake-running-budget", apiservice.DefaultWakeRunningBudget, "how long a guest call waits when the environment is already RUNNING but the router still answers Unavailable (guest not yet listening vs. path down)")
 	)
 	flag.Parse()
@@ -86,6 +91,31 @@ func main() {
 	mux.Handle("/v1alpha/envs/{id}/mcp", mcp.NewHandler(client))
 	mux.Handle("/", grpcServer)
 
+	// Requests that name an environment port go to the port proxy before
+	// anything else, whatever their path: the path belongs to the daemon.
+	var handler http.Handler = mux
+	if *atenetConn != "" {
+		var origins []string
+		for o := range strings.SplitSeq(*ppOrigins, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				origins = append(origins, o)
+			}
+		}
+		pp, err := portproxy.New(portproxy.Options{
+			ConnectAddr:           *atenetConn,
+			HostSuffix:            *hostSuffix,
+			DefaultAtespace:       ate.DefaultAtespace,
+			ResponseHeaderTimeout: *ppHeaderTimeout,
+			TrustedOrigins:        origins,
+			WakeBudget:            *wakeBudget,
+		})
+		if err != nil {
+			log.Fatalf("--port-proxy-trusted-origins: %v", err)
+		}
+		// Header form and path form, /v1alpha/envs/{id}/ports/{port}/...
+		handler = portproxy.Dispatch(pp, mux)
+	}
+
 	// Enable both HTTP/1.1 (for /healthz and /v1alpha/ HTTP endpoints) and
 	// unencrypted HTTP/2 (h2c, for gRPC services) on the same plaintext TCP listener.
 	var protocols http.Protocols
@@ -94,7 +124,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:      *listen,
-		Handler:   mux,
+		Handler:   handler,
 		Protocols: &protocols,
 	}
 
@@ -107,7 +137,7 @@ func main() {
 		_ = srv.Shutdown(context.Background())
 	}()
 
-	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s)", *listen, *ateapi, *atenet)
+	log.Printf("ate-env-api listening on %s (ateapi %s, atenet %s, atenet CONNECT %q)", *listen, *ateapi, *atenet, *atenetConn)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}

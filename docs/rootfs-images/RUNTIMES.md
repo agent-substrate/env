@@ -84,14 +84,38 @@ sidecar, run under two different rootfs images.
   away. An agent framework whose tool calls run inside the sandbox is served.
 - **The guest's own APIs** are unaffected: exec, files and MCP keep going
   through `ate-env-api` on port 80.
-- **Clients outside the environment** currently reach only port 80. The atenet
-  router forwards to the actor's port 80 unless the request is a CONNECT whose
-  authority names another port, and `ate-env-api` proxies only the guest. An
-  SDK that speaks HTTP to the second runtime therefore needs one of two things,
-  neither of which is in this branch: an endpoint lookup on `ate-env-api` that
-  returns a router address naming the runtime's port, or a reverse proxy. This
-  is the next step for the OpenSandbox integration, whose lifecycle server
-  resolves sandbox endpoints exactly this way.
+- **Clients outside the environment** reach it through `ate-env-api`. A plain
+  HTTP request to the API's listener that carries `X-Env-Id`, `X-Env-Port` and
+  optionally `X-Env-Atespace` goes to that port in that environment, whatever
+  its path: `ate-env-api` opens a CONNECT tunnel through the atenet router's
+  CONNECT listener (`--atenet-connect`, port 8081 on a stock install), the
+  router resumes the actor if needed and forwards to the port, and the request
+  and its streamed response pass through unchanged apart from the routing
+  headers, which are stripped. Idle tunnels are reused, one pool for each
+  environment and port.
+
+  ```bash
+  curl -H 'X-Env-Id: py1' -H 'X-Env-Port: 44772' localhost:7777/ready
+  curl localhost:7777/v1alpha/envs/py1/ports/44772/ready   # the same, for clients without headers
+  ```
+
+  The path form, `/v1alpha/envs/{id}/ports/{port}/...` (or
+  `/v1alpha/atespaces/{atespace}/envs/...`), is for clients that cannot set
+  headers: the prefix is stripped, so it works as a base URL. The tunnel
+  carries HTTP/1.1, not raw TCP. Streamed responses are flushed as they arrive
+  and WebSocket upgrades pass through; gRPC to the runtime is not supported
+  yet. The NeMo Gym
+  provider hands this out as its `endpoint(handle, port)`
+  ([integrations/nemo-gym](../../integrations/nemo-gym/README.md)).
+- **The runtime must listen on `0.0.0.0`.** The router reaches the port on
+  the actor's address. A runtime bound to `127.0.0.1` serves only processes
+  inside the environment, and requests from outside fail with 502.
+- **Nobody is authenticated on the way in.** `ate-env-api` forwards for any
+  caller that reaches its listener, to any port of any actor the router
+  serves. A runtime that executes commands or edits files must check its own
+  credential, as OpenSandbox's `execd` token and the OpenHands agent-server's
+  session key do. See the README section "Reaching a service inside an
+  environment" for the browser checks and the flags.
 
 ## Suspend, resume and restarts
 
