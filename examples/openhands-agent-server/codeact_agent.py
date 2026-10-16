@@ -23,7 +23,11 @@ its WebSocket. The image the environment runs is whatever the task needs; the
 agent-server comes from the runtime layer.
 
 The agent-server calls the model, so the model endpoint must be reachable
-from inside the environment (Substrate's egress policy decides that).
+from inside the environment (Substrate's egress policy decides that), and
+``LLM_API_KEY`` travels to the agent-server with the agent. Commands the
+agent runs execute there as the same user, so a task (or a model steered by
+one) can read that key: use a key scoped to this use, or ``--scripted``. The
+conversation is deleted on the agent-server when the script ends.
 ``--scripted`` needs no model: it starts ``scripted_llm.py`` inside the
 environment and points the agent at it, which replays a fixed CodeAct
 trajectory through the real agent loop and tools.
@@ -44,7 +48,6 @@ import re
 import time
 from pathlib import Path
 
-from ate_env_workspace import workspace_for
 from openhands.sdk import LLM, Conversation
 from openhands.sdk.event import (
     ActionEvent,
@@ -53,6 +56,8 @@ from openhands.sdk.event import (
     ObservationEvent,
 )
 from openhands.tools.preset.default import get_default_agent
+
+from ate_env_workspace import workspace_for
 
 DEFAULT_TASK = (
     "Inspect this sandbox: report the operating system, the working directory and the "
@@ -95,7 +100,8 @@ def on_event(event) -> None:
     elif isinstance(event, AgentErrorEvent):
         print(f"  error   {event.tool_name}: {short(event.error)}")
     elif isinstance(event, MessageEvent) and event.source == "user":
-        print(f"  task    {short(event.llm_message.content[0].text)}")
+        text = " ".join(getattr(c, "text", "") for c in event.llm_message.content)
+        print(f"  task    {short(text) or '(no text)'}")
 
 
 def main() -> None:
@@ -114,7 +120,10 @@ def main() -> None:
                   base_url=os.environ.get("LLM_BASE_URL"), usage_id="agent")
 
     agent = get_default_agent(llm, cli_mode=True)
-    conversation = Conversation(agent=agent, workspace=workspace, callbacks=[on_event], visualizer=None)
+    # delete_on_close: the agent-server drops the conversation (its events, the
+    # agent with the model settings) when this script closes it.
+    conversation = Conversation(agent=agent, workspace=workspace, callbacks=[on_event], visualizer=None,
+                                delete_on_close=True)
     started = time.monotonic()
     try:
         conversation.send_message(args.task)

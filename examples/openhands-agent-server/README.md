@@ -113,7 +113,8 @@ SESSION_KEY=<key> LLM_MODEL=<litellm model> LLM_API_KEY=<key> [LLM_BASE_URL=<url
 ```
 
 The agent-server calls the model from inside the environment, so the model endpoint must be reachable
-from the actor: allowed by Substrate's egress policy, or served inside the cluster. `--scripted` needs
+from the actor: allowed by Substrate's egress policy, or served inside the cluster. The model's API
+key goes into the sandbox with it (see [Limits](#limits)). `--scripted` needs
 no model at all. It starts `scripted_llm.py` inside the environment and points the agent at it; the
 agent loop, its tools and the event stream run for real, only the decisions are canned:
 
@@ -256,6 +257,13 @@ GKE with gVisor workers, Substrate from 2026-10-12, ate-env-api with the port pr
   environment on a node pulls the layer.
 - `codeact_agent.py` calls the model from inside the environment (see above); `run_trajectory.py`
   and a client-side agent built on it do not.
+- `codeact_agent.py` sends `LLM_API_KEY` to the agent-server inside the sandbox, as part of the
+  agent's model settings. The agent's commands run there as the same user, so a task, or a model
+  steered by one, can read the key (from the agent-server's memory or its conversation files, which
+  also end up in snapshots). Use a key scoped and rate-limited for this purpose, a model endpoint
+  inside the cluster that needs no key, or `--scripted`. The script creates the conversation with
+  `delete_on_close=True`, so the agent-server deletes it, files included, when the script ends; a
+  client that dies first leaves it behind until the environment is deleted.
 - `oh_tool.py` listens on all interfaces (port 9100), so it is reachable through ate-env-api like the
   agent-server. It requires the agent-server's session key in `X-Session-API-Key` on every request
   (401 otherwise, compared in constant time) and refuses to start without `OH_SESSION_API_KEYS_0`.
