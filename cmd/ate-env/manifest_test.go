@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -581,7 +582,7 @@ func TestTemplateConfigRejectsBadEnv(t *testing.T) {
 	} {
 		cfg := testTemplateConfig()
 		cfg.env = env
-		if err := cfg.resolveImages(); err == nil {
+		if err := cfg.validateEnv(); err == nil {
 			t.Errorf("env %q: want error, got nil", env)
 		}
 	}
@@ -602,5 +603,20 @@ func TestManifestTemplateCommandEnv(t *testing.T) {
 	}
 	if out := buf.String(); !strings.Contains(out, "name: OH_SESSION_API_KEYS_0\n    value: k") {
 		t.Errorf("output lacks the --env variable:\n%s", out)
+	}
+}
+
+func TestManifestTemplateCommandRejectsBadEnv(t *testing.T) {
+	cmd := newManifestCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{
+		"template",
+		"--guest-image=example.com/guest@sha256:aaaa",
+		"--snapshots-bucket=gs://bucket/prefix/",
+		"--env=PORT=81",
+	})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--env PORT") {
+		t.Errorf("execute with --env PORT=81: want the --env error, got %v", err)
 	}
 }

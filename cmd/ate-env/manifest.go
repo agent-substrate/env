@@ -196,6 +196,12 @@ func (c *templateConfig) validateResources() error {
 	return nil
 }
 
+// validateEnv checks the --env flags before anything is built.
+func (c *templateConfig) validateEnv() error {
+	_, err := parseEnv(c.env)
+	return err
+}
+
 func (c *templateConfig) resolveImages() error {
 	if c.guestImage == "" {
 		return errors.New(`--guest-image is required when ate-env is built from source; release
@@ -204,9 +210,6 @@ binaries default it to the ate-env-guest image published with the release
 	}
 	if c.snapshotsBucket == "" {
 		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
-	}
-	if _, err := parseEnv(c.env); err != nil {
-		return err
 	}
 	if c.rootfsImage != "" {
 		if _, err := apiservice.ImageDigest(c.rootfsImage); err != nil {
@@ -299,6 +302,9 @@ It prints YAML to stdout without touching the cluster.`,
 				}
 			}
 			if err := tCfg.validateResources(); err != nil {
+				return err
+			}
+			if err := tCfg.validateEnv(); err != nil {
 				return err
 			}
 			tmpl, err := buildTemplate(tCfg)
