@@ -257,8 +257,9 @@ actor network.
 
    `ep.endpoint` is ate-env-api, and `ep.headers` (`X-Env-Id`, `X-Env-Atespace`, `X-Env-Port`)
    route each request through the Substrate router to port 6000 in this sandbox. `endpoint()`
-   wakes a parked sandbox before it returns. A port that `SandboxSpec.ports` did not declare is
-   a `ValueError`, as in Gym's Docker provider. Set `connection.endpoint_url` when the code that
+   wakes a parked sandbox before it returns, and raises `RuntimeError` at once for a sandbox that
+   no longer exists. A port that `SandboxSpec.ports` did not declare is a `ValueError`, as in Gym's
+   Docker provider. Set `connection.endpoint_url` when the code that
    calls the daemon reaches ate-env-api at another address than the provider does.
 
 Limits:
@@ -270,6 +271,12 @@ Limits:
   static binary, or put the interpreter and its packages in the layer. NeMo Skills' sandbox server
   (Flask on CPython, port 6000, `POST /execute`, `GET /health`) fits only with a relocatable Python
   inside its layer; Gym's ECS exec server needs `python3` in the task image.
+- **The daemon must listen on `0.0.0.0`.** The router reaches the port on the actor's address; a
+  daemon bound to `127.0.0.1` only answers processes inside the sandbox, and requests through the
+  endpoint fail with 502.
+- **No authentication in front of the daemon.** Anyone who can reach ate-env-api can call any port
+  in any sandbox through it. Keep ate-env-api inside the cluster, and give the daemon its own
+  credential when the sandbox runs untrusted code.
 - Port 80 belongs to the guest. The daemon shares the task image's user, environment and
   filesystem.
 - Each distinct task image yields one derived ActorTemplate on its base, created on first use and

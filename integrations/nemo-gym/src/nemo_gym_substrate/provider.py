@@ -388,7 +388,9 @@ class SubstrateSandboxProvider:
                 f"declared ports: {declared!r}"
             )
         env = self._env(handle)
-        await self._wait_ready(env, self._create.ready_timeout_s, error=RuntimeError)
+        await self._wait_ready(
+            env, self._create.ready_timeout_s, error=RuntimeError, stop_on_not_found=True
+        )
         return SandboxEndpoint(
             endpoint=self._connection.endpoint_base(),
             headers={
@@ -458,11 +460,14 @@ class SubstrateSandboxProvider:
         timeout_s: float,
         *,
         error: type[Exception] = SandboxCreateVerificationError,
+        stop_on_not_found: bool = False,
     ) -> None:
         """Poll a trivial command until the guest answers it. A fresh actor may
         still be booting, and a guest call made before it serves fails with a
         transport-level error; both are retried until the deadline, then
-        ``error`` is raised. The first call also resumes a parked actor."""
+        ``error`` is raised. The first call also resumes a parked actor. With
+        ``stop_on_not_found``, a sandbox that no longer exists raises ``error``
+        at once instead of after the deadline."""
         deadline = time.monotonic() + timeout_s
         last_error = "no probe attempted"
         while True:
@@ -471,6 +476,10 @@ class SubstrateSandboxProvider:
                 if result.exit_code == 0:
                     return
                 last_error = f"probe exited {result.exit_code}: {result.stderr.strip()[:200]}"
+            except NotFoundError as exc:
+                if stop_on_not_found:
+                    raise error(f"substrate env {env.id!r} does not exist") from exc
+                last_error = _describe(exc)
             except EnvError as exc:
                 last_error = _describe(exc)
             except asyncio.TimeoutError:

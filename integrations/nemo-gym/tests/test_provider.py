@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from pathlib import Path
 
 import grpc
@@ -514,6 +515,19 @@ def test_endpoint_raises_when_the_sandbox_does_not_answer():
             fake._probes = 0
             with pytest.raises(RuntimeError, match="not ready"):
                 await provider.endpoint(handle, 6000)
+
+    run(t())
+
+
+def test_endpoint_stops_at_once_for_a_deleted_sandbox():
+    async def t():
+        async with stack({"ready_timeout_s": 30}) as (provider, _fake):
+            handle = await provider.create(SandboxSpec(ports=(6000,)))
+            await provider.close(handle)
+            started = time.monotonic()
+            with pytest.raises(RuntimeError, match="does not exist"):
+                await provider.endpoint(handle, 6000)
+            assert time.monotonic() - started < 5, "endpoint() waited out the ready timeout"
 
     run(t())
 
