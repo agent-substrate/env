@@ -51,6 +51,10 @@ type Sandbox interface {
 // compared with the same workload.
 type Backend interface {
 	Create(ctx context.Context, id, image string) (Sandbox, error)
+	// Delete removes an environment by name without a Sandbox handle, for
+	// one whose create call failed on the client side but may have
+	// succeeded on the server.
+	Delete(ctx context.Context, id string) error
 }
 
 // EnvBackend is the Backend over the ate-env API through the Go SDK.
@@ -102,6 +106,11 @@ func (b *EnvBackend) pick() *env.Client {
 	return b.clients[int(b.next.Add(1)-1)%len(b.clients)]
 }
 
+// Delete implements Backend.
+func (b *EnvBackend) Delete(ctx context.Context, id string) error {
+	return b.pick().Delete(ctx, b.atespace, id)
+}
+
 // Create implements Backend. The environment keeps the connection it was
 // created on for the rest of its life.
 func (b *EnvBackend) Create(ctx context.Context, id, image string) (Sandbox, error) {
@@ -123,21 +132,34 @@ type envSandbox struct {
 
 // Polling bounds for a running process: short at first so quick commands
 // return quickly, backing off so a long test run does not hammer the API.
-const (
+// Variables so tests can shorten them.
+var (
 	pollMin = 50 * time.Millisecond
 	pollMax = 2 * time.Second
+)
+
+const (
 	// pollRetries is how many consecutive transient poll errors are
 	// tolerated before the step fails; a wake or an API pod restart costs a
 	// few.
 	pollRetries = 10
+	// killTimeout bounds the kill of a process Run abandons.
+	killTimeout = 10 * time.Second
 )
 
 // Run starts the command, polls until it exits and then reads its output.
+//
 // The SDK's streaming Shell holds one request open through the router for
 // the whole command, and the router's route timeout (five minutes by
-// default) cuts it off; SWE-bench test runs regularly take longer. Start,
-// poll and read are each short calls, so no single request can outlive it.
-func (s envSandbox) Run(ctx context.Context, command string, timeout time.Duration) (Result, error) {
+// default) cuts it off; SWE-bench test runs take up to twelve minutes.
+// Start, poll and read are each short calls, so no single request can
+// outlive it. This belongs in the SDK as an option of Env.Run, since every
+// SDK user with long commands meets the same timeout; it lives here until
+// that change lands so the benchmark does not wait on it.
+//
+// If Run returns before the process has exited, it kills the process, so a
+// retry of the same command never runs beside the first copy.
+func (s envSandbox) Run(ctx context.Context, command string, timeout time.Duration) (res Result, err error) {
 	start := &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", command}}
 	if timeout > 0 {
 		start.Timeout = durationpb.New(timeout)
@@ -146,6 +168,17 @@ func (s envSandbox) Run(ctx context.Context, command string, timeout time.Durati
 	if err != nil {
 		return Result{}, err
 	}
+	exited := false
+	defer func() {
+		if exited {
+			return
+		}
+		kctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), killTimeout)
+		defer cancel()
+		if _, kerr := proc.Kill(kctx); kerr != nil && !errors.Is(kerr, env.ErrProcessExited) && err != nil {
+			err = fmt.Errorf("%w (and killing the process failed: %v)", err, kerr)
+		}
+	}()
 
 	wait := pollMin
 	failures := 0
@@ -155,20 +188,21 @@ func (s envSandbox) Run(ctx context.Context, command string, timeout time.Durati
 			return Result{}, ctx.Err()
 		case <-time.After(wait):
 		}
-		p, err := s.e.FindProcess(ctx, proc.ID())
+		p, perr := s.e.FindProcess(ctx, proc.ID())
 		switch {
-		case err == nil:
+		case perr == nil:
 			failures = 0
 			if p.GetState() == ateenvv1alpha.ProcessState_PROCESS_STATE_EXITED {
+				exited = true
 				return s.collect(ctx, proc, int(p.GetExitCode()))
 			}
-		case status.Code(err) == codes.Unavailable || status.Code(err) == codes.DeadlineExceeded:
+		case status.Code(perr) == codes.Unavailable || status.Code(perr) == codes.DeadlineExceeded:
 			failures++
 			if failures > pollRetries {
-				return Result{}, fmt.Errorf("poll %s: %w", proc.ID(), err)
+				return Result{}, fmt.Errorf("poll %s: %w", proc.ID(), perr)
 			}
 		default:
-			return Result{}, err
+			return Result{}, perr
 		}
 		if wait < pollMax {
 			wait = min(wait*2, pollMax)

@@ -20,10 +20,12 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	env "github.com/agent-substrate/env/clients/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -95,24 +97,28 @@ type Summary struct {
 func (c *Config) validate() error {
 	switch {
 	case c.RunID == "":
-		return errors.New("RunID is required")
+		return errors.New("run id is required")
+	case !runIDPattern.MatchString(c.RunID):
+		return fmt.Errorf("run id %q must be lowercase letters, digits and '-'", c.RunID)
+	case len(c.RunID) > maxRunIDLen:
+		return fmt.Errorf("run id %q is longer than %d characters; it prefixes every environment name", c.RunID, maxRunIDLen)
 	case c.Backend == nil:
-		return errors.New("Backend is required")
+		return errors.New("backend is required")
 	case len(c.Instances) == 0:
 		return errors.New("no instances")
 	case c.Trajectory == nil:
-		return errors.New("Trajectory is required")
+		return errors.New("trajectory is required")
 	case c.Width < 1:
-		return errors.New("Width must be >= 1")
+		return errors.New("width must be >= 1")
 	}
 	switch c.Mode {
 	case ModeEval:
 		if c.TasksPerImage < 1 {
-			return errors.New("TasksPerImage must be >= 1")
+			return errors.New("tasks per image must be >= 1")
 		}
 	case ModeSteps:
 		if c.Rollouts < 1 || c.Steps < 1 {
-			return errors.New("Rollouts and Steps must be >= 1")
+			return errors.New("rollouts and steps must be >= 1")
 		}
 		switch c.Park {
 		case ParkNone, ParkSuspend, ParkDelete:
@@ -142,8 +148,33 @@ func (c *Config) defaults() {
 		c.WakeBudget = 3 * time.Minute
 	}
 	if c.WakeBackoff <= 0 {
-		c.WakeBackoff = time.Second
+		c.WakeBackoff = DefaultWakeBackoff
 	}
+}
+
+// DefaultWakeBackoff is the initial pause between first-command retries.
+const DefaultWakeBackoff = 2 * time.Second
+
+// runIDPattern is Substrate's name rule (a k8s short name); the run id is a
+// prefix of every environment name. maxRunIDLen keeps the longest name the
+// loader builds (run id, 36 characters of instance id, a replay index and a
+// step suffix) under the 63-character limit.
+var runIDPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+const maxRunIDLen = 20
+
+// cleanupTimeout bounds the deletes that run after a cancelled or finished
+// run; they use a context that survives the cancellation so nothing leaks.
+const cleanupTimeout = 10 * time.Minute
+
+func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+
+// tail returns at most n trailing bytes of s.
+func tail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
 }
 
 // environment is one sandbox and its progress. One goroutine owns it at a
@@ -285,7 +316,11 @@ func (r *runner) runEval(ctx context.Context, envs []*environment) {
 			r.replay(ctx, e, 0)
 		}
 		if !r.cfg.Keep {
-			r.remove(ctx, e, 0)
+			// Delete with a context that survives a cancelled run, or a
+			// Ctrl-C at width 500 leaves 500 environments behind.
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+			r.remove(cleanup, e, 0)
+			cancel()
 		}
 		r.mu.Lock()
 		done++
@@ -352,7 +387,7 @@ func (r *runner) runSteps(ctx context.Context, envs []*environment) {
 	}
 	// Tear down with a context that survives a cancelled run so nothing
 	// leaks on Ctrl-C.
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
 	forEach(cleanup, len(envs), r.cfg.Width, func(i int) {
 		if envs[i].sb != nil {
@@ -391,6 +426,13 @@ func (r *runner) create(ctx context.Context, e *environment, step int) bool {
 		r.rec.Record(task)
 		r.countTask(e, step, false, nil)
 		r.log.Warn("create failed", slog.String("env", e.id), slog.String("err", err.Error()))
+		// The server may still finish a create whose call failed or timed
+		// out on our side; delete by name so it cannot leak or collide.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		if derr := r.cfg.Backend.Delete(cleanup, e.id); derr != nil && !isNotFound(derr) {
+			r.log.Warn("delete after failed create", slog.String("env", e.id), slog.String("err", derr.Error()))
+		}
 		return false
 	}
 	e.sb = sb
@@ -423,7 +465,10 @@ func (r *runner) replay(ctx context.Context, e *environment, step int) {
 	ok := true
 	var reward *int
 	for _, s := range steps {
-		if s.Think > 0 {
+		// No think time before the first command: it would land in the
+		// ttfi or wake measurement, and the "model" has nothing to think
+		// about before it has seen the environment.
+		if s.Think > 0 && !first {
 			select {
 			case <-ctx.Done():
 				ok = false
@@ -526,6 +571,15 @@ func (r *runner) doStep(ctx context.Context, e *environment, s Step, first bool)
 // Unavailable is the router giving up on a wake; Unknown, Internal and
 // Aborted are what a resume that races the golden bake or a worker restart
 // surfaces as. Argument and precondition errors are not retried.
+// isNotFound reports whether a delete found nothing to delete.
+func isNotFound(err error) bool {
+	if errors.Is(err, env.ErrNotFound) {
+		return true
+	}
+	st, ok := status.FromError(err)
+	return ok && st.Code() == codes.NotFound
+}
+
 func isTransient(err error) bool {
 	st, ok := status.FromError(err)
 	if !ok {

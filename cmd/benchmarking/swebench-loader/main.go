@@ -63,17 +63,17 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: swebench-loader run [flags] | swebench-loader report FILE [-json OUT]")
 }
 
-func runCmd(args []string) error {
+func runCmd(args []string) (retErr error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	var (
 		endpoint      = fs.String("endpoint", "localhost:7777", "ate-env API address (host:port).")
 		connections   = fs.Int("connections", 4, "gRPC connections to the API, handed out round-robin per environment; a Service balances per connection, so use at least the number of API replicas.")
 		atespace      = fs.String("atespace", "ate-env", "Atespace the environments are created in.")
 		baseTemplate  = fs.String("base-template", "default-template", "Base ActorTemplate the per-image templates derive from (ate-env manifest template).")
-		dataset       = fs.String("dataset", "", "JSONL manifest from benchmarking/swebench/make-dataset.py; a path or an http(s) URL. Required.")
+		dataset       = fs.String("dataset", "", "JSONL manifest of SWE-bench instances; a path or an https URL. Required.")
 		images        = fs.Int("images", 0, "Use the first N instances of the dataset; 0 means all.")
 		instances     = fs.String("instances", "", "Comma-separated instance ids to use instead of the first N.")
-		excludeFile   = fs.String("exclude-file", "", "File of instance ids to leave out, one per line, text after the id is a comment (e.g. benchmarking/swebench/offline-exclusions.txt).")
+		excludeFile   = fs.String("exclude-file", "", "File of instance ids to leave out, one per line; text after the id is a comment.")
 		trajectory    = fs.String("trajectory", swebench.DefaultTrajectory, fmt.Sprintf("Trajectory file or built-in name (%s).", strings.Join(swebench.Names(), ", ")))
 		mode          = fs.String("mode", string(swebench.ModeEval), "eval (images x tasks-per-image, each create/replay/delete) or steps (images x rollouts kept across steps).")
 		width         = fs.Int("width", 50, "Most tasks in flight at once.")
@@ -84,8 +84,8 @@ func runCmd(args []string) error {
 		createTimeout = fs.Duration("create-timeout", 5*time.Minute, "Deadline for one create call.")
 		stepTimeout   = fs.Duration("step-timeout", 10*time.Minute, "Default deadline for a run step without its own timeout.")
 		wakeBudget    = fs.Duration("wake-budget", 3*time.Minute, "How long a task's first command is retried while the environment is still waking or its image is still being baked.")
-		wakeBackoff   = fs.Duration("wake-backoff", 2*time.Second, "Initial pause between wake retries; doubles up to five times this.")
-		runID         = fs.String("run-id", "", "Run id, prefix of every environment name; default swe-<unix time>.")
+		wakeBackoff   = fs.Duration("wake-backoff", swebench.DefaultWakeBackoff, "Initial pause between wake retries; doubles up to five times this.")
+		runID         = fs.String("run-id", "", "Run id, prefix of every environment name: lowercase letters, digits and '-', at most 20 characters; default swe-<unix time>.")
 		out           = fs.String("out", "", "JSONL events file; default <run-id>.jsonl in the working directory.")
 		keep          = fs.Bool("keep", false, "Leave the environments in place when the run ends.")
 		dryRun        = fs.Bool("dry-run", false, "Load and render everything, print the plan and exit without touching the API.")
@@ -122,6 +122,9 @@ func runCmd(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *images > 0 && len(selected) < *images && len(ids) == 0 {
+		fmt.Fprintf(os.Stderr, "note: %d instances requested, %d available after the exclude list\n", *images, len(selected))
+	}
 	traj, err := swebench.LoadTrajectory(*trajectory)
 	if err != nil {
 		return err
@@ -153,7 +156,17 @@ func runCmd(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	rec := swebench.NewRecorder(f)
+	// Events lost to a write error, or a file that does not flush, must fail
+	// the run rather than produce a report with holes.
+	defer func() {
+		if cerr := f.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("closing %s: %w", *out, cerr)
+		}
+		if rerr := rec.Err(); rerr != nil && retErr == nil {
+			retErr = fmt.Errorf("writing events to %s: %w", *out, rerr)
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -163,7 +176,7 @@ func runCmd(args []string) error {
 		Backend:       backend,
 		Instances:     selected,
 		Trajectory:    traj,
-		Recorder:      swebench.NewRecorder(f),
+		Recorder:      rec,
 		Logger:        log,
 		Mode:          swebench.Mode(*mode),
 		Width:         *width,

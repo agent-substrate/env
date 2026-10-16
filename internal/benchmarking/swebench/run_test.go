@@ -40,6 +40,10 @@ type fakeBackend struct {
 	created     map[string]int
 	suspended   map[string]int
 	deleted     map[string]int
+	deletedByID map[string]int
+	// onCreate, when set, runs after every successful create; tests use it
+	// to cancel a run at a known point.
+	onCreate    func(id string)
 	commands    []string
 	files       map[string]string
 	failCreate  map[string]bool
@@ -51,7 +55,17 @@ type fakeBackend struct {
 
 func newFake() *fakeBackend {
 	return &fakeBackend{created: map[string]int{}, suspended: map[string]int{}, deleted: map[string]int{},
-		files: map[string]string{}, failCreate: map[string]bool{}}
+		deletedByID: map[string]int{}, files: map[string]string{}, failCreate: map[string]bool{}}
+}
+
+func (f *fakeBackend) Delete(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedByID[id]++
+	if f.created[id] == 0 {
+		return status.Error(codes.NotFound, "no such environment")
+	}
+	return nil
 }
 
 func (f *fakeBackend) Create(ctx context.Context, id, image string) (Sandbox, error) {
@@ -60,6 +74,9 @@ func (f *fakeBackend) Create(ctx context.Context, id, image string) (Sandbox, er
 	f.created[id]++
 	if f.failCreate[id] {
 		return nil, errors.New("create refused")
+	}
+	if f.onCreate != nil {
+		f.onCreate(id)
 	}
 	return &fakeSandbox{b: f, id: id}, nil
 }
@@ -111,7 +128,12 @@ func (s *fakeSandbox) Suspend(ctx context.Context) error {
 	return nil
 }
 
+// Delete fails on a done context, as the real API would, so a cleanup that
+// runs on a cancelled run context is visible as a leak.
 func (s *fakeSandbox) Delete(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	s.b.deleted[s.id]++
@@ -204,6 +226,76 @@ func TestEvalCreatesReplaysDeletes(t *testing.T) {
 		if !hasStat(rep, ev) {
 			t.Errorf("no %s events", ev)
 		}
+	}
+}
+
+func TestEvalCleanupSurvivesCancel(t *testing.T) {
+	f := newFake()
+	var out bytes.Buffer
+	cfg := baseConfig(t, f, &out)
+	cfg.Mode = ModeEval
+	cfg.TasksPerImage = 1
+	cfg.Instances = instances(6)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Cancel the run while its first environments are in flight, so later
+	// creates never start and the in-flight ones must still be deleted.
+	var once sync.Once
+	f.onCreate = func(string) { once.Do(cancel) }
+	if _, err := Run(ctx, cfg); err == nil {
+		t.Fatal("a cancelled run must report the cancellation")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.created) == 0 {
+		t.Fatal("nothing was created before the cancel; the test proves nothing")
+	}
+	for id := range f.created {
+		if f.deleted[id] != 1 {
+			t.Fatalf("environment %s leaked after cancel: deleted %d", id, f.deleted[id])
+		}
+	}
+}
+
+func TestFailedCreateIsDeletedByName(t *testing.T) {
+	f := newFake()
+	bad := EnvID("t", "repo__repo-a", 0)
+	f.failCreate[bad] = true
+	var out bytes.Buffer
+	cfg := baseConfig(t, f, &out)
+	cfg.Mode = ModeEval
+	cfg.TasksPerImage = 1
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if f.deletedByID[bad] != 1 {
+		t.Fatalf("the failed create must be deleted by name once, got %d", f.deletedByID[bad])
+	}
+	for id, n := range f.deletedByID {
+		if id != bad && n != 0 {
+			t.Fatalf("%s deleted by name although its create succeeded", id)
+		}
+	}
+}
+
+func TestNoThinkBeforeFirstCommand(t *testing.T) {
+	f := newFake()
+	var out bytes.Buffer
+	cfg := baseConfig(t, f, &out)
+	cfg.Mode = ModeEval
+	cfg.TasksPerImage = 1
+	cfg.Instances = instances(1)
+	tr, err := ParseTrajectory([]byte("name: t\nsteps:\n  - {name: a, run: \"true\", think: 5s, reward: true}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Trajectory = tr
+	start := time.Now()
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("think time before the first command was not skipped")
 	}
 }
 
@@ -435,6 +527,9 @@ func TestConfigValidation(t *testing.T) {
 	good.TasksPerImage = 1
 	bad := []func(c *Config){
 		func(c *Config) { c.RunID = "" },
+		func(c *Config) { c.RunID = "Swe-1" },
+		func(c *Config) { c.RunID = "swe_1" },
+		func(c *Config) { c.RunID = strings.Repeat("a", 21) },
 		func(c *Config) { c.Backend = nil },
 		func(c *Config) { c.Instances = nil },
 		func(c *Config) { c.Trajectory = nil },
