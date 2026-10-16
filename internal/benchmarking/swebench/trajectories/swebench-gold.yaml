@@ -21,9 +21,13 @@
 # keep the repository and its interpreter. Think times are the simulated
 # policy latency between commands.
 name: swebench-gold
+# Editable installs keep their metadata in an untracked egg-info directory
+# inside the repository; cleaning it breaks the import of the package under
+# test (sphinx: zero tests ran on every step after the first), so untracked
+# removal spares it.
 reset:
   - name: reset_repo
-    run: cd /testbed && git checkout -q -- . && git clean -qfd
+    run: cd /testbed && git checkout -q -- . && git clean -qfd -e '*.egg-info'
     expect_exit: 0
 steps:
   - name: explore
