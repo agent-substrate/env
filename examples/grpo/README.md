@@ -10,7 +10,7 @@ What is new: a `SMOKE=1` mode that checks the wiring without loading a model, a 
 of every create / boot / eval / suspend / wake / heal with wall time, and a first-request
 retry on wake (the original resumed explicitly; Substrate wakes on the first request).
 
-## Prereqs
+## Prereqs (Linux box)
 
 - `~/.venv-ray-substrate` with the env client plus `torch` (CPU wheel), `trl==0.21.0`,
   `transformers<5`, `datasets`, `accelerate`.
@@ -39,30 +39,62 @@ STATE_MB=1024 MAX_STEPS=10 MAX_COMPLETION=128 SUSPEND_MODE=per_step EPISODE_LEDG
 
 First run downloads the model (~1 GB) and MBPP from Hugging Face.
 
-## Measured
+## What was tested, what came out, and why it matters
 
-Same trainer, same tasks, ten steps, eight reward actors unless stated; every run 80 of 80 evals, zero state
-misses, identical reward trajectories. Parking per step is the fleet suspend plus the fleet wake.
+### The test
 
-| Fleet and working set | Cluster A, 4 x c3-standard-4, Substrate 2e3814a0 (Oct 12-13) | m2-density-a, 139 x n2-standard-8, Substrate ac5c5ee0 (Oct 16) | m2 per actor, suspend / wake p50 |
-|---|---|---|---|
-| 8 actors, idle guest | 1.4 s | 3.0 s | 0.5 s / 2.3 s |
-| 8 actors, 512 MiB random | 30 s | 12 s | 4.3 s / 3.2 s |
-| 8 actors, 1 GiB random | 100 s | 21 s | 8.4 s / 6.8 s |
-| 64 actors, 512 MiB random | not run: 64 x 512 MiB does not fit four 16 GiB nodes | 17 s | 3.3 s / 2.6 s |
+The same training loop was run on two clusters a few days apart. Nothing in the trainer changed between
+them: Qwen2.5-0.5B, GRPO, the MBPP problems, eight completions per step, ten steps, the reward computed by
+running each completion's asserts inside its own actor. The only knob that changed between runs within a
+cluster was the working set: how much memory each actor holds when it is suspended (none, 512 MiB, or
+1 GiB of random bytes, which cannot be compressed away). The fleet was suspended after every step and woken
+by the next step's first command, which is what a trainer does between sampling rounds.
 
-On cluster A two actors shared each node's disk; on m2 every actor had its own node. Suspend and wake are
-bounded by per-node disk throughput, so spreading the fleet cut the parking cost of a real working set by
-2.5-5x with no change to Substrate, and 64 actors parked in 1.4x the time of 8. The idle guest is the one
-case that got slower, all of it in the wake: on a large pool the woken actor usually lands on a node that
-does not hold the image yet. The eight evals of a step take about 0.25 s in every configuration; on a CPU
-trainer whose step is about 55 s the sandbox side is under one percent, and on a GPU trainer the parking
-time per step above is the number that matters. The same trainer on agent-sandbox pod snapshots
-(September 2026) parked at about 7 s per step regardless of working set.
+| | Cluster A | m2-density-a |
+|---|---|---|
+| When | Oct 12-13, 2026 | Oct 16, 2026 |
+| Nodes | 4 x c3-standard-4 (4 vCPU, 16 GiB) | 139 x n2-standard-8 (8 vCPU, 32 GiB) |
+| Region | us-west1 | us-central1 |
+| Substrate | 2e3814a0 | ac5c5ee0 (upstream head on Oct 14) |
+| Sandbox | gVisor, snapshots in a bucket in the same region, pd-balanced boot disks | same |
+| Actors per node with 8 reward actors | two | one |
 
-With the reward fleet split across two clusters (four actors each, round-robin placement, every later call
-routed to the owning cluster; Oct 14), parking the whole fleet cost about 0.9 s per step and the trainer
-saw one fleet.
+### What came out
+
+Every run on both clusters: all 80 evaluations correct, no state lost across any suspend and wake, and
+the same reward curve run to run. The loop is real and it is repeatable.
+
+Parking cost per step, which is the time to suspend the whole fleet plus the time to wake it:
+
+| Fleet and working set | Cluster A | m2-density-a |
+|---|---|---|
+| 8 actors, nothing in memory | 1.4 s | 3.0 s |
+| 8 actors, 512 MiB each | 30 s | 12 s |
+| 8 actors, 1 GiB each | 100 s | 21 s |
+| 64 actors, 512 MiB each | not run: 64 x 512 MiB does not fit four 16 GiB nodes | 17 s |
+
+On m2, one actor with 512 MiB suspends in about 4 s and wakes in about 3 s; with 1 GiB, about 8 s and 7 s.
+The eight evaluations of a step take a quarter of a second everywhere.
+
+### Why it matters
+
+- **Spreading the fleet is worth more than any tuning.** Parking a real working set got three to five
+  times cheaper between the two clusters, and Substrate did not get faster to make it so: the actors
+  stopped sharing a node's disk. Suspend and wake are bounded by how fast one node can write and read its
+  disk, so two actors on a node take twice as long as one. Placement decides the parking bill.
+- **A bigger fleet costs little more.** Sixty-four actors park in 17 s against 12 s for eight, because each
+  node does its share in parallel. The fleet-level time is set by the slowest node, not by the count.
+- **Image locality is the floor.** The one case that got slower on the big cluster is the near-empty guest:
+  its wake went from 0.7 s to 2.3 s because on 139 nodes the woken actor usually lands on a node that does
+  not hold the image yet, so even a small image has to be pulled before the actor can answer. Every wake
+  pays this unless the scheduler puts the actor where its image already is.
+- **On a GPU trainer these seconds are the step.** Here the trainer step is about 55 s of CPU arithmetic, so
+  the sandbox side is under one percent of it. A GPU trainer finishes the same step in a second or two, and
+  then 12 to 21 s of parking per step is most of the step. That is why the number to publish is parking
+  time per step, not its share of this slow loop.
+- **For comparison**, the same trainer on agent-sandbox pod snapshots in September 2026 parked at about 7 s
+  per step regardless of working set, and with the reward fleet split across two Substrate clusters (four
+  actors each, Oct 14) parking cost about 0.9 s per step while the trainer saw a single fleet.
 
 ## What to record
 
