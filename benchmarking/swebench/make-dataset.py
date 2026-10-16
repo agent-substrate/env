@@ -18,8 +18,15 @@
 
 For every instance it records the gold patch, the test patch, the harness
 eval script (the exact script the SWE-bench harness runs: apply the test
-patch, run the repo's test command, restore the test files) and the task
-image pinned by digest in the registry the cluster can pull from.
+patch, run the repo's test command, restore the test files, print the exit
+code marker the grader reads) and the task image pinned by digest in the
+registry the cluster can pull from.
+
+The eval script comes from the installed swebench's make_test_spec, which
+wraps the dataset row's own eval_script with the harness header and the
+"Test Exit Code" marker; the two are checked to agree. The dataset revision
+and the swebench version are recorded in OUT.meta.json so two operators can
+build the same manifest; pass --revision to pin the dataset.
 
     pip install datasets 'swebench>=5'
     ./make-dataset.py --registry us-central1-docker.pkg.dev/PROJECT/swebench \
@@ -37,6 +44,7 @@ mirror-images.sh first and re-run this until none are missing.
 """
 
 import argparse
+import datetime
 import json
 import subprocess
 import sys
@@ -67,6 +75,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset", default="SWE-bench/SWE-bench_Verified", help="Hugging Face dataset name or a local JSON/JSONL path. The rows must carry eval_script (the SWE-bench org copies do; the older princeton-nlp copies do not).")
     ap.add_argument("--split", default="test")
+    ap.add_argument("--revision", default=None, help="Dataset revision (commit or tag) to pin; recorded in the meta file.")
     ap.add_argument("--registry", required=True, help="Registry path that holds the task images, e.g. us-docker.pkg.dev/PROJECT/swebench-mirror/swebench-verified.")
     ap.add_argument("--image-ref", default="{registry}:sweb.eval.x86_64.{instance_id}", help="Image reference per instance; fields: {registry}, {instance_id}, {instance_id_1776}.")
     ap.add_argument("--limit", type=int, default=0, help="Stop after N instances (0 = all).")
@@ -82,13 +91,15 @@ def main() -> int:
     try:
         make_test_spec = _load_make_test_spec()
     except ImportError as e:
-        print(f"cannot import make_test_spec from swebench: {e}; pip install -U 'swebench>=3'", file=sys.stderr)
+        print(f"cannot import make_test_spec from swebench: {e}; pip install -U 'swebench>=5'", file=sys.stderr)
         return 2
 
     if args.dataset.endswith((".json", ".jsonl")):
         rows = load_dataset("json", data_files=args.dataset, split="train")
     else:
-        rows = load_dataset(args.dataset, split=args.split)
+        rows = load_dataset(args.dataset, split=args.split, revision=args.revision)
+    import swebench
+    swebench_version = getattr(swebench, "__version__", "unknown")
     want = {s for s in args.instances.split(",") if s}
 
     written = missing = 0
@@ -111,6 +122,10 @@ def main() -> int:
                 print(f"{iid}: dataset row lacks field {e} that this swebench release needs; "
                       "use a dataset revision that carries eval_script (swebench >= 5) or an older swebench", file=sys.stderr)
                 return 2
+            if row.get("eval_script") and row["eval_script"].strip() not in spec.eval_script:
+                print(f"{iid}: the installed swebench produced an eval script that does not contain the dataset row's; "
+                      "check the swebench version against the dataset revision", file=sys.stderr)
+                return 2
             rec = {
                 "instance_id": iid,
                 "repo": row["repo"],
@@ -125,7 +140,21 @@ def main() -> int:
             }
             out.write(json.dumps(rec) + "\n")
             written += 1
-    print(f"wrote {written} instances to {args.out}; {missing} missing images", file=sys.stderr)
+    meta = {
+        "dataset": args.dataset,
+        "split": args.split,
+        "revision": args.revision,
+        "swebench_version": swebench_version,
+        "registry": args.registry,
+        "image_ref": args.image_ref,
+        "instances": written,
+        "missing_images": missing,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+    }
+    with open(args.out + ".meta.json", "w") as f:
+        json.dump(meta, f, indent=2)
+        f.write("\n")
+    print(f"wrote {written} instances to {args.out}; {missing} missing images; provenance in {args.out}.meta.json", file=sys.stderr)
     return 1 if missing else 0
 
 

@@ -20,7 +20,7 @@ in numbers.
 
 | Shape | Flags | What happens |
 |---|---|---|
-| eval (SWE-bench Verified evaluation) | `-mode eval -images 500 -tasks-per-image 6 -width 500` | 3,000 tasks, 500 in flight. Each: create from the image, replay the trajectory, record the reward, delete. |
+| eval (SWE-bench Verified evaluation) | `-mode eval -images 500 -tasks-per-image 6 -width 500` | 500 in flight. Each task: create from the image, replay the trajectory, record the reward, delete. With the offline exclusion list the 500 become 445 images and 2,670 tasks; the loader prints the reduced count. |
 | steps (training loop) | `-mode steps -images 500 -rollouts 2 -steps 8 -park suspend` | 1,000 environments created once. Each step replays the trajectory on all of them, waits for the last (the barrier), then parks the fleet. `-park` is `suspend`, `delete` or `none`. |
 
 The trajectory is YAML (`internal/benchmarking/swebench/trajectories/`,
@@ -60,28 +60,34 @@ between runs.
 
 ## Prepare once per project
 
-1. Mirror the task images into a registry the nodes can pull from (the shared
-   mirrors deny the node identity). One tag per line in `tags.txt`:
+1. Put the task images in a registry the nodes can pull from. If the nodes
+   can read your mirror directly, skip this step. Otherwise copy them by
+   digest with crane; `tags.txt` has one tag per line, for example every
+   `sweb.eval.x86_64.*` tag of the source repository without the `-zran`
+   variants:
 
    ```bash
-   benchmarking/swebench/mirror-images.sh \
-     us-docker.pkg.dev/gke-ai-eco-dev/swebench-mirror/swebench-verified \
-     us-central1-docker.pkg.dev/PROJECT/swebench tags.txt 8
+   SRC=SOURCE_REGISTRY/swebench-verified
+   DST=us-central1-docker.pkg.dev/PROJECT/swebench/swebench-verified
+   crane ls $SRC | grep -v -- '-zran$' > tags.txt
+   benchmarking/swebench/mirror-images.sh $SRC $DST tags.txt 8
    ```
 
-2. Build the manifest: gold patch, test patch, harness eval script and the
-   digest-pinned image per instance.
+2. Build the manifest: gold patch, test patch, harness eval script, log
+   parser and the digest-pinned image per instance. `--registry` is the
+   repository the images live in, the same `$DST` as above (or the source
+   repository when the nodes can read it).
 
    ```bash
    pip install datasets 'swebench>=5'
-   benchmarking/swebench/make-dataset.py \
-     --registry us-docker.pkg.dev/PROJECT/swebench-mirror/swebench-verified \
-     --out swebench-verified.jsonl
+   benchmarking/swebench/make-dataset.py --registry $DST \
+     --revision <dataset commit> --out swebench-verified.jsonl
    ```
 
    `--image-ref` sets how an instance maps to an image reference (default:
    one tag per instance, `sweb.eval.x86_64.<instance_id>`, in one
-   repository); the script lists instances whose image it cannot resolve.
+   repository); the script lists instances whose image it cannot resolve and
+   writes the dataset revision and swebench version next to the manifest.
 
 3. Install ate-env with a base template (`ate-env manifest template`). Per
    image, the API derives one template from it on first use and bakes the
@@ -111,8 +117,9 @@ KO_DOCKER_REPO=gcr.io/PROJECT/repo benchmarking/swebench/run-in-cluster.sh swe-e
 ```
 
 The script bakes the dataset and the exclusion list into the loader image,
-runs a Job next to ate-env-api, follows the log, copies the events file back
-to the current directory and prints the report.
+runs a Job next to ate-env-api, follows the full loader log (step failures
+included), copies the events file back to the current directory, prints the
+report and deletes the Job.
 
 ## Network and the offline exclusion list
 

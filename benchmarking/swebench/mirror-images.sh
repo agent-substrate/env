@@ -15,15 +15,19 @@
 # limitations under the License.
 
 # Copy SWE-bench task images into a registry the cluster's nodes can pull
-# from, by digest, with crane. Nodes pull with their own identity, and the
-# shared mirrors deny it, so every image the benchmark uses must live in the
-# project's own registry.
+# from, with crane. Each tag is resolved to its digest in SRC_REPO and copied
+# by that digest to the same tag in DST_REPO, so a tag that moves upstream
+# cannot change what was copied; a tag whose digest already matches in
+# DST_REPO is skipped. Nodes pull with their own identity, and shared mirrors
+# may deny it, so every image the benchmark uses must live in a registry the
+# nodes can read.
 #
 #   mirror-images.sh SRC_REPO DST_REPO TAGS_FILE [PARALLEL]
 #
-# TAGS_FILE has one tag per line (the same tags make-dataset.py resolves).
-# Tags already present in DST_REPO are skipped. Needs crane on PATH and
-# credentials for both registries (gcloud auth configure-docker).
+# TAGS_FILE has one tag per line, for example
+#   crane ls SRC_REPO | grep -v -- '-zran$' > tags.txt
+# Needs crane on PATH and credentials for both registries
+# (gcloud auth configure-docker).
 
 set -o errexit -o nounset -o pipefail
 
@@ -39,22 +43,22 @@ PARALLEL="${4:-8}"
 
 command -v crane >/dev/null || { echo "crane not found on PATH" >&2; exit 1; }
 
-existing="$(crane ls "${DST}" 2>/dev/null || true)"
-
 copy_one() {
-  local tag="$1"
-  if grep -qx "${tag}" <<<"${existing}"; then
-    echo "skip ${tag} (present)"
+  local tag="$1" src_digest dst_digest
+  src_digest="$(crane digest "${SRC}:${tag}" 2>/dev/null)" || { echo "FAILED ${tag}: not in ${SRC}" >&2; return 1; }
+  dst_digest="$(crane digest "${DST}:${tag}" 2>/dev/null || true)"
+  if [[ "${dst_digest}" == "${src_digest}" ]]; then
+    echo "skip ${tag} (same digest)"
     return 0
   fi
-  if crane copy "${SRC}:${tag}" "${DST}:${tag}" >/dev/null 2>&1; then
-    echo "copied ${tag}"
+  if crane copy "${SRC}@${src_digest}" "${DST}:${tag}" >/dev/null 2>&1; then
+    echo "copied ${tag} ${src_digest}"
   else
     echo "FAILED ${tag}" >&2
     return 1
   fi
 }
 export -f copy_one
-export SRC DST existing
+export SRC DST
 
 grep -v '^\s*$' "${TAGS}" | xargs -P "${PARALLEL}" -I{} bash -c 'copy_one "$@"' _ {}
