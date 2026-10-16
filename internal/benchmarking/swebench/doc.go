@@ -12,24 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package swebench is the Fast Substrate RL benchmark: a loader that drives
-// real SWE-bench task images through the ate-env API the way a simulated RL
-// job would, and records what every phase cost.
+// Package swebench holds the data types of the Fast Substrate RL benchmark on
+// SWE-bench Verified, and the runner that drives them through the ate-env API.
 //
-// Two shapes are implemented, both parameterized:
+//   - Instance and LoadDataset: the JSONL manifest, one record per SWE-bench
+//     instance (digest-pinned task image, gold patch, harness eval script,
+//     the tests that decide the verdict, the repo's log parser).
+//   - Trajectory: the scripted rollout a task replays (run a command or write
+//     a file, with think time, timeout, expected exit and one reward step),
+//     with setup steps that run once per environment and reset steps that
+//     run before each later step. The built-in swebench-gold trajectory
+//     applies the gold patch, runs the harness eval script and grades the
+//     log with swebench-grade.py, a port of the SWE-bench harness's rules.
+//   - Event and Recorder: one JSON line per operation of a run.
+//   - Summarize and Build: the report over those events, with percentiles,
+//     retry counts, a per-step table and the unresolved instances in
+//     exclude-file format.
 //
-//   - eval: N images x T tasks each, at most W in flight. Every task creates
-//     an environment from the image, replays a trajectory (explore, apply the
-//     gold patch, run the failing tests), records the reward and deletes the
-//     environment. This is the SWE-bench Verified evaluation shape.
-//   - steps: N images x R rollouts, created once and driven through S
-//     training steps. Each step replays the trajectory on every environment,
-//     waits for the last one (the per-step barrier), then parks the fleet
-//     (suspend, delete or nothing) before the next step wakes it again.
-//
-// Every create, wake, step, suspend, delete and barrier is one JSONL event;
-// Report turns the file into percentiles. The layout mirrors substrate's
-// internal/benchmarking/boomer so a user class can be lifted into that
-// harness later; it is not imported because Go does not allow importing
-// another module's internal packages.
+// The layout mirrors substrate's internal/benchmarking/boomer so a user class
+// can be lifted into that harness later; it is not imported because Go does
+// not allow importing another module's internal packages.
 package swebench

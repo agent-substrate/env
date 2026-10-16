@@ -39,6 +39,19 @@ START_OUTPUT = ">>>>> Start Test Output"
 END_OUTPUT = ">>>>> End Test Output"
 BAD_MARKERS = (">>>>> Patch Apply Failed", ">>>>> Reset Failed", ">>>>> Tests Errored", ">>>>> Tests Timed Out")
 EXIT_CODE = re.compile(r">>>>> Test Exit Code:\s*(-?\d+)")
+# Evidence that a suite ran at all, for logs whose parser records only
+# failures; mirrors the harness's SUITE_RAN.
+SUITE_RAN = re.compile(
+    r"Executed [1-9]\d* of \d+"
+    r"|TOTAL: [1-9]\d* (?:SUCCESS|FAILED)"
+    r"|[1-9]\d* passing"
+    r"|Tests:\s+[1-9]\d*"
+    r"|Test Suites:\s+(?:\d+ \w+, )*[1-9]\d* total"
+    r"|^# tests [1-9]\d*"
+    r"|[1-9]\d* specs?, \d+ failures?"
+    r"|': ok$",
+    re.M,
+)
 SKIP_SUMMARY = re.compile(r"^\[\d+\]$")
 CONTROL = str.maketrans("", "", "".join(chr(c) for c in range(1, 32)))
 
@@ -224,14 +237,23 @@ def maintained(case, status_map):
     return passed(case, status_map) or (key is not None and status_map[key] == SKIPPED)
 
 
+def failed(case, status_map):
+    """Missing, FAILED, ERROR or SKIPPED, as the harness's test_failed."""
+    key = resolve_case(case, status_map)
+    return key is None or status_map[key] in (FAILED, ERROR, SKIPPED)
+
+
 def status_map_from_log(parser, content):
     """The harness's validity rules, then the parser over the marked region."""
     if any(marker in content for marker in BAD_MARKERS):
         return None
-    if START_OUTPUT not in content or END_OUTPUT not in content:
+    start, end = content.find(START_OUTPUT), content.find(END_OUTPUT)
+    if start < 0 or end < 0 or end < start:
         return None
-    sliced = content.split(START_OUTPUT)[1].split(END_OUTPUT)[0]
+    sliced = content[start + len(START_OUTPUT):end]
     status_map = parser(sliced) or parser(content)
+    if not status_map and not SUITE_RAN.search(content):
+        return None
     m = EXIT_CODE.search(content)
     exit_code = int(m.group(1)) if m else None
     if exit_code not in (None, 0) and status_map and not any(s in (FAILED, ERROR) for s in status_map.values()):
@@ -249,20 +271,30 @@ def grade(instance, content):
     fail_only = instance.get("eval_type", "pass_and_fail").lower() == "fail_only"
     f2p = instance.get("fail_to_pass", [])
     p2p = instance.get("pass_to_pass", [])
+
+    # As in the harness, every test lands in a success list, a failure list,
+    # or neither (an unknown status counts for nothing); the instance is
+    # resolved when both failure lists are empty.
+    def split(tests, ok, bad):
+        success = [t for t in tests if ok(t)]
+        failure = [t for t in tests if not ok(t) and bad(t)]
+        return success, failure
+
     if fail_only:
-        f2p_ok = [t for t in f2p if status_map.get(t) != FAILED]
-        p2p_ok = [t for t in p2p if status_map.get(t) != FAILED]
+        bad = lambda t: status_map.get(t) == FAILED  # noqa: E731
+        f2p_ok, f2p_bad = split(f2p, lambda t: not bad(t), bad)
+        p2p_ok, p2p_bad = split(p2p, lambda t: not bad(t), bad)
     else:
-        f2p_ok = [t for t in f2p if passed(t, status_map)]
-        p2p_ok = [t for t in p2p if maintained(t, status_map)]
-    resolved = len(f2p_ok) == len(f2p) and len(p2p_ok) == len(p2p)
+        f2p_ok, f2p_bad = split(f2p, lambda t: passed(t, status_map), lambda t: failed(t, status_map))
+        p2p_ok, p2p_bad = split(p2p, lambda t: maintained(t, status_map), lambda t: failed(t, status_map))
+    resolved = not f2p_bad and not p2p_bad
     return {
         "valid": True,
         "resolved": resolved,
         "f2p": f"{len(f2p_ok)}/{len(f2p)}",
         "p2p": f"{len(p2p_ok)}/{len(p2p)}",
-        "f2p_failed": [t for t in f2p if t not in f2p_ok][:5],
-        "p2p_failed": [t for t in p2p if t not in p2p_ok][:5],
+        "f2p_failed": f2p_bad[:5],
+        "p2p_failed": p2p_bad[:5],
     }
 
 

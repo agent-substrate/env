@@ -69,6 +69,7 @@ type Recorder struct {
 	w   io.Writer
 	enc *json.Encoder
 	n   int
+	err error
 }
 
 // NewRecorder writes to w; a nil w discards events.
@@ -86,7 +87,9 @@ func (r *Recorder) Record(e Event) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_ = r.enc.Encode(e)
+	if err := r.enc.Encode(e); err != nil && r.err == nil {
+		r.err = err
+	}
 	r.n++
 }
 
@@ -97,14 +100,12 @@ func (r *Recorder) Len() int {
 	return r.n
 }
 
-func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+// Err is the first write error, if any; a run whose events were lost must
+// not report success.
+func (r *Recorder) Err() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.err
+}
 
 func intp(v int) *int { return &v }
-
-// tail returns at most n trailing bytes of s.
-func tail(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[len(s)-n:]
-}

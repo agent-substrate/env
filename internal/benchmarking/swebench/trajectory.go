@@ -66,10 +66,14 @@ type WriteSpec struct {
 	Content string `json:"content"`
 	// File names a file next to the trajectory whose contents become
 	// Content when the trajectory is loaded: a built-in asset for built-in
-	// trajectories, a path relative to the YAML file otherwise.
+	// trajectories, a path relative to the YAML file otherwise. File
+	// contents are written as they are; only inline Content is a template.
 	File string `json:"file,omitempty"`
 	// Mode is an octal file mode string; empty means 0644.
 	Mode string `json:"mode,omitempty"`
+
+	// raw marks Content as loaded from File, so Render leaves it alone.
+	raw bool
 }
 
 // FileMode parses Mode.
@@ -176,6 +180,7 @@ func parseWithAssets(data []byte, read func(name string) ([]byte, error)) (*Traj
 			}
 			w.Content = string(b)
 			w.File = ""
+			w.raw = true
 		}
 	}
 	return t, nil
@@ -247,6 +252,9 @@ func (s Step) validate() error {
 			return fmt.Errorf("step %s: %w", s.Name, err)
 		}
 	}
+	if s.Think < 0 || s.Timeout < 0 {
+		return fmt.Errorf("step %s: think and timeout cannot be negative", s.Name)
+	}
 	return nil
 }
 
@@ -287,8 +295,10 @@ func renderSteps(tname string, steps []Step, in Instance) ([]Step, error) {
 		}
 		if s.Write != nil {
 			w := *s.Write
-			if w.Content, err = renderText(s.Write.Content, in); err != nil {
-				return nil, fmt.Errorf("trajectory %s step %s write: %w", tname, s.Name, err)
+			if !w.raw {
+				if w.Content, err = renderText(s.Write.Content, in); err != nil {
+					return nil, fmt.Errorf("trajectory %s step %s write: %w", tname, s.Name, err)
+				}
 			}
 			r.Write = &w
 		}

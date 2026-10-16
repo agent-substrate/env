@@ -26,7 +26,7 @@ const goodDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef01234
 func manifest(ids ...string) string {
 	var b strings.Builder
 	for _, id := range ids {
-		b.WriteString(`{"instance_id":"` + id + `","repo":"r","image":"reg/img@` + goodDigest + `","patch":"p","eval_script":"e"}` + "\n")
+		b.WriteString(`{"instance_id":"` + id + `","repo":"r","image":"reg/img@` + goodDigest + `","patch":"p","eval_script":"e","log_parser":"parse_log_pytest"}` + "\n")
 	}
 	return b.String()
 }
@@ -49,6 +49,8 @@ func TestParseDatasetRejects(t *testing.T) {
 		"no image":    `{"instance_id":"x"}` + "\n",
 		"tag not pin": `{"instance_id":"x","image":"reg/img:latest"}` + "\n",
 		"duplicate":   manifest("a", "a"),
+		"no eval":     `{"instance_id":"x","image":"reg/img@` + goodDigest + `","log_parser":"parse_log_pytest"}` + "\n",
+		"no parser":   `{"instance_id":"x","image":"reg/img@` + goodDigest + `","eval_script":"e"}` + "\n",
 	}
 	for name, in := range cases {
 		if _, err := ParseDataset(strings.NewReader(in)); err == nil {
@@ -88,8 +90,8 @@ func TestSelectExcludeAndIDList(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].InstanceID != "a" || got[1].InstanceID != "c" {
 		t.Fatalf("exclude: got %+v, %v", got, err)
 	}
-	if _, err := Select(all, []string{"b"}, []string{"b"}, 0); err == nil {
-		t.Fatal("an excluded id asked for by name must error")
+	if _, err := Select(all, []string{"b"}, []string{"b"}, 0); err == nil || !strings.Contains(err.Error(), "exclude list") {
+		t.Fatalf("an excluded id asked for by name must say so: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "ids.txt")
 	if err := os.WriteFile(path, []byte("# known network-dependent\nb needs pypi\n\n  c\n"), 0o644); err != nil {
@@ -98,5 +100,11 @@ func TestSelectExcludeAndIDList(t *testing.T) {
 	ids, err := ReadIDList(path)
 	if err != nil || len(ids) != 2 || ids[0] != "b" || ids[1] != "c" {
 		t.Fatalf("ReadIDList: %v, %v", ids, err)
+	}
+}
+
+func TestLoadDatasetRefusesPlainHTTP(t *testing.T) {
+	if _, err := LoadDataset("http://example.invalid/manifest.jsonl"); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("plain http must be refused: %v", err)
 	}
 }

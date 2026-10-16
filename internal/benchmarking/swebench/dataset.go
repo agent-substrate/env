@@ -25,6 +25,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Instance is one SWE-bench task: the digest-pinned task image and the
@@ -64,15 +65,29 @@ func (in Instance) Validate() error {
 		return fmt.Errorf("%s: image is required", in.InstanceID)
 	case !digestPinned.MatchString(in.Image):
 		return fmt.Errorf("%s: image %q is not digest-pinned", in.InstanceID, in.Image)
+	case in.EvalScript == "":
+		return fmt.Errorf("%s: eval_script is required", in.InstanceID)
+	case in.LogParser == "":
+		return fmt.Errorf("%s: log_parser is required", in.InstanceID)
 	}
 	return nil
 }
 
-// LoadDataset reads a JSONL manifest from a local path or an http(s) URL.
+// datasetFetchTimeout bounds a manifest download; a stalled server must not
+// hang the loader before it starts.
+const datasetFetchTimeout = 2 * time.Minute
+
+// LoadDataset reads a JSONL manifest from a local path or an https URL. The
+// manifest carries scripts that run inside the sandboxes, so a remote source
+// must be https.
 func LoadDataset(source string) ([]Instance, error) {
 	var r io.ReadCloser
-	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		resp, err := http.Get(source)
+	if strings.HasPrefix(source, "http://") {
+		return nil, fmt.Errorf("dataset %s: remote manifests must use https", source)
+	}
+	if strings.HasPrefix(source, "https://") {
+		client := &http.Client{Timeout: datasetFetchTimeout}
+		resp, err := client.Get(source)
 		if err != nil {
 			return nil, fmt.Errorf("fetch dataset: %w", err)
 		}
@@ -131,12 +146,12 @@ func ParseDataset(r io.Reader) ([]Instance, error) {
 
 // Select narrows a dataset: exclude drops the named instances first (a
 // known-bad list; unknown names are ignored), ids then keeps only the named
-// instances (in manifest order) and errors on an unknown id, and limit > 0
-// keeps the first limit of what is left.
+// instances (in manifest order) and errors on an unknown or excluded id, and
+// limit > 0 keeps the first limit of what is left.
 func Select(all []Instance, ids, exclude []string, limit int) ([]Instance, error) {
 	out := all
+	drop := map[string]bool{}
 	if len(exclude) > 0 {
-		drop := map[string]bool{}
 		for _, id := range exclude {
 			drop[id] = true
 		}
@@ -149,6 +164,11 @@ func Select(all []Instance, ids, exclude []string, limit int) ([]Instance, error
 		all = out
 	}
 	if len(ids) > 0 {
+		for _, id := range ids {
+			if drop[id] {
+				return nil, fmt.Errorf("instance %s is on the exclude list", id)
+			}
+		}
 		want := map[string]bool{}
 		for _, id := range ids {
 			want[id] = true

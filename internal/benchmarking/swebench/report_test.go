@@ -16,6 +16,7 @@ package swebench
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,13 @@ func TestPercentile(t *testing.T) {
 	}
 	if p := percentile(nil, 0.5); p != 0 {
 		t.Errorf("empty = %v", p)
+	}
+	thirteen := make([]float64, 13)
+	for i := range thirteen {
+		thirteen[i] = float64(i + 1)
+	}
+	if p := percentile(thirteen, 0.95); p != 13 {
+		t.Errorf("nearest rank p95 of 13 samples = %v, want the 13th", p)
 	}
 }
 
@@ -84,7 +92,7 @@ func TestSummarizeRoundTrip(t *testing.T) {
 	if s := find(EventStep, "run_tests"); s.Count != 1 || s.P50MS != 50 {
 		t.Fatalf("step: %+v", s)
 	}
-	if len(rep.Steps) != 2 || rep.Steps[0].BarrierMS != 650 || rep.Steps[0].ParkMS != 90 || rep.Steps[1].WakeP50MS != 40 {
+	if len(rep.Steps) != 2 || rep.Steps[0].BarrierMS != 650 || rep.Steps[0].ParkMS != 90 || rep.Steps[0].Live != 2 || rep.Steps[1].WakeP50MS != 40 {
 		t.Fatalf("steps: %+v", rep.Steps)
 	}
 	if len(rep.Errors) != 1 || rep.Errors[0].Err != "boom" || rep.Errors[0].Count != 1 {
@@ -111,5 +119,21 @@ func TestSummarizeRoundTrip(t *testing.T) {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("text report lacks %q:\n%s", want, text.String())
 		}
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+func TestRecorderKeepsFirstWriteError(t *testing.T) {
+	rec := NewRecorder(failingWriter{})
+	rec.Record(Event{RunID: "r", Event: EventCreate})
+	rec.Record(Event{RunID: "r", Event: EventDelete})
+	if err := rec.Err(); err == nil || err.Error() != "disk full" {
+		t.Fatalf("Err = %v", err)
+	}
+	if NewRecorder(nil).Err() != nil {
+		t.Fatal("a discarding recorder has no error")
 	}
 }

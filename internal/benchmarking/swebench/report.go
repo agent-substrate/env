@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -48,10 +49,14 @@ type Unresolved struct {
 
 // StepStat is one training step in steps mode.
 type StepStat struct {
-	Step      int     `json:"step"`
-	Tasks     int     `json:"tasks"`
-	Failed    int     `json:"failed"`
-	Rewarded  int     `json:"rewarded"`
+	Step     int `json:"step"`
+	Tasks    int `json:"tasks"`
+	Failed   int `json:"failed"`
+	Rewarded int `json:"rewarded"`
+	// Live is how many environments were still in the fleet at this step;
+	// steps mode drops an environment after its first failure, so a
+	// shrinking Live makes later steps' counts incomparable.
+	Live      int     `json:"live,omitempty"`
 	BarrierMS float64 `json:"barrier_ms"`
 	ParkMS    float64 `json:"park_ms"`
 	WakeP50MS float64 `json:"wake_p50_ms"`
@@ -169,6 +174,7 @@ func Build(events []Event) *Report {
 			}
 		case EventBarrier:
 			stepStat(steps, e.Step).BarrierMS = e.DurMS
+			stepStat(steps, e.Step).Live = e.Count
 		case EventPark:
 			stepStat(steps, e.Step).ParkMS = e.DurMS
 		case EventWake:
@@ -250,20 +256,22 @@ func stepStat(m map[int]*StepStat, step int) *StepStat {
 	return s
 }
 
-// percentile of a sorted slice by nearest rank; 0 for an empty slice.
+// percentile of a sorted slice by the nearest-rank method, ceil(p*n)-1; 0
+// for an empty slice.
 func percentile(sorted []float64, p float64) float64 {
-	if len(sorted) == 0 {
+	n := len(sorted)
+	if n == 0 {
 		return 0
 	}
 	if p >= 1 {
-		return sorted[len(sorted)-1]
+		return sorted[n-1]
 	}
-	i := int(p*float64(len(sorted))+0.5) - 1
+	i := int(math.Ceil(p*float64(n))) - 1
 	if i < 0 {
 		i = 0
 	}
-	if i >= len(sorted) {
-		i = len(sorted) - 1
+	if i >= n {
+		i = n - 1
 	}
 	return sorted[i]
 }
@@ -281,9 +289,9 @@ func (rep *Report) WriteText(w io.Writer) {
 	if len(rep.Steps) > 0 {
 		fmt.Fprintln(w)
 		tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "step\ttasks\tfailed\trewarded\tbarrier_s\tpark_s\twake_p50_ms\twake_p95_ms")
+		fmt.Fprintln(tw, "step\tlive\ttasks\tfailed\trewarded\tbarrier_s\tpark_s\twake_p50_ms\twake_p95_ms")
 		for _, s := range rep.Steps {
-			fmt.Fprintf(tw, "%d\t%d\t%d\t%d\t%.1f\t%.1f\t%.0f\t%.0f\n", s.Step, s.Tasks, s.Failed, s.Rewarded,
+			fmt.Fprintf(tw, "%d\t%d\t%d\t%d\t%d\t%.1f\t%.1f\t%.0f\t%.0f\n", s.Step, s.Live, s.Tasks, s.Failed, s.Rewarded,
 				s.BarrierMS/1000, s.ParkMS/1000, s.WakeP50MS, s.WakeP95MS)
 		}
 		tw.Flush()

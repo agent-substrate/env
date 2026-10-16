@@ -114,6 +114,8 @@ func TestParseTrajectoryRejects(t *testing.T) {
 		"write reward":  "name: t\nsteps:\n  - name: a\n    write: {path: /p}\n    reward: true\n",
 		"bad mode":      "name: t\nsteps:\n  - name: a\n    write: {path: /p, mode: \"zz\"}\n",
 		"bad think":     "name: t\nsteps:\n  - name: a\n    run: x\n    think: soon\n",
+		"neg think":     "name: t\nsteps:\n  - name: a\n    run: x\n    think: -1s\n",
+		"neg timeout":   "name: t\nsteps:\n  - name: a\n    run: x\n    timeout: -1m\n",
 		"unknown field": "name: t\nsteps:\n  - name: a\n    run: x\n    bogus: 1\n",
 	}
 	for name, in := range cases {
@@ -127,7 +129,9 @@ func TestParseTrajectoryRejects(t *testing.T) {
 
 func TestWriteFileResolvesNextToTrajectory(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "asset.py"), []byte("print(1)\n"), 0o644); err != nil {
+	// The asset contains template syntax on purpose: file contents are not
+	// rendered.
+	if err := os.WriteFile(filepath.Join(dir, "asset.py"), []byte("print('{{not a template}}')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	yamlPath := filepath.Join(dir, "t.yaml")
@@ -138,8 +142,15 @@ func TestWriteFileResolvesNextToTrajectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := tr.Steps[0].Write.Content; got != "print(1)\n" {
+	if got := tr.Steps[0].Write.Content; got != "print('{{not a template}}')\n" {
 		t.Fatalf("content %q", got)
+	}
+	r, err := tr.Render(Instance{InstanceID: "x"})
+	if err != nil {
+		t.Fatalf("rendering a trajectory with a file asset: %v", err)
+	}
+	if r.Steps[0].Write.Content != tr.Steps[0].Write.Content {
+		t.Fatal("file asset contents must not be rendered")
 	}
 	for _, bad := range []string{"missing.py", "../asset.py", "sub/asset.py"} {
 		if err := os.WriteFile(yamlPath, []byte("name: t\nsteps:\n  - name: w\n    write: {path: /tmp/a, file: "+bad+"}\n"), 0o644); err != nil {
