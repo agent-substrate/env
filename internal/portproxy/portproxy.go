@@ -387,7 +387,12 @@ func (p *Proxy) dial(ctx context.Context, _, addr string) (net.Conn, error) {
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return nil, fmt.Errorf("environment %s/%s did not wake within %s (%d attempts): %w", atespace, id, p.opts.WakeBudget, attempt, err)
+			// Logged here: handleError keeps router 503s out of the log, and
+			// a spent wake budget is the one 503 an operator wants to see,
+			// as the close of the "waiting" line from the first attempt.
+			err = fmt.Errorf("environment %s/%s did not wake within %s (%d attempts): %w", atespace, id, p.opts.WakeBudget, attempt, err)
+			log.Printf("port proxy: %v", err)
+			return nil, err
 		}
 		if attempt == 1 {
 			log.Printf("port proxy: waiting for environment %s/%s to wake (wake budget %s)", atespace, id, p.opts.WakeBudget)
