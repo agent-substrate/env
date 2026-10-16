@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -47,6 +48,10 @@ type ClientOptions struct {
 
 	// GRPCConn overrides the grpc.ClientConn used for ate-env-api RPCs.
 	GRPCConn *grpc.ClientConn
+
+	// AuthToken, if non-empty, is sent as an "Authorization: Bearer <token>"
+	// metadata header on every RPC, matching the Python client's auth_token.
+	AuthToken string
 }
 
 // Client manages environments against an ate-env-api endpoint over gRPC.
@@ -102,10 +107,20 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) withAuth(ctx context.Context) context.Context {
+	if c.opts.AuthToken == "" {
+		return ctx
+	}
+	if md, ok := metadata.FromOutgoingContext(ctx); ok && len(md.Get("authorization")) > 0 {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+c.opts.AuthToken)
+}
+
 // Create registers a new env with the parameters given in req and
 // starts it using the gRPC EnvironmentService.
 func (c *Client) Create(ctx context.Context, req *ateenvv1alpha.CreateEnvironmentRequest) (*Env, error) {
-	resp, err := c.grpc.CreateEnvironment(ctx, req)
+	resp, err := c.grpc.CreateEnvironment(c.withAuth(ctx), req)
 	if err != nil {
 		return nil, fromGRPCError(err)
 	}
@@ -119,7 +134,7 @@ func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
 		Id:       id,
 		Atespace: atespace,
 	}
-	_, err := c.grpc.SuspendEnvironment(ctx, req)
+	_, err := c.grpc.SuspendEnvironment(c.withAuth(ctx), req)
 	if err != nil {
 		return fromGRPCError(err)
 	}
@@ -132,7 +147,7 @@ func (c *Client) Delete(ctx context.Context, atespace, id string) error {
 		Id:       id,
 		Atespace: atespace,
 	}
-	_, err := c.grpc.DeleteEnvironment(ctx, req)
+	_, err := c.grpc.DeleteEnvironment(c.withAuth(ctx), req)
 	if err != nil {
 		return fromGRPCError(err)
 	}

@@ -107,6 +107,14 @@ kubectl get pods -n ate-env
 parking budget) and, once the control plane reports the environment RUNNING, up to
 `--wake-running-budget` (default 20s). Both are flags on the API deployment.
 
+By default `ate-env manifest` deploys `ate-env-api` without caller authentication for use over
+`kubectl port-forward`. Before exposing `ate-env-api` beyond loopback (e.g. through an internal
+LoadBalancer or to multi-tenant namespaces), create a Kubernetes Secret with a `token` key and pass
+`--auth-token-secret <secret-name>` to `ate-env manifest` (which mounts the secret and sets
+`-auth-token-file` on `ate-env-api`); callers then authenticate with `--auth-token` /
+`SUBSTRATE_ENV_AUTH_TOKEN` on the CLI, `ClientOptions.AuthToken` in the Go SDK, `Client(..., auth_token=...)`
+in the Python SDK, or `Authorization: Bearer <token>` on MCP HTTP requests.
+
 ### 2. Register the ActorTemplate in Substrate
 
 Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest template` to generate the Substrate ActorTemplate manifest:

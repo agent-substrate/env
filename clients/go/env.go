@@ -38,7 +38,7 @@ type Env struct {
 func (e *Env) ID() string { return e.id }
 
 func (e *Env) withEnv(ctx context.Context) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, "x-env-id", e.id, "x-env-atespace", e.atespace)
+	return e.client.withAuth(metadata.AppendToOutgoingContext(ctx, "x-env-id", e.id, "x-env-atespace", e.atespace))
 }
 
 // Suspend checkpoints and stops the environment using gRPC.
