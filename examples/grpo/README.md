@@ -76,12 +76,26 @@ Parking cost per step, which is the time to suspend the whole fleet plus the tim
 On m2, one actor with 512 MiB suspends in about 4 s and wakes in about 3 s; with 1 GiB, about 8 s and 7 s.
 The eight evaluations of a step take a quarter of a second everywhere.
 
+To separate the effect of placement from the effect of the newer build and bigger machines, the m2 worker
+pool was then shrunk to four workers and the two heavy runs repeated with two actors per node, as on
+cluster A:
+
+| 8 actors, working set | Cluster A (2 per node, old build) | m2, 2 per node | m2, 1 per node |
+|---|---|---|---|
+| 512 MiB | 30 s | 18 s | 12 s |
+| 1 GiB | 100 s | 32 s | 21 s |
+
+Putting two actors on a node costs about half again as much parking as one per node, and pushes more
+wakes past the router's ten-second parking budget (28 retries against 4 at 1 GiB). The rest of the gap to
+cluster A comes from the newer build and the larger machines.
+
 ### Why it matters
 
-- **Spreading the fleet is worth more than any tuning.** Parking a real working set got three to five
-  times cheaper between the two clusters, and Substrate did not get faster to make it so: the actors
-  stopped sharing a node's disk. Suspend and wake are bounded by how fast one node can write and read its
-  disk, so two actors on a node take twice as long as one. Placement decides the parking bill.
+- **Spreading the fleet is worth as much as a release.** Parking a real working set got three to five
+  times cheaper between the two clusters. About a third of that is placement: two actors sharing a node's
+  disk take half again as long to park as one per node, because suspend and wake are bounded by how fast
+  one node can write and read its disk. The rest is the newer build on bigger machines. Placement is the
+  part an operator controls today.
 - **A bigger fleet costs little more.** Sixty-four actors park in 17 s against 12 s for eight, because each
   node does its share in parallel. The fleet-level time is set by the slowest node, not by the count.
 - **Image locality is the floor.** The one case that got slower on the big cluster is the near-empty guest:
