@@ -389,10 +389,12 @@ func (r *runner) create(ctx context.Context, e *environment, step int) bool {
 }
 
 // replay runs the trajectory once on e and records one task event. From the
-// second step on, the Reset steps run first.
+// second step on, the Reset steps run first when the environment survived
+// the park; after a delete park it is a fresh environment with nothing to
+// reset.
 func (r *runner) replay(ctx context.Context, e *environment, step int) {
 	steps := e.traj.Steps
-	if step > 1 {
+	if step > 1 && r.cfg.Park != ParkDelete {
 		steps = append(append([]Step{}, e.traj.Reset...), e.traj.Steps...)
 	}
 	// The first instruction of a task either follows a create (eval, or a

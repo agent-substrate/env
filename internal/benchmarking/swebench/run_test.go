@@ -323,6 +323,11 @@ func TestStepsDeleteParkRecreates(t *testing.T) {
 	if hasStat(rep, EventWake) {
 		t.Fatal("delete park has no wake events")
 	}
+	for _, c := range f.commands {
+		if strings.Contains(c, "git checkout") {
+			t.Fatal("reset steps must not run on a freshly created environment")
+		}
+	}
 }
 
 func TestStepsKeepLeavesFleet(t *testing.T) {
