@@ -179,6 +179,22 @@ func (s *Server) Status(name string) ateapipb.ActorState {
 	return s.find(name).GetStatus().GetState()
 }
 
+// SetState overrides an actor's state, for tests that need a state the fake's
+// own transitions never produce, such as CRASHED, or need to hold an actor
+// SUSPENDED after creation.
+func (s *Server) SetState(name string, state ateapipb.ActorState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.find(name)
+	if a == nil {
+		return
+	}
+	if a.Status == nil {
+		a.Status = &ateapipb.ActorStatus{}
+	}
+	a.Status.State = state
+}
+
 // find returns the actor with the given name, whichever atespace holds it, or
 // nil when no actor has that name. The helpers above address actors by name
 // alone so tests do not have to know which atespace a client placed them in.

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/agent-substrate/env/internal/ate"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
@@ -55,6 +56,13 @@ type Server struct {
 	client     *ate.Client
 	routerAddr string
 	hostSuffix string
+
+	// WakeBudget bounds how long a guest call waits for a suspended
+	// environment to wake; see ensureAwake. Zero means DefaultWakeBudget.
+	WakeBudget time.Duration
+	// WakeRunningBudget bounds the wait once the control plane reports the
+	// environment RUNNING; see ensureAwake. Zero means DefaultWakeRunningBudget.
+	WakeRunningBudget time.Duration
 }
 
 // New creates a new Server.
@@ -65,9 +73,11 @@ func New(client *ate.Client, routerAddr, hostSuffix string) *Server {
 	routerAddr = strings.TrimPrefix(routerAddr, "http://")
 	routerAddr = strings.TrimPrefix(routerAddr, "https://")
 	return &Server{
-		client:     client,
-		routerAddr: routerAddr,
-		hostSuffix: hostSuffix,
+		client:            client,
+		routerAddr:        routerAddr,
+		hostSuffix:        hostSuffix,
+		WakeBudget:        DefaultWakeBudget,
+		WakeRunningBudget: DefaultWakeRunningBudget,
 	}
 }
 
@@ -261,7 +271,7 @@ func (s *Server) processClient(ctx context.Context) (ateenvv1alpha.ProcessServic
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	conn, err := s.guestConn(atespace, envID)
+	conn, err := s.guestConn(ctx, atespace, envID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -371,7 +381,7 @@ func (s *Server) ReadFile(req *ateenvv1alpha.ReadFileRequest, stream grpc.Server
 	if err != nil {
 		return err
 	}
-	conn, err := s.guestConn(atespace, envID)
+	conn, err := s.guestConn(ctx, atespace, envID)
 	if err != nil {
 		return err
 	}
@@ -403,7 +413,7 @@ func (s *Server) WriteFile(stream grpc.ClientStreamingServer[ateenvv1alpha.Write
 	if err != nil {
 		return err
 	}
-	conn, err := s.guestConn(atespace, envID)
+	conn, err := s.guestConn(ctx, atespace, envID)
 	if err != nil {
 		return err
 	}
@@ -455,7 +465,9 @@ func envFromContext(ctx context.Context) (string, string, error) {
 	return ids[0], atespace, nil
 }
 
-// guestConn dials the environment's guest through the router. Calls on the
+// guestConn dials the environment's guest through the router and waits,
+// within WakeBudget, for the guest to answer, so a suspended environment is
+// awake before the caller's request goes through (see ensureAwake). Calls on the
 // returned connection take the caller's context as is, for its deadline and
 // cancellation only: the interceptors below are the only writer of
 // ate-target-actor, and no caller metadata is forwarded. Forwarding it once
@@ -463,7 +475,7 @@ func envFromContext(ctx context.Context) (string, string, error) {
 // (agent-substrate/substrate#2308 answers duplicate ate-target-actor headers
 // with "invalid actor reference"), and it would let a client pass routing
 // headers through the proxy. Nothing in the guest reads caller metadata.
-func (s *Server) guestConn(atespace, id string) (*grpc.ClientConn, error) {
+func (s *Server) guestConn(ctx context.Context, atespace, id string) (*grpc.ClientConn, error) {
 	if s.routerAddr == "" {
 		return nil, status.Error(codes.FailedPrecondition, "router address not configured for guest operations")
 	}
@@ -485,6 +497,10 @@ func (s *Server) guestConn(atespace, id string) (*grpc.ClientConn, error) {
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "dialing guest router for %s/%s: %v", atespace, id, err)
+	}
+	if err := s.ensureAwake(ctx, conn, atespace, id); err != nil {
+		_ = conn.Close()
+		return nil, err
 	}
 	return conn, nil
 }

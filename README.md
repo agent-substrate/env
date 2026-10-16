@@ -88,6 +88,11 @@ ate-env manifest \
 kubectl get pods -n ate-env
 ```
 
+`ate-env-api` waits for a suspended environment to wake before forwarding a guest call, up to
+`--wake-budget` (default 2m; cold image pulls and cross-region snapshot reads exceed the router's own
+parking budget) and, once the control plane reports the environment RUNNING, up to
+`--wake-running-budget` (default 20s). Both are flags on the API deployment.
+
 ### 2. Register the ActorTemplate in Substrate
 
 Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest template` to generate the Substrate ActorTemplate manifest:

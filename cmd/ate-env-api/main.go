@@ -35,12 +35,14 @@ import (
 
 func main() {
 	var (
-		listen     = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
-		ateapi     = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
-		atenet     = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
-		hostSuffix = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
-		skipVerify = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
-		tokenFile  = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
+		listen            = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
+		ateapi            = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
+		atenet            = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
+		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
+		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
+		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
+		wakeBudget        = flag.Duration("wake-budget", apiservice.DefaultWakeBudget, "how long a guest call waits for a suspended environment to wake before failing; cold image pulls and cross-region snapshot reads exceed the router's own parking budget")
+		wakeRunningBudget = flag.Duration("wake-running-budget", apiservice.DefaultWakeRunningBudget, "how long a guest call waits when the environment is already RUNNING but the router still answers Unavailable (guest not yet listening vs. path down)")
 	)
 	flag.Parse()
 
@@ -68,6 +70,8 @@ func main() {
 	log.Printf("default atespace %q ready", ate.DefaultAtespace)
 
 	apisvc := apiservice.New(client, *atenet, *hostSuffix)
+	apisvc.WakeBudget = *wakeBudget
+	apisvc.WakeRunningBudget = *wakeRunningBudget
 	defer apisvc.Close()
 
 	grpcServer := grpc.NewServer()
