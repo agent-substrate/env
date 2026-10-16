@@ -249,6 +249,12 @@ GKE with gVisor workers, Substrate from 2026-10-12, ate-env-api with the port pr
 - The arm64 build of the layer: the agent-server answered `/health` within 9 s in an arm64 Ubuntu 22.04
   container (local Docker); the CodeAct flow ran the same way locally before the cluster run.
 
+- 2026-10-16, after the hash-locked rebuild, local Docker on arm64 only (the cluster runs above used
+  the earlier layer): the layer mounted read-only at `/opt/oh` in `debian:bullseye-slim` (glibc
+  2.31) and `ubuntu:24.04` answered `/health` and ran a command with the key (401 without);
+  `run_trajectory.py` ran `hello.json` and recorded a failed step in `--out`; `codeact_agent.py
+  --scripted` finished and its conversation was gone afterwards. The amd64 build is not yet verified.
+
 ## Limits
 
 - One API key per template: it is in the template's environment, readable by anyone who can read
