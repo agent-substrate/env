@@ -107,6 +107,15 @@ sidecar, run under two different rootfs images.
   yet. The NeMo Gym
   provider hands this out as its `endpoint(handle, port)`
   ([integrations/nemo-gym](../../integrations/nemo-gym/README.md)).
+- **The runtime must listen on `0.0.0.0`.** The router reaches the port on
+  the actor's address. A runtime bound to `127.0.0.1` serves only processes
+  inside the environment, and requests from outside fail with 502.
+- **Nobody is authenticated on the way in.** `ate-env-api` forwards for any
+  caller that reaches its listener, to any port of any actor the router
+  serves. A runtime that executes commands or edits files must check its own
+  credential, as OpenSandbox's `execd` token and the OpenHands agent-server's
+  session key do. See the README section "Reaching a service inside an
+  environment" for the browser checks and the flags.
 
 ## Suspend, resume and restarts
 

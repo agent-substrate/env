@@ -311,8 +311,31 @@ through either form; gRPC to the daemon is not supported yet.
 curl localhost:7777/v1alpha/envs/dev1/ports/6000/health
 ```
 
-`--atenet-connect` names the router's CONNECT listener (default
-`atenet-router.ate-system.svc.cluster.local:8081`); an empty value turns the forwarding off.
+The path form reaches the daemon exactly as sent: a path without the trailing slash is the daemon's
+root, and `//` or `..` after the prefix are not cleaned or redirected.
+
+**Who can use it.** The forwarding does not authenticate callers. Whoever can reach the API's
+listener can reach any TCP port of any actor the Substrate router serves, in any atespace,
+including actors that ate-env did not create. The guest API already reaches each actor that runs
+the guest; the forwarding extends that reach to every port. Keep the listener inside the cluster
+(the manifest's Service is `ClusterIP`), restrict it with a NetworkPolicy where other workloads
+share the cluster, and make each daemon check its own credential.
+
+**Browsers.** The path form refuses a state-changing request or a WebSocket handshake that a browser
+sends from a page of another origin, so a web page cannot drive a daemon through a `kubectl
+port-forward`. A page served by the forwarded daemon itself is same-origin and passes. All daemons
+behind one listener share that origin, thus a page from one daemon can call another.
+`--port-proxy-trusted-origins` adds origins, such as a UI on its own host. The header form needs no
+check: a browser sends custom headers to another origin only after a CORS preflight, which the API
+never approves. DNS rebinding, where a page on an attacker's name resolves to the forwarded
+listener, is not blocked yet; it needs a check of the `Host` header across the whole listener, the
+MCP endpoint included.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--atenet-connect` | `atenet-router.ate-system.svc.cluster.local:8081` | The router's CONNECT listener. An empty value turns the forwarding off. |
+| `--port-proxy-trusted-origins` | none | Comma-separated browser origins allowed to use the path form. |
+| `--port-proxy-response-header-timeout` | `0`, no limit | Bound on the wait for a daemon's response headers. Without it, the caller's deadline ends the wait. |
 
 ## Built-in MCP Server
 
