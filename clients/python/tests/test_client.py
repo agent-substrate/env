@@ -24,8 +24,15 @@ from ate_env import (
     NotFoundError,
     RpcError,
 )
-from ate_env._gen.ateenv.v1alpha import env_pb2
-from ate_env.client import _normalize_target
+from ate_env._gen.ateenv.v1alpha import env_pb2, env_pb2_grpc, guest_pb2_grpc
+from ate_env.client import _auth_interceptors, _normalize_target
+
+from .fakes import (
+    FakeEnvironmentService,
+    FakeFileSystemService,
+    FakeProc,
+    FakeProcessService,
+)
 
 
 def test_normalize_target():
@@ -177,3 +184,114 @@ async def test_external_channel_not_closed():
     await client.close()
     assert channel.get_state() != grpc.ChannelConnectivity.SHUTDOWN
     await channel.close()
+
+
+async def test_auth_interceptor_sends_bearer_on_all_call_shapes():
+    def auth_headers(ctx: grpc.aio.ServicerContext) -> bytes:
+        vals = [v for k, v in (ctx.invocation_metadata() or ()) if k == "authorization"]
+        return "|".join(vals).encode() if vals else b"<none>"
+
+    async def uu(req, ctx):
+        return auth_headers(ctx)
+
+    async def us(req, ctx):
+        yield auth_headers(ctx)
+
+    async def su(req_iter, ctx):
+        async for _ in req_iter:
+            pass
+        return auth_headers(ctx)
+
+    async def ss(req_iter, ctx):
+        async for _ in req_iter:
+            pass
+        yield auth_headers(ctx)
+
+    def ident(x):
+        return x
+
+    server = grpc.aio.server()
+    server.add_generic_rpc_handlers(
+        (
+            grpc.method_handlers_generic_handler(
+                "t",
+                {
+                    "UU": grpc.unary_unary_rpc_method_handler(uu, ident, ident),
+                    "US": grpc.unary_stream_rpc_method_handler(us, ident, ident),
+                    "SU": grpc.stream_unary_rpc_method_handler(su, ident, ident),
+                    "SS": grpc.stream_stream_rpc_method_handler(ss, ident, ident),
+                },
+            ),
+        )
+    )
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    ch = grpc.aio.insecure_channel(f"127.0.0.1:{port}", interceptors=_auth_interceptors("TOK"))
+
+    async def gen():
+        yield b""
+
+    try:
+        assert await ch.unary_unary("/t/UU", ident, ident)(b"") == b"Bearer TOK"
+        assert [x async for x in ch.unary_stream("/t/US", ident, ident)(b"")] == [b"Bearer TOK"]
+        assert await ch.stream_unary("/t/SU", ident, ident)(gen()) == b"Bearer TOK"
+        assert [x async for x in ch.stream_stream("/t/SS", ident, ident)(gen())] == [b"Bearer TOK"]
+    finally:
+        await ch.close()
+        await server.stop(None)
+
+
+async def test_auth_token_sent_once_across_unary_and_streaming_env_rpcs():
+    seen_auth: list[tuple[str, list[str]]] = []
+
+    class RequireBearerInterceptor(grpc.aio.ServerInterceptor):
+        async def intercept_service(self, continuation, handler_call_details):
+            vals = [
+                v
+                for k, v in (handler_call_details.invocation_metadata or ())
+                if k == "authorization"
+            ]
+            seen_auth.append((handler_call_details.method, vals))
+            if vals != ["Bearer s3cr3t"]:
+                async def unauth_unary(req, ctx):
+                    await ctx.abort(grpc.StatusCode.UNAUTHENTICATED, "missing or invalid bearer")
+                return grpc.unary_unary_rpc_method_handler(unauth_unary)
+            return await continuation(handler_call_details)
+
+    server = grpc.aio.server(interceptors=[RequireBearerInterceptor()])
+    fakes_env = FakeEnvironmentService()
+    fakes_proc = FakeProcessService()
+    fakes_fs = FakeFileSystemService()
+    env_pb2_grpc.add_EnvironmentServiceServicer_to_server(fakes_env, server)
+    guest_pb2_grpc.add_ProcessServiceServicer_to_server(fakes_proc, server)
+    guest_pb2_grpc.add_FileSystemServiceServicer_to_server(fakes_fs, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+
+    client = Client(f"127.0.0.1:{port}", auth_token="s3cr3t")
+    try:
+        env = await client.create("dev1")
+        await env.info()
+        await env.write_file("/workspace/hello.txt", b"hello world")
+        assert await env.read_file_bytes("/workspace/hello.txt") == b"hello world"
+        fakes_proc.next_procs.append(
+            FakeProc(chunks=[("stdout", b"ok\n")], exit_code=0, echo_stdin=True)
+        )
+        res = await env.shell("cat", stdin=b"in")
+        assert res.exit_code == 0
+        assert res.stdout == "ok\nin"
+    finally:
+        await client.close()
+        await server.stop(None)
+
+    methods = {m for m, _ in seen_auth}
+    assert "/ateenv.v1alpha.EnvironmentService/CreateEnvironment" in methods
+    assert "/ateenv.v1alpha.EnvironmentService/GetEnvironment" in methods
+    assert "/ateenv.v1alpha.FileSystemService/WriteFile" in methods
+    assert "/ateenv.v1alpha.FileSystemService/ReadFile" in methods
+    assert "/ateenv.v1alpha.ProcessService/StartProcess" in methods
+    assert "/ateenv.v1alpha.ProcessService/WriteProcessInput" in methods
+    assert "/ateenv.v1alpha.ProcessService/StreamProcessOutput" in methods
+    for method, vals in seen_auth:
+        assert vals == ["Bearer s3cr3t"], f"unexpected authorization headers on {method}: {vals}"
+

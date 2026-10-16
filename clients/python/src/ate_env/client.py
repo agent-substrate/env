@@ -49,18 +49,15 @@ class _ClientCallDetails(
     pass
 
 
-class _AuthInterceptor(
-    grpc.aio.UnaryUnaryClientInterceptor,
-    grpc.aio.UnaryStreamClientInterceptor,
-    grpc.aio.StreamUnaryClientInterceptor,
-    grpc.aio.StreamStreamClientInterceptor,
-):
+class _BaseAuthInterceptor:
     def __init__(self, token: str):
         self._token = token
 
     def _inject(self, details: grpc.aio.ClientCallDetails) -> _ClientCallDetails:
+        header = ("authorization", f"Bearer {self._token}")
         md = list(details.metadata or [])
-        md.append(("authorization", f"Bearer {self._token}"))
+        if not any(k.lower() == "authorization" for k, _ in md):
+            md.append(header)
         return _ClientCallDetails(
             details.method,
             details.timeout,
@@ -69,17 +66,37 @@ class _AuthInterceptor(
             details.wait_for_ready,
         )
 
+
+class _UnaryUnaryAuthInterceptor(_BaseAuthInterceptor, grpc.aio.UnaryUnaryClientInterceptor):
     async def intercept_unary_unary(self, continuation, client_call_details, request):
         return await continuation(self._inject(client_call_details), request)
 
+
+class _UnaryStreamAuthInterceptor(_BaseAuthInterceptor, grpc.aio.UnaryStreamClientInterceptor):
     async def intercept_unary_stream(self, continuation, client_call_details, request):
         return await continuation(self._inject(client_call_details), request)
 
+
+class _StreamUnaryAuthInterceptor(_BaseAuthInterceptor, grpc.aio.StreamUnaryClientInterceptor):
     async def intercept_stream_unary(self, continuation, client_call_details, request_iterator):
         return await continuation(self._inject(client_call_details), request_iterator)
 
+
+class _StreamStreamAuthInterceptor(_BaseAuthInterceptor, grpc.aio.StreamStreamClientInterceptor):
     async def intercept_stream_stream(self, continuation, client_call_details, request_iterator):
         return await continuation(self._inject(client_call_details), request_iterator)
+
+
+def _auth_interceptors(token: str) -> list[grpc.aio.ClientInterceptor]:
+    # grpc.aio.Channel.__init__ dispatches each interceptor with if/elif across
+    # the four base classes, so a single multi-inheritance instance only
+    # registers for UnaryUnary. Separate instances cover all four call shapes.
+    return [
+        _UnaryUnaryAuthInterceptor(token),
+        _UnaryStreamAuthInterceptor(token),
+        _StreamUnaryAuthInterceptor(token),
+        _StreamStreamAuthInterceptor(token),
+    ]
 
 
 class Client:
@@ -111,13 +128,14 @@ class Client:
         instead; the client then never closes it.
         """
         self.endpoint = endpoint
+        self._auth_token = auth_token or None
         if channel is not None:
             self._channel = channel
             self._owns_channel = False
         else:
             if not endpoint:
                 raise ValueError("ate_env: endpoint is required when channel is not given")
-            interceptors = [_AuthInterceptor(auth_token)] if auth_token else None
+            interceptors = _auth_interceptors(auth_token) if auth_token else None
             self._channel = grpc.aio.insecure_channel(
                 _normalize_target(endpoint), interceptors=interceptors
             )
