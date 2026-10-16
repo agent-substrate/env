@@ -65,12 +65,17 @@ verification, pinning and how releases are cut.
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket. ate-env is built against Substrate
-[`6edd1fcc`](https://github.com/agent-substrate/substrate/commit/6edd1fcc) (2026-10-15). The cluster
-needs a Substrate recent enough to accept what ate-env writes: the WorkerPool declares
-`spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and `wakeupProbe`, names its sandbox
-class as the string `gvisor`, and declares CPU and memory limits, and `--worker-image` must be the
-`ateworker-gvisor` image published by that Substrate install. A Substrate older than 2026-10-14 rejects
-the string sandbox class; use an ate-env from before this bump with it.
+[`3a2ca623`](https://github.com/agent-substrate/substrate/commit/3a2ca623) (2026-10-16, Go module
+`go.ate.dev/substrate`). The cluster needs a Substrate recent enough to accept what ate-env writes:
+the WorkerPool declares `spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and
+`wakeupProbe`, names its sandbox class as the string `gvisor`, and declares CPU and memory limits.
+That means Substrate at or after
+[`63a17a92`](https://github.com/agent-substrate/substrate/commit/63a17a92) (2026-10-15), which also
+renamed the worker image: `--worker-image` must be the `ateworker-gvisor` image published by that
+Substrate install. An older Substrate rejects the string sandbox class (from
+[`9ec49759`](https://github.com/agent-substrate/substrate/commit/9ec49759)) or the limits (from
+[`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)); use an ate-env from before
+this bump with it.
 
 ### 1. Deploy the Kubernetes Resources
 

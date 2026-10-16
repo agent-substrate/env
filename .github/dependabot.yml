@@ -16,9 +16,9 @@ updates:
     groups:
       go-deps:
         patterns: ["*"]
-        exclude-patterns: ["github.com/agent-substrate/substrate"]
+        exclude-patterns: ["go.ate.dev/substrate"]
     ignore:
-      - dependency-name: github.com/agent-substrate/substrate
+      - dependency-name: go.ate.dev/substrate
   - package-ecosystem: pip
     directory: /clients/python
     schedule:
