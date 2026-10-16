@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,7 +40,9 @@ func main() {
 		listen            = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
 		ateapi            = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
 		atenet            = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
-		atenetConn        = flag.String("atenet-connect", ate.DefaultRouterConnectAddr, "address of the atenet router's plaintext CONNECT listener; HTTP requests carrying X-Env-Id and X-Env-Port are forwarded through it to that port in the environment. Empty disables the port proxy")
+		atenetConn        = flag.String("atenet-connect", ate.DefaultRouterConnectAddr, "address of the atenet router's plaintext CONNECT listener; HTTP requests carrying X-Env-Id and X-Env-Port, or to /v1alpha/envs/{id}/ports/{port}/..., are forwarded through it to that port in the environment. The forwarding does not authenticate callers and reaches any port of any actor the router serves. Empty disables it")
+		ppOrigins         = flag.String("port-proxy-trusted-origins", "", "comma-separated browser origins (scheme://host[:port]) whose pages may use the port proxy's path form, next to the listener's own origin")
+		ppHeaderTimeout   = flag.Duration("port-proxy-response-header-timeout", 0, "how long the port proxy waits for a daemon's response headers; 0 means no limit, and the caller's deadline applies")
 		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
@@ -92,12 +95,23 @@ func main() {
 	// anything else, whatever their path: the path belongs to the daemon.
 	var handler http.Handler = mux
 	if *atenetConn != "" {
-		pp := portproxy.New(portproxy.Options{
-			ConnectAddr:     *atenetConn,
-			HostSuffix:      *hostSuffix,
-			DefaultAtespace: ate.DefaultAtespace,
+		var origins []string
+		for o := range strings.SplitSeq(*ppOrigins, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				origins = append(origins, o)
+			}
+		}
+		pp, err := portproxy.New(portproxy.Options{
+			ConnectAddr:           *atenetConn,
+			HostSuffix:            *hostSuffix,
+			DefaultAtespace:       ate.DefaultAtespace,
+			ResponseHeaderTimeout: *ppHeaderTimeout,
+			TrustedOrigins:        origins,
 		})
-		pp.Register(mux) // the path form, /v1alpha/envs/{id}/ports/{port}/...
+		if err != nil {
+			log.Fatalf("--port-proxy-trusted-origins: %v", err)
+		}
+		// Header form and path form, /v1alpha/envs/{id}/ports/{port}/...
 		handler = portproxy.Dispatch(pp, mux)
 	}
 

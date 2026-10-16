@@ -20,12 +20,19 @@
 // EnvAtespaceHeader (optional) and EnvPortHeader, or, for clients that cannot
 // set headers (WebSocket clients, browsers), with a path prefix that the proxy
 // strips: /v1alpha/envs/{id}/ports/{port}/... in the default atespace, or
-// /v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/... . The proxy opens an HTTP CONNECT tunnel through
-// the atenet router's CONNECT listener, naming the actor in ate-target-actor
-// and the port in the CONNECT authority. The router resumes a suspended actor
-// before it answers, then forwards the tunnel to that port. The proxy speaks
-// HTTP/1.1 to the daemon through the tunnel and keeps idle tunnels for reuse,
-// one pool for each environment and port.
+// /v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/... . The proxy opens
+// an HTTP CONNECT tunnel through the atenet router's CONNECT listener, naming
+// the actor in ate-target-actor and the port in the CONNECT authority. The
+// router resumes a suspended actor before it answers, then forwards the tunnel
+// to that port. The proxy speaks HTTP/1.1 to the daemon through the tunnel and
+// keeps idle tunnels for reuse, one pool for each environment and port.
+//
+// Trust model: the proxy does not authenticate callers. Whoever can reach the
+// listener it is served on can reach any TCP port of any actor the router
+// serves, in any atespace, including actors that ate-env did not create. A
+// daemon behind it must authenticate its own clients. The path form refuses
+// requests that a browser sends from another origin (see Options.TrustedOrigins),
+// so a web page cannot drive a daemon through a port-forwarded listener.
 package portproxy
 
 import (
@@ -71,6 +78,14 @@ type Options struct {
 	// HandshakeTimeout bounds the CONNECT handshake. Zero means
 	// DefaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
+	// ResponseHeaderTimeout bounds the wait for the daemon's response headers
+	// after the request is sent. Zero means no limit: a daemon that answers a
+	// long command only when it finishes is served, and the caller's own
+	// deadline ends a wait on a daemon that never answers.
+	ResponseHeaderTimeout time.Duration
+	// TrustedOrigins are browser origins (scheme://host[:port]) allowed to use
+	// the path form from a page they serve, next to the listener's own origin.
+	TrustedOrigins []string
 }
 
 // Proxy is an http.Handler that forwards each request to the environment port
@@ -78,23 +93,30 @@ type Options struct {
 type Proxy struct {
 	opts Options
 	rp   *httputil.ReverseProxy
+	cop  *http.CrossOriginProtection
 }
 
-// New returns a Proxy.
-func New(opts Options) *Proxy {
+// New returns a Proxy. It fails only on a malformed trusted origin.
+func New(opts Options) (*Proxy, error) {
 	if opts.HostSuffix == "" {
 		opts.HostSuffix = ate.DefaultHostSuffix
 	}
 	if opts.HandshakeTimeout <= 0 {
 		opts.HandshakeTimeout = DefaultHandshakeTimeout
 	}
-	p := &Proxy{opts: opts}
+	p := &Proxy{opts: opts, cop: http.NewCrossOriginProtection()}
+	for _, o := range opts.TrustedOrigins {
+		if err := p.cop.AddTrustedOrigin(o); err != nil {
+			return nil, fmt.Errorf("trusted origin: %w", err)
+		}
+	}
 	p.rp = &httputil.ReverseProxy{
 		Rewrite: p.rewrite,
 		Transport: &http.Transport{
-			DialContext:         p.dial,
-			MaxIdleConnsPerHost: 16,
-			IdleConnTimeout:     90 * time.Second,
+			DialContext:           p.dial,
+			MaxIdleConnsPerHost:   16,
+			IdleConnTimeout:       90 * time.Second,
+			ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
 			// Pass encodings through untouched; the daemon and the caller
 			// negotiate them.
 			DisableCompression: true,
@@ -104,24 +126,32 @@ func New(opts Options) *Proxy {
 		FlushInterval: -1,
 		ErrorHandler:  p.handleError,
 	}
-	return p
+	return p, nil
 }
 
-// Wants reports whether r is addressed to the proxy: it carries
-// EnvPortHeader. Callers of the gRPC API never send it.
+// Wants reports whether r uses the header form: it carries EnvPortHeader and
+// is not a gRPC call. Callers of the gRPC API never send the header, and the
+// tunnel carries HTTP/1.1 only.
 func Wants(r *http.Request) bool {
-	return r.Header.Get(EnvPortHeader) != ""
+	return r.Header.Get(EnvPortHeader) != "" &&
+		!strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc")
 }
 
-// Dispatch returns a handler that sends requests the proxy Wants to p and all
-// others to next.
+// Dispatch returns a handler that sends header-form requests to p.ServeHTTP,
+// path-form requests to p.ServePath, and all others to next. The path form is
+// matched here rather than on a ServeMux, so the daemon gets the path exactly
+// as sent: a mux would redirect a missing trailing slash, "//" and "..", and
+// WebSocket clients do not follow redirects.
 func Dispatch(p *Proxy, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if Wants(r) {
+		switch {
+		case Wants(r):
 			p.ServeHTTP(w, r)
-			return
+		case isPathForm(r.URL.EscapedPath()):
+			p.ServePath(w, r)
+		default:
+			next.ServeHTTP(w, r)
 		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -140,7 +170,15 @@ type targetKey struct{}
 // values go into a CONNECT request line and header, so nothing else may pass.
 var label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
+// canonicalPort is a TCP port in decimal: no sign, no leading zero.
+var canonicalPort = regexp.MustCompile(`^[1-9][0-9]{0,4}$`)
+
 func parseTarget(r *http.Request, defaultAtespace string) (target, error) {
+	for _, h := range []string{EnvIDHeader, EnvAtespaceHeader, EnvPortHeader} {
+		if len(r.Header.Values(h)) > 1 {
+			return target{}, fmt.Errorf("%s appears more than once", h)
+		}
+	}
 	if r.Header.Get(EnvIDHeader) == "" {
 		return target{}, fmt.Errorf("%s is required next to %s", EnvIDHeader, EnvPortHeader)
 	}
@@ -148,7 +186,7 @@ func parseTarget(r *http.Request, defaultAtespace string) (target, error) {
 }
 
 // makeTarget validates a target from either form.
-func makeTarget(id, atespace, port, defaultAtespace string) (target, error) {
+func makeTarget(id, atespace, portStr, defaultAtespace string) (target, error) {
 	t := target{id: id, atespace: atespace}
 	if !label.MatchString(t.id) {
 		return t, fmt.Errorf("environment id %q is not valid (lowercase alphanumerics and '-', at most 63)", t.id)
@@ -159,39 +197,91 @@ func makeTarget(id, atespace, port, defaultAtespace string) (target, error) {
 	if !label.MatchString(t.atespace) {
 		return t, fmt.Errorf("atespace %q is not valid", t.atespace)
 	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n < 1 || n > 65535 {
-		return t, fmt.Errorf("port %q is not a TCP port (1-65535)", port)
+	n, err := strconv.Atoi(portStr)
+	if !canonicalPort.MatchString(portStr) || err != nil || n > 65535 {
+		return t, fmt.Errorf("port %q is not a TCP port (1-65535)", portStr)
 	}
 	t.port = n
 	return t, nil
 }
 
-// Register adds the path form of the proxy to mux.
-func (p *Proxy) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/v1alpha/envs/{id}/ports/{port}/{rest...}", p.servePath)
-	mux.HandleFunc("/v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/{rest...}", p.servePath)
+// pathPrefix splits an escaped path of the path form into its routing
+// segments and the rest. n is 0 when the path does not have that shape. The
+// split is by segment on the escaped path, the way a ServeMux matches, so an
+// escaped routing segment (%65nv1 for env1) still ends the prefix where it
+// should.
+func pathPrefix(escaped string) (id, atespace, portStr, rest string, n int) {
+	segs := strings.Split(escaped, "/")
+	switch {
+	case len(segs) >= 6 && segs[0] == "" && segs[1] == "v1alpha" && segs[2] == "envs" && segs[4] == "ports":
+		id, portStr, n = segs[3], segs[5], 6
+	case len(segs) >= 8 && segs[0] == "" && segs[1] == "v1alpha" && segs[2] == "atespaces" && segs[4] == "envs" && segs[6] == "ports":
+		atespace, id, portStr, n = segs[3], segs[5], segs[7], 8
+	default:
+		return "", "", "", "", 0
+	}
+	return id, atespace, portStr, "/" + strings.Join(segs[n:], "/"), n
 }
 
-func (p *Proxy) servePath(w http.ResponseWriter, r *http.Request) {
-	t, err := makeTarget(r.PathValue("id"), r.PathValue("atespace"), r.PathValue("port"), p.opts.DefaultAtespace)
+func isPathForm(escaped string) bool {
+	_, _, _, _, n := pathPrefix(escaped)
+	return n > 0
+}
+
+func parsePath(escaped, defaultAtespace string) (target, error) {
+	id, atespace, portStr, rest, n := pathPrefix(escaped)
+	if n == 0 {
+		return target{}, errors.New("path is not /v1alpha/[atespaces/{atespace}/]envs/{id}/ports/{port}[/rest]")
+	}
+	// Validation admits only labels and digits, thus an escaped routing
+	// segment is unescaped first and the value that passes reads the same both
+	// ways.
+	for _, s := range []*string{&id, &atespace, &portStr} {
+		v, err := url.PathUnescape(*s)
+		if err != nil {
+			return target{}, fmt.Errorf("bad path escaping: %w", err)
+		}
+		*s = v
+	}
+	t, err := makeTarget(id, atespace, portStr, defaultAtespace)
+	if err != nil {
+		return t, err
+	}
+	// The rest keeps its own escaping. The bare prefix, with or without a
+	// trailing slash, is the daemon's root.
+	t.rawPath = rest
+	if t.path, err = url.PathUnescape(rest); err != nil {
+		return t, fmt.Errorf("bad path escaping: %w", err)
+	}
+	if t.rawPath == t.path {
+		t.rawPath = ""
+	}
+	return t, nil
+}
+
+// ServePath forwards a path-form request to the environment port its path
+// names, after it strips the routing prefix. It refuses a request that a
+// browser sends from another origin: a state-changing method, or a WebSocket
+// handshake, which is a GET that opens a channel both ways. The header form
+// needs no such check, because a browser sends custom headers to another
+// origin only after a CORS preflight, which the proxy never approves.
+func (p *Proxy) ServePath(w http.ResponseWriter, r *http.Request) {
+	t, err := parsePath(r.URL.EscapedPath(), p.opts.DefaultAtespace)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	prefix := "/v1alpha/envs/" + r.PathValue("id") + "/ports/" + r.PathValue("port")
-	if a := r.PathValue("atespace"); a != "" {
-		prefix = "/v1alpha/atespaces/" + a + prefix[len("/v1alpha"):]
+	check := r
+	if r.Header.Get("Upgrade") != "" {
+		// CrossOriginProtection lets safe methods through; judge a handshake
+		// as the state-changing request it is.
+		check = r.WithContext(r.Context())
+		check.Method = http.MethodPost
 	}
-	// The prefix is made of validated labels and digits, so it reads the same
-	// escaped and unescaped; what follows keeps its own escaping.
-	t.rawPath = strings.TrimPrefix(r.URL.EscapedPath(), prefix)
-	if t.path, err = url.PathUnescape(t.rawPath); err != nil {
-		http.Error(w, "bad path escaping: "+err.Error(), http.StatusBadRequest)
+	if err := p.cop.Check(check); err != nil {
+		http.Error(w, "cross-origin request to an environment port refused; "+
+			"add the page's origin to the port proxy's trusted origins", http.StatusForbidden)
 		return
-	}
-	if t.rawPath == t.path {
-		t.rawPath = ""
 	}
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), targetKey{}, t)))
 }
@@ -293,22 +383,31 @@ type bufferedConn struct {
 
 func (c *bufferedConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 
+// handleError answers a failed forward. The body names the target and a
+// short cause; the full error, which can name the router's address, goes to
+// the log only.
 func (p *Proxy) handleError(w http.ResponseWriter, r *http.Request, err error) {
 	t, _ := r.Context().Value(targetKey{}).(target)
 	var re *routerError
-	status := http.StatusBadGateway
+	var ne net.Error
+	status, cause := http.StatusBadGateway, "is unreachable; the ate-env-api log has the cause"
 	switch {
 	case errors.Is(err, context.Canceled):
 		return // the caller went away; nobody reads an answer
 	case errors.As(err, &re):
 		// 404 (no such environment) and 503 (not running) mean the same to
 		// the caller as to the router; anything else is a gateway failure.
-		if re.status == http.StatusNotFound || re.status == http.StatusServiceUnavailable {
-			status = re.status
+		switch re.status {
+		case http.StatusNotFound:
+			status, cause = re.status, "was not found"
+		case http.StatusServiceUnavailable:
+			status, cause = re.status, "is not available (not running, or still waking)"
+		case http.StatusBadGateway:
+			cause = "refused the connection; a daemon must listen on 0.0.0.0, not only on 127.0.0.1"
 		}
-	case errors.Is(err, context.DeadlineExceeded):
-		status = http.StatusGatewayTimeout
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout():
+		status, cause = http.StatusGatewayTimeout, "did not answer in time"
 	}
 	log.Printf("port proxy: %s/%s port %d: %v", t.atespace, t.id, t.port, err)
-	http.Error(w, fmt.Sprintf("environment %s/%s port %d: %v", t.atespace, t.id, t.port, err), status)
+	http.Error(w, fmt.Sprintf("environment %s/%s port %d %s", t.atespace, t.id, t.port, cause), status)
 }

@@ -66,7 +66,7 @@ func newSetup(t *testing.T) *setup {
 	srv := httptest.NewServer(rr)
 	t.Cleanup(srv.Close)
 	addr := strings.TrimPrefix(srv.URL, "http://")
-	p := portproxy.New(portproxy.Options{
+	p := mustNew(t, portproxy.Options{
 		ConnectAddr:      addr,
 		DefaultAtespace:  "ate-env",
 		HandshakeTimeout: 5 * time.Second,
@@ -74,6 +74,15 @@ func newSetup(t *testing.T) *setup {
 	proxy := httptest.NewServer(p)
 	t.Cleanup(proxy.Close)
 	return &setup{router: rr, routerAddr: addr, proxy: proxy}
+}
+
+func mustNew(t *testing.T, opts portproxy.Options) *portproxy.Proxy {
+	t.Helper()
+	p, err := portproxy.New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func (s *setup) do(t *testing.T, method, path, body string, headers map[string]string) (*http.Response, string) {
@@ -188,11 +197,26 @@ func TestRejectsBadTargets(t *testing.T) {
 		"port too large":  {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "70000"},
 		"id uppercase":    {portproxy.EnvIDHeader: "Env1", portproxy.EnvPortHeader: "8000"},
 		"id with slash":   {portproxy.EnvIDHeader: "a/b", portproxy.EnvPortHeader: "8000"},
+		"port with sign":  {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "+8000"},
+		"port zero-led":   {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "08000"},
 		"bad atespace":    {portproxy.EnvIDHeader: "env1", portproxy.EnvPortHeader: "8000", portproxy.EnvAtespaceHeader: "x y"},
 	} {
 		if resp, body := s.do(t, http.MethodGet, "/", "", h); resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s: got %d %q, want 400", name, resp.StatusCode, body)
 		}
+	}
+	// A routing header sent twice is ambiguous.
+	req, _ := http.NewRequest(http.MethodGet, s.proxy.URL+"/", nil)
+	req.Header.Add(portproxy.EnvIDHeader, "env1")
+	req.Header.Add(portproxy.EnvIDHeader, "env2")
+	req.Header.Set(portproxy.EnvPortHeader, "8000")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("duplicate %s: got %d, want 400", portproxy.EnvIDHeader, resp.StatusCode)
 	}
 	if n := s.router.connectCount(); n != 0 {
 		t.Errorf("router saw %d CONNECTs for rejected requests, want 0", n)
@@ -234,7 +258,7 @@ func TestDispatch(t *testing.T) {
 	s := newSetup(t)
 	s.router.RegisterPort("env1", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "proxied") }))
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "api") })
-	h := portproxy.Dispatch(portproxy.New(portproxy.Options{ConnectAddr: s.routerAddr, DefaultAtespace: "ate-env"}), next)
+	h := portproxy.Dispatch(mustNew(t, portproxy.Options{ConnectAddr: s.routerAddr, DefaultAtespace: "ate-env"}), next)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -255,16 +279,26 @@ func TestDispatch(t *testing.T) {
 	if b, _ := io.ReadAll(resp.Body); string(b) != "proxied" {
 		t.Errorf("request with %s got %q, want the daemon's answer", portproxy.EnvPortHeader, b)
 	}
+
+	// A gRPC call is never proxied, even with the header: the tunnel carries
+	// HTTP/1.1 only.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/ateenv.v1alpha.EnvironmentService/Get", nil)
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Header.Set(portproxy.EnvPortHeader, "8000")
+	h.ServeHTTP(rec, req)
+	if rec.Body.String() != "api" {
+		t.Errorf("gRPC request with %s went to %q, want the API", portproxy.EnvPortHeader, rec.Body.String())
+	}
 }
 
-// pathSetup serves the proxy the way ate-env-api does: path form on a mux,
-// header form dispatched in front of it.
-func pathSetup(t *testing.T) (*setup, string) {
+// pathSetup serves the proxy the way ate-env-api does: both forms dispatched
+// in front of the API's mux.
+func pathSetup(t *testing.T, origins ...string) (*setup, string) {
 	t.Helper()
 	s := newSetup(t)
-	p := portproxy.New(portproxy.Options{ConnectAddr: s.routerAddr, DefaultAtespace: "ate-env", HandshakeTimeout: 5 * time.Second})
+	p := mustNew(t, portproxy.Options{ConnectAddr: s.routerAddr, DefaultAtespace: "ate-env", HandshakeTimeout: 5 * time.Second, TrustedOrigins: origins})
 	mux := http.NewServeMux()
-	p.Register(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "api") })
 	srv := httptest.NewServer(portproxy.Dispatch(p, mux))
 	t.Cleanup(srv.Close)
@@ -334,6 +368,9 @@ func TestPathFormAtespaceAndValidation(t *testing.T) {
 		"/v1alpha/envs/Env1/ports/9000/x",
 		"/v1alpha/envs/env1/ports/0/x",
 		"/v1alpha/envs/env1/ports/http/x",
+		"/v1alpha/envs/env1/ports/09000/x",
+		"/v1alpha/envs//ports/9000/x",
+		"/v1alpha/envs/a%2Fb/ports/9000/x",
 		"/v1alpha/atespaces/A_B/envs/env1/ports/9000/x",
 	} {
 		resp, err := http.Get(base + path)
@@ -401,5 +438,154 @@ func TestUpgradePassesThrough(t *testing.T) {
 			t.Errorf("%s: after upgrade got %q, %v; want re:ping", name, got, err)
 		}
 		conn.Close()
+	}
+}
+
+// The path form reaches the daemon exactly as sent: an escaped routing segment
+// still ends the prefix, and nothing is redirected or cleaned.
+func TestPathFormKeepsPathAsSent(t *testing.T) {
+	s, base := pathSetup(t)
+	var seen *http.Request
+	s.router.RegisterPort("env1", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r
+		io.WriteString(w, "daemon")
+	}))
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, c := range []struct{ method, path, want string }{
+		{http.MethodGet, "/v1alpha/envs/%65nv1/ports/8000/a", "/a"},
+		{http.MethodGet, "/v1alpha/envs/env1/ports/%38000/a", "/a"},
+		{http.MethodGet, "/v1alpha/envs/env1/ports/8000", "/"},
+		{http.MethodPost, "/v1alpha/envs/env1/ports/8000", "/"},
+		{http.MethodPost, "/v1alpha/atespaces/ate-env/envs/env1/ports/8000", "/"},
+		{http.MethodGet, "/v1alpha/envs/env1/ports/8000/a//b/../c?x=1", "/a//b/../c?x=1"},
+	} {
+		seen = nil
+		req, _ := http.NewRequest(c.method, base+c.path, nil)
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || string(b) != "daemon" || seen == nil {
+			t.Errorf("%s %s: got %d %q, want the daemon's 200", c.method, c.path, resp.StatusCode, b)
+			continue
+		}
+		if got := seen.URL.RequestURI(); got != c.want {
+			t.Errorf("%s %s: daemon saw %q, want %q", c.method, c.path, got, c.want)
+		}
+	}
+}
+
+// A browser page from another origin cannot drive a daemon through the path
+// form: no state-changing request, no WebSocket handshake. Reads, non-browser
+// clients, the listener's own origin and trusted origins pass.
+func TestPathFormRefusesCrossOrigin(t *testing.T) {
+	s, base := pathSetup(t, "https://ui.example")
+	s.router.RegisterPort("env1", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "" {
+			w.Header().Set("Connection", "Upgrade")
+			w.Header().Set("Upgrade", "echo")
+			w.WriteHeader(http.StatusSwitchingProtocols)
+			return
+		}
+		io.WriteString(w, "daemon")
+	}))
+	self := base // the listener's own origin, as a browser on it sends
+	path := base + "/v1alpha/envs/env1/ports/8000/run"
+	for _, c := range []struct {
+		name    string
+		method  string
+		headers map[string]string
+		want    int
+	}{
+		{"cross-site POST", http.MethodPost, map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}, http.StatusForbidden},
+		{"foreign Origin POST", http.MethodPost, map[string]string{"Origin": "https://evil.example"}, http.StatusForbidden},
+		{"foreign Origin upgrade", http.MethodGet, map[string]string{"Origin": "https://evil.example", "Connection": "Upgrade", "Upgrade": "echo"}, http.StatusForbidden},
+		{"cross-site upgrade", http.MethodGet, map[string]string{"Sec-Fetch-Site": "cross-site", "Connection": "Upgrade", "Upgrade": "echo"}, http.StatusForbidden},
+		{"cross-site GET", http.MethodGet, map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}, http.StatusOK},
+		{"no browser headers", http.MethodPost, nil, http.StatusOK},
+		{"own origin POST", http.MethodPost, map[string]string{"Origin": self}, http.StatusOK},
+		{"same-origin upgrade", http.MethodGet, map[string]string{"Sec-Fetch-Site": "same-origin", "Connection": "Upgrade", "Upgrade": "echo"}, http.StatusSwitchingProtocols},
+		{"trusted origin POST", http.MethodPost, map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://ui.example"}, http.StatusOK},
+	} {
+		req, _ := http.NewRequest(c.method, path, nil)
+		for k, v := range c.headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, resp.StatusCode, c.want)
+		}
+	}
+	if _, err := portproxy.New(portproxy.Options{ConnectAddr: s.routerAddr, TrustedOrigins: []string{"not an origin"}}); err == nil {
+		t.Error("New accepted a malformed trusted origin")
+	}
+}
+
+// An error body names the target and a short cause. The router's message and
+// address stay in the log.
+func TestErrorBodiesNameCauseOnly(t *testing.T) {
+	refuser := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "dial tcp 10.1.2.3:8000: connect: connection refused", http.StatusBadGateway)
+	}))
+	defer refuser.Close()
+	p := mustNew(t, portproxy.Options{ConnectAddr: strings.TrimPrefix(refuser.URL, "http://"), DefaultAtespace: "ate-env"})
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	for k, v := range target("env1", 8000) {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	body := string(b)
+	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(body, "ate-env/env1 port 8000") || !strings.Contains(body, "0.0.0.0") {
+		t.Errorf("got %d %q, want 502 naming the target and the listen rule", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "10.1.2.3") || strings.Contains(body, refuser.URL[len("http://"):]) {
+		t.Errorf("body %q leaks an internal address", body)
+	}
+}
+
+func TestResponseHeaderTimeout(t *testing.T) {
+	rr := &recordingRouter{Router: fakerouter.New()}
+	router := httptest.NewServer(rr)
+	defer router.Close()
+	release := make(chan struct{})
+	defer close(release)
+	rr.RegisterPort("env1", 8000, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	p := mustNew(t, portproxy.Options{
+		ConnectAddr:           strings.TrimPrefix(router.URL, "http://"),
+		DefaultAtespace:       "ate-env",
+		ResponseHeaderTimeout: 200 * time.Millisecond,
+	})
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	for k, v := range target("env1", 8000) {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: 10 * time.Second} // fail, not hang, without the limit
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("silent daemon: got %d, want 504", resp.StatusCode)
 	}
 }
