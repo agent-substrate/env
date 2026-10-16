@@ -131,6 +131,8 @@ func testTrajectory(t *testing.T, rewardCmd string) *Trajectory {
 	t.Helper()
 	tr, err := ParseTrajectory([]byte(`
 name: test
+setup:
+  - {name: baseline, run: "git commit baseline", expect_exit: 0}
 reset:
   - {name: reset, run: "git checkout", expect_exit: 0}
 steps:
@@ -190,10 +192,9 @@ func TestEvalCreatesReplaysDeletes(t *testing.T) {
 	if f.files["t-repo--repo-a-0:/tmp/p"] != "PATCH" {
 		t.Fatalf("patch not written: %v", f.files)
 	}
-	for _, c := range f.commands {
-		if strings.Contains(c, "git checkout") {
-			t.Fatal("reset steps must not run in eval mode")
-		}
+	resets, setups := countCommands(f, "git checkout", "git commit baseline")
+	if resets != 0 || setups != 6 {
+		t.Fatalf("eval mode: %d resets (want 0), %d setups (want 6, once per environment)", resets, setups)
 	}
 	rep := Build(parseEvents(t, out.String()))
 	if rep.Tasks != 6 || rep.RewardRate != 1 {
@@ -278,14 +279,9 @@ func TestStepsSuspendPark(t *testing.T) {
 			t.Fatalf("env %s created %d suspended %d deleted %d", id, n, f.suspended[id], f.deleted[id])
 		}
 	}
-	resets := 0
-	for _, c := range f.commands {
-		if strings.Contains(c, "git checkout") {
-			resets++
-		}
-	}
-	if resets != 12 {
-		t.Fatalf("reset ran %d times, want 6 envs x 2 later steps", resets)
+	resets, setups := countCommands(f, "git checkout", "git commit baseline")
+	if resets != 12 || setups != 6 {
+		t.Fatalf("suspend park: %d resets (want 6 envs x 2 later steps), %d setups (want 6, once per environment)", resets, setups)
 	}
 	rep := Build(parseEvents(t, out.String()))
 	if len(rep.Steps) != 3 || rep.Steps[0].Tasks != 6 || rep.Steps[0].ParkMS == 0 || rep.Steps[2].ParkMS != 0 {
@@ -323,11 +319,25 @@ func TestStepsDeleteParkRecreates(t *testing.T) {
 	if hasStat(rep, EventWake) {
 		t.Fatal("delete park has no wake events")
 	}
+	resets, setups := countCommands(f, "git checkout", "git commit baseline")
+	if resets != 0 || setups != 6 {
+		t.Fatalf("delete park: %d resets (want 0, every environment is new), %d setups (want 3 envs x 2 creates)", resets, setups)
+	}
+}
+
+// countCommands counts the fake's recorded commands containing each needle.
+func countCommands(f *fakeBackend, resetNeedle, setupNeedle string) (resets, setups int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for _, c := range f.commands {
-		if strings.Contains(c, "git checkout") {
-			t.Fatal("reset steps must not run on a freshly created environment")
+		if strings.Contains(c, resetNeedle) {
+			resets++
+		}
+		if strings.Contains(c, setupNeedle) {
+			setups++
 		}
 	}
+	return resets, setups
 }
 
 func TestStepsKeepLeavesFleet(t *testing.T) {

@@ -388,15 +388,16 @@ func (r *runner) create(ctx context.Context, e *environment, step int) bool {
 	return true
 }
 
-// replay runs the trajectory once on e and records one task event. From the
-// second step on, the Reset steps run first when the environment survived
-// the park; after a delete park it is a fresh environment with nothing to
-// reset.
+// replay runs the trajectory once on e and records one task event. A fresh
+// environment (its first step, or any step after a delete park) runs the
+// Setup steps first; one that survived a park runs the Reset steps first.
 func (r *runner) replay(ctx context.Context, e *environment, step int) {
-	steps := e.traj.Steps
-	if step > 1 && r.cfg.Park != ParkDelete {
-		steps = append(append([]Step{}, e.traj.Reset...), e.traj.Steps...)
+	fresh := step <= 1 || r.cfg.Park == ParkDelete
+	prefix := e.traj.Reset
+	if fresh {
+		prefix = e.traj.Setup
 	}
+	steps := append(append([]Step{}, prefix...), e.traj.Steps...)
 	// The first instruction of a task either follows a create (eval, or a
 	// delete park) or a park (suspend); its wall time is the TTFI or the
 	// wake, and it is the one that may find the environment not yet
