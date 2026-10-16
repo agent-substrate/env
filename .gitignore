@@ -5,3 +5,4 @@ deployment.yaml
 
 # uv writes a lockfile next to each pyproject it runs; the Python projects here are libraries and ship none.
 uv.lock
+cmd/benchmarking/swebench-loader/kodata/
