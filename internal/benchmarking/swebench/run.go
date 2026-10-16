@@ -149,7 +149,11 @@ func (c *Config) defaults() {
 // environment is one sandbox and its progress. One goroutine owns it at a
 // time; phases are separated by barriers, so it needs no lock.
 type environment struct {
+	// id is the current actor name; base is the name of the first one. A
+	// recreate after a delete park gets a fresh name, since Substrate
+	// deletes asynchronously and the old name is not free immediately.
 	id   string
+	base string
 	inst Instance
 	task int
 	traj *Trajectory
@@ -212,8 +216,10 @@ func (r *runner) plan() ([]*environment, error) {
 			return nil, err
 		}
 		for k := 0; k < fanout; k++ {
+			id := EnvID(r.cfg.RunID, in.InstanceID, k)
 			envs = append(envs, &environment{
-				id:   EnvID(r.cfg.RunID, in.InstanceID, k),
+				id:   id,
+				base: id,
 				inst: in,
 				task: k,
 				traj: traj,
@@ -368,6 +374,9 @@ func (r *runner) countFailed(envs []*environment) int {
 // create makes the environment and records the call. It returns false and
 // marks the environment failed when the create did not succeed.
 func (r *runner) create(ctx context.Context, e *environment, step int) bool {
+	if step > 1 {
+		e.id = fmt.Sprintf("%s-s%d", e.base, step)
+	}
 	cctx, cancel := context.WithTimeout(ctx, r.cfg.CreateTimeout)
 	defer cancel()
 	e.createStart = time.Now()

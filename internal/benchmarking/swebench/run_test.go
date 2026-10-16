@@ -307,10 +307,21 @@ func TestStepsDeleteParkRecreates(t *testing.T) {
 	if _, err := Run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
+	// Each step creates under a fresh name: 3 environments x 2 steps.
+	if len(f.created) != 6 {
+		t.Fatalf("created %d distinct names, want 6: %v", len(f.created), f.created)
+	}
+	fresh := 0
 	for id, n := range f.created {
-		if n != 2 || f.deleted[id] != 2 || f.suspended[id] != 0 {
+		if n != 1 || f.deleted[id] != 1 || f.suspended[id] != 0 {
 			t.Fatalf("env %s created %d deleted %d suspended %d", id, n, f.deleted[id], f.suspended[id])
 		}
+		if strings.HasSuffix(id, "-s2") {
+			fresh++
+		}
+	}
+	if fresh != 3 {
+		t.Fatalf("%d step-2 names, want 3", fresh)
 	}
 	rep := Build(parseEvents(t, out.String()))
 	if s := stat(rep, EventTTFI); s.Count != 6 {
