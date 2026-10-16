@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Checks for pull requests and main: the Go build, vet and tests, gofmt, the
-# license headers, and the Python client's unit tests. Release publishing lives in
+# license headers, the Python client's unit tests, and the integrations' tests. Release publishing lives in
 # release.yaml. Actions are pinned by commit SHA (version in the trailing
 # comment), as the organization's workflow security scan requires.
 name: ci
@@ -63,3 +63,19 @@ jobs:
       - run: python -m pytest internal/benchmarking/swebench/trajectories -q
       - run: ruff check clients/python
       - run: python -m pytest integrations/nemo-gym/tests -q
+
+  openhands:
+    # A job of its own: openhands-sdk and the agent-server the tests start pull
+    # in a large dependency set that the other Python checks do not need.
+    name: OpenHands integration
+    runs-on: ubuntu-24.04 # pinned: ubuntu-latest moves to 26.04 from 2026-10-19; bump deliberately
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e 'clients/python[dev]' -e 'integrations/openhands[test]'
+      - run: python -m pytest integrations/openhands/tests -q
+      - run: ruff check integrations/openhands
