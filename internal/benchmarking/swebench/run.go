@@ -128,7 +128,31 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("unknown mode %q", c.Mode)
 	}
+	if n := c.longestName(); len(n) > maxNameLen {
+		return fmt.Errorf("environment name %q has %d characters, more than Substrate's %d; "+
+			"use a shorter run id, fewer rollouts or tasks per image, or fewer steps", n, len(n), maxNameLen)
+	}
 	return nil
+}
+
+// longestName is the longest environment name the run builds: EnvID for the
+// largest replay index of each instance, plus the "-s<step>" suffix that a
+// delete park gives the environments of later steps.
+func (c *Config) longestName() string {
+	k, suffix := c.TasksPerImage-1, ""
+	if c.Mode == ModeSteps {
+		k = c.Rollouts - 1
+		if c.Park == ParkDelete && c.Steps > 1 {
+			suffix = fmt.Sprintf("-s%d", c.Steps)
+		}
+	}
+	longest := ""
+	for _, in := range c.Instances {
+		if n := EnvID(c.RunID, in.InstanceID, k) + suffix; len(n) > len(longest) {
+			longest = n
+		}
+	}
+	return longest
 }
 
 func (c *Config) defaults() {
@@ -156,12 +180,15 @@ func (c *Config) defaults() {
 const DefaultWakeBackoff = 2 * time.Second
 
 // runIDPattern is Substrate's name rule (a k8s short name); the run id is a
-// prefix of every environment name. maxRunIDLen keeps the longest name the
-// loader builds (run id, 36 characters of instance id, a replay index and a
-// step suffix) under the 63-character limit.
+// prefix of every environment name. maxRunIDLen caps the run id; validate
+// checks the longest name the run builds against maxNameLen, because the
+// instance ids, the replay index and the step suffix add to it.
 var runIDPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-const maxRunIDLen = 20
+const (
+	maxRunIDLen = 20
+	maxNameLen  = 63
+)
 
 // cleanupTimeout bounds the deletes that run after a cancelled or finished
 // run; they use a context that survives the cancellation so nothing leaks.
@@ -567,10 +594,6 @@ func (r *runner) doStep(ctx context.Context, e *environment, s Step, first bool)
 	}
 }
 
-// isTransient reports whether a first-command error is worth another try.
-// Unavailable is the router giving up on a wake; Unknown, Internal and
-// Aborted are what a resume that races the golden bake or a worker restart
-// surfaces as. Argument and precondition errors are not retried.
 // isNotFound reports whether a delete found nothing to delete.
 func isNotFound(err error) bool {
 	if errors.Is(err, env.ErrNotFound) {
@@ -580,6 +603,11 @@ func isNotFound(err error) bool {
 	return ok && st.Code() == codes.NotFound
 }
 
+// isTransient reports whether a first-command error is worth another try.
+// Unavailable is the router giving up on a wake; DeadlineExceeded, Unknown,
+// Internal and Aborted are what a resume that races the golden bake or a
+// worker restart surfaces as. Argument and precondition errors are not
+// retried.
 func isTransient(err error) bool {
 	st, ok := status.FromError(err)
 	if !ok {
@@ -609,7 +637,12 @@ func (r *runner) remove(ctx context.Context, e *environment, step int) {
 	err := e.sb.Delete(ctx)
 	r.rec.Record(r.event(EventDelete, e, step, time.Since(start), err))
 	if err != nil {
-		r.log.Warn("delete failed", slog.String("env", e.id), slog.String("err", err.Error()))
+		// Keep e.sb for the final cleanup, and take the environment out of
+		// later steps: a delete park would otherwise create the next name and
+		// overwrite the only handle to this one, which then leaks.
+		e.failed = true
+		r.log.Warn("delete failed; the environment leaves the run and is deleted at the end",
+			slog.String("env", e.id), slog.String("err", err.Error()))
 		return
 	}
 	e.sb = nil

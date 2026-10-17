@@ -138,6 +138,15 @@ def test_invalid_runs():
     assert grader.grade(inst, wrap("Executed 3 of 3 specs"))["valid"]
 
 
+def test_a_stray_end_marker_before_the_region_is_ignored():
+    # The harness slices from Start to the End after it; an earlier End (an
+    # echoed script, say) must not void a valid run.
+    inst = {"log_parser": "parse_log_pytest", "fail_to_pass": ["t"], "pass_to_pass": []}
+    log = "+ cat eval.sh\n: '>>>>> End Test Output'\n" + wrap("PASSED t")
+    rep = grader.grade(inst, log)
+    assert rep["valid"] and rep["resolved"], rep
+
+
 def test_unknown_status_counts_for_nothing():
     # A recorded status outside the known set is neither a pass nor a failure
     # in the harness, so it must not block resolution.

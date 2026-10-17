@@ -86,8 +86,10 @@ between runs.
 
    `--image-ref` sets how an instance maps to an image reference (default:
    one tag per instance, `sweb.eval.x86_64.<instance_id>`, in one
-   repository); the script lists instances whose image it cannot resolve and
-   writes the dataset revision and swebench version next to the manifest.
+   repository); the script lists instances whose image it cannot resolve. It
+   loads the dataset at a resolved commit (`--revision`, else the current
+   head) and writes that commit (`resolved_revision`; the file's sha256 for a
+   local dataset) and the swebench version to `OUT.meta.json`.
 
 3. Install ate-env with a base template (`ate-env manifest template`). Per
    image, the API derives one template from it on first use and bakes the

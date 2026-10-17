@@ -47,7 +47,8 @@ type fakeBackend struct {
 	commands    []string
 	files       map[string]string
 	failCreate  map[string]bool
-	unavailable int32 // first-command Unavailable errors still to return
+	failDelete  map[string]int // sandbox deletes still to refuse, by id
+	unavailable int32          // first-command Unavailable errors still to return
 
 	inflight    atomic.Int32
 	maxInflight atomic.Int32
@@ -55,7 +56,8 @@ type fakeBackend struct {
 
 func newFake() *fakeBackend {
 	return &fakeBackend{created: map[string]int{}, suspended: map[string]int{}, deleted: map[string]int{},
-		deletedByID: map[string]int{}, files: map[string]string{}, failCreate: map[string]bool{}}
+		deletedByID: map[string]int{}, files: map[string]string{}, failCreate: map[string]bool{},
+		failDelete: map[string]int{}}
 }
 
 func (f *fakeBackend) Delete(ctx context.Context, id string) error {
@@ -136,6 +138,10 @@ func (s *fakeSandbox) Delete(ctx context.Context) error {
 	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	if s.b.failDelete[s.id] > 0 {
+		s.b.failDelete[s.id]--
+		return errors.New("delete refused")
+	}
 	s.b.deleted[s.id]++
 	return nil
 }
@@ -585,4 +591,69 @@ func stat(rep *Report, event string) Stat {
 
 func hasStat(rep *Report, event string) bool {
 	return stat(rep, event).Count > 0
+}
+
+// A delete park that fails must not leak the environment: it leaves the run,
+// keeps its handle, and the final cleanup deletes it.
+func TestStepsFailedDeleteParkDoesNotLeak(t *testing.T) {
+	f := newFake()
+	cfg := baseConfig(t, f, nil)
+	cfg.Mode = ModeSteps
+	cfg.Rollouts = 1
+	cfg.Steps = 3
+	cfg.Park = ParkDelete
+	for _, in := range cfg.Instances {
+		f.failDelete[EnvID(cfg.RunID, in.InstanceID, 0)] = 1
+	}
+
+	if _, err := Run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.created) != 3 {
+		t.Fatalf("created %v; want only the 3 step-1 environments, which leave the run after the failed park", f.created)
+	}
+	for id := range f.created {
+		if f.deleted[id] != 1 {
+			t.Errorf("environment %s deleted %d times, want 1 (leaked)", id, f.deleted[id])
+		}
+	}
+}
+
+func TestValidateChecksTheLongestName(t *testing.T) {
+	long := Instance{InstanceID: strings.Repeat("a", 40), Image: "reg/img@" + goodDigest, Patch: "P", EvalScript: "E"}
+	base := func() Config {
+		cfg := baseConfig(t, newFake(), nil)
+		cfg.RunID = strings.Repeat("r", maxRunIDLen)
+		cfg.Instances = []Instance{long}
+		cfg.Mode = ModeSteps
+		cfg.Rollouts = 11
+		cfg.Steps = 10
+		cfg.Park = ParkDelete
+		return cfg
+	}
+	// 20 + 1 + 36 + 1 + "10" + "-s10" = 64 characters.
+	cfg := base()
+	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "more than Substrate's 63") {
+		t.Fatalf("validate() = %v, want the 64-character name refused", err)
+	}
+	for name, edit := range map[string]func(*Config){
+		"nine steps (63 characters)": func(c *Config) { c.Steps = 9 },
+		"suspend park, no suffix":    func(c *Config) { c.Park = ParkSuspend },
+		"ten rollouts":               func(c *Config) { c.Rollouts = 10 },
+	} {
+		cfg := base()
+		edit(&cfg)
+		if err := cfg.validate(); err != nil {
+			t.Errorf("%s: validate() = %v, want nil", name, err)
+		}
+		if n := cfg.longestName(); len(n) > maxNameLen {
+			t.Errorf("%s: longest name %q has %d characters", name, n, len(n))
+		}
+	}
+	// Eval mode adds no suffix: the replay index alone counts.
+	cfg = base()
+	cfg.Mode, cfg.TasksPerImage = ModeEval, 100001 // largest index 100000
+	if err := cfg.validate(); err == nil {
+		t.Fatal("eval mode with a 6-digit replay index: want the long name refused")
+	}
 }

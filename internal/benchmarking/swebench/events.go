@@ -38,12 +38,15 @@ const (
 // Event is one JSONL record. Dur is wall time as seen by the loader; it
 // includes the network and the API server, which is what a trainer sees.
 type Event struct {
-	Time     time.Time `json:"ts"`
-	RunID    string    `json:"run"`
-	Event    string    `json:"event"`
-	Name     string    `json:"name,omitempty"`
-	Env      string    `json:"env,omitempty"`
-	Instance string    `json:"instance,omitempty"`
+	Time  time.Time `json:"ts"`
+	RunID string    `json:"run"`
+	Event string    `json:"event"`
+	Name  string    `json:"name,omitempty"`
+	// Env is the environment's name. With a delete park, an environment is
+	// recreated under "<name>-s<step>" from step 2 on, thus group a replay's
+	// events by Instance and Task, not by Env.
+	Env      string `json:"env,omitempty"`
+	Instance string `json:"instance,omitempty"`
 	// Step is the training step in steps mode (1-based); 0 in eval mode.
 	Step int `json:"step,omitempty"`
 	// Task numbers the replays of one instance (eval: task index; steps:
