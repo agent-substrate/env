@@ -86,7 +86,20 @@ func LoadDataset(source string) ([]Instance, error) {
 		return nil, fmt.Errorf("dataset %s: remote manifests must use https", source)
 	}
 	if strings.HasPrefix(source, "https://") {
-		client := &http.Client{Timeout: datasetFetchTimeout}
+		client := &http.Client{
+			Timeout: datasetFetchTimeout,
+			// The https rule holds for each hop: a redirect to http would
+			// fetch the scripts in clear text.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if req.URL.Scheme != "https" {
+					return fmt.Errorf("redirect to %s: remote manifests must use https", req.URL.Redacted())
+				}
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				return nil
+			},
+		}
 		resp, err := client.Get(source)
 		if err != nil {
 			return nil, fmt.Errorf("fetch dataset: %w", err)

@@ -15,9 +15,12 @@
 package swebench
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -106,5 +109,41 @@ func TestSelectExcludeAndIDList(t *testing.T) {
 func TestLoadDatasetRefusesPlainHTTP(t *testing.T) {
 	if _, err := LoadDataset("http://example.invalid/manifest.jsonl"); err == nil || !strings.Contains(err.Error(), "https") {
 		t.Fatalf("plain http must be refused: %v", err)
+	}
+}
+
+// The https rule holds for each redirect hop, not only for the first URL.
+func TestLoadDatasetRefusesARedirectToPlainHTTP(t *testing.T) {
+	var plainHits atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits.Add(1)
+		_, _ = w.Write([]byte(manifest("a")))
+	}))
+	defer plain.Close()
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/to-http":
+			http.Redirect(w, r, plain.URL+"/m.jsonl", http.StatusFound)
+		case "/to-https":
+			http.Redirect(w, r, "/m.jsonl", http.StatusFound)
+		default:
+			_, _ = w.Write([]byte(manifest("a")))
+		}
+	}))
+	defer secure.Close()
+	// LoadDataset uses the default transport; trust the test server's certificate.
+	saved := http.DefaultTransport
+	http.DefaultTransport = secure.Client().Transport
+	defer func() { http.DefaultTransport = saved }()
+
+	if _, err := LoadDataset(secure.URL + "/to-http"); err == nil || !strings.Contains(err.Error(), "must use https") {
+		t.Fatalf("redirect to http: err = %v, want refused", err)
+	}
+	if n := plainHits.Load(); n != 0 {
+		t.Fatalf("the plain-http server was fetched %d times", n)
+	}
+	got, err := LoadDataset(secure.URL + "/to-https")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("redirect to https: %v, %v; want the manifest", got, err)
 	}
 }

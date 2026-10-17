@@ -18,8 +18,10 @@
 
 INSTANCE.json is the dataset record (log_parser, eval_type, fail_to_pass,
 pass_to_pass). The log is parsed with the repo's parser into a test -> status
-map; the instance is resolved when every FAIL_TO_PASS test passed and every
-PASS_TO_PASS test passed or was skipped. Exit 0 when resolved, 1 otherwise,
+map. As in the harness, each listed test is a success, a failure, or neither
+(a status the harness does not know counts for nothing); the instance is
+resolved when no FAIL_TO_PASS or PASS_TO_PASS test is a failure. Exit 0 when
+resolved, 1 otherwise,
 2 when the log shows the run itself was invalid (patch did not apply, tests
 errored or timed out). One JSON line with the counts goes to stdout.
 
@@ -247,8 +249,14 @@ def status_map_from_log(parser, content):
     """The harness's validity rules, then the parser over the marked region."""
     if any(marker in content for marker in BAD_MARKERS):
         return None
-    start, end = content.find(START_OUTPUT), content.find(END_OUTPUT)
-    if start < 0 or end < 0 or end < start:
+    # The harness slices from the first Start marker to the End marker after
+    # it, thus a stray End before a correct pair is ignored here too. Two
+    # differences remain, both stricter: a log whose only End comes before
+    # Start is invalid (the harness grades the whole log), and a second Start
+    # does not end the region (the harness stops there).
+    start = content.find(START_OUTPUT)
+    end = content.find(END_OUTPUT, start + len(START_OUTPUT)) if start >= 0 else -1
+    if start < 0 or end < 0:
         return None
     sliced = content[start + len(START_OUTPUT):end]
     status_map = parser(sliced) or parser(content)

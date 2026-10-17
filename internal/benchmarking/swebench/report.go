@@ -56,7 +56,7 @@ type StepStat struct {
 	// Live is how many environments were still in the fleet at this step;
 	// steps mode drops an environment after its first failure, so a
 	// shrinking Live makes later steps' counts incomparable.
-	Live      int     `json:"live,omitempty"`
+	Live      int     `json:"live"`
 	BarrierMS float64 `json:"barrier_ms"`
 	ParkMS    float64 `json:"park_ms"`
 	WakeP50MS float64 `json:"wake_p50_ms"`
