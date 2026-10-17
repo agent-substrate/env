@@ -28,7 +28,12 @@
 # characters). Results land in ./RUN_ID.jsonl and ./RUN_ID.json in the
 # directory the script is run from, which can be outside the repository.
 # NAMESPACE defaults to ate-env; START_TIMEOUT (seconds, default 600) bounds
-# the wait for the pod to start.
+# the wait for the pod to start. A failed kubectl call while waiting for the
+# loader's exit code is retried; only a pod that is gone (NotFound) or Failed
+# ends the wait early. If the script is killed before its trap runs, the Job
+# ends by itself after 48 hours (activeDeadlineSeconds) and is removed an hour
+# after it finishes; Ctrl-C runs the trap and deletes the Job at once, results
+# included.
 
 set -o errexit -o nounset -o pipefail
 
@@ -66,8 +71,11 @@ ARGS_JSON="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \
   run "-endpoint=ate-env-api.${NS}.svc:7777" "-dataset=/var/run/ko/dataset.jsonl" \
   "-exclude-file=/var/run/ko/offline-exclusions.txt" "-run-id=${RUN_ID}" "-out=/work/${RUN_ID}.jsonl" "$@")"
 
+KUBECTL_ERR="$(mktemp)"
+# shellcheck disable=SC2329 # invoked by the EXIT trap
 cleanup() {
   kubectl -n "${NS}" delete job "${JOB}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  rm -f "${KUBECTL_ERR}"
 }
 trap cleanup EXIT
 
@@ -81,6 +89,10 @@ metadata:
   namespace: ${NS}
 spec:
   backoffLimit: 0
+  # Bounds for a Job whose script died before its trap ran: the keep sidecar
+  # sleeps 48 hours, and a finished Job is removed after an hour.
+  activeDeadlineSeconds: 172800
+  ttlSecondsAfterFinished: 3600
   template:
     metadata:
       labels:
@@ -143,23 +155,48 @@ while (( SECONDS < deadline )); do
 done
 if [[ -z "${POD}" ]] || ! kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.status.containerStatuses[?(@.name=="loader")].state}' 2>/dev/null | grep -q 'running\|terminated'; then
   echo "loader did not start within ${START_TIMEOUT}s" >&2
-  [[ -n "${POD}" ]] && kubectl -n "${NS}" describe pod "${POD}" | tail -15 >&2
+  if [[ -n "${POD}" ]]; then
+    kubectl -n "${NS}" describe pod "${POD}" | tail -15 >&2 || true
+  else
+    echo "no pod was created for job ${JOB}; its events:" >&2
+    kubectl -n "${NS}" describe job "${JOB}" | tail -15 >&2 || true
+  fi
   exit 1
 fi
 echo "pod ${POD}; following the loader log"
 kubectl -n "${NS}" logs -f "${POD}" -c loader || true
 
-# The log stream can end before the container does; wait for the exit code,
-# with the pod's own state as the deadline check.
-until EXIT="$(kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.status.containerStatuses[?(@.name=="loader")].state.terminated.exitCode}')" && [[ -n "${EXIT}" ]]; do
-  PHASE="$(kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.status.phase}' 2>/dev/null || echo gone)"
+# The log stream can end before the container does (or drop with the
+# connection); wait for the exit code, with the pod's own state as the
+# deadline check. One failed kubectl call is not a lost pod: only NotFound
+# means gone, and other errors are retried, MAX_API_ERRORS times in a row.
+MAX_API_ERRORS="${MAX_API_ERRORS:-30}"
+api_errors=0
+until EXIT="$(kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.status.containerStatuses[?(@.name=="loader")].state.terminated.exitCode}' 2>/dev/null)" && [[ -n "${EXIT}" ]]; do
+  if PHASE="$(kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.status.phase}' 2>"${KUBECTL_ERR}")"; then
+    api_errors=0
+  elif grep -q 'NotFound' "${KUBECTL_ERR}"; then
+    PHASE=gone
+  else
+    api_errors=$((api_errors + 1))
+    echo "kubectl get pod failed (${api_errors}/${MAX_API_ERRORS}): $(head -c 300 "${KUBECTL_ERR}")" >&2
+    if (( api_errors >= MAX_API_ERRORS )); then
+      exit 1
+    fi
+    sleep 10
+    continue
+  fi
   if [[ "${PHASE}" == "gone" || "${PHASE}" == "Failed" ]]; then
     echo "pod ${POD} is ${PHASE} before the loader reported an exit code" >&2
     exit 1
   fi
   sleep 10
 done
-kubectl -n "${NS}" cp -c keep "${POD}:/work/${RUN_ID}.jsonl" "${OUT_DIR}/${RUN_ID}.jsonl"
-echo "loader exit code ${EXIT}; events in ${OUT_DIR}/${RUN_ID}.jsonl"
+echo "loader exit code ${EXIT}"
+if ! kubectl -n "${NS}" cp -c keep "${POD}:/work/${RUN_ID}.jsonl" "${OUT_DIR}/${RUN_ID}.jsonl"; then
+  echo "no events file to copy; the loader exited before writing it" >&2
+  exit "$(( EXIT == 0 ? 1 : EXIT ))"
+fi
+echo "events in ${OUT_DIR}/${RUN_ID}.jsonl"
 go run ./cmd/benchmarking/swebench-loader report "${OUT_DIR}/${RUN_ID}.jsonl" -json "${OUT_DIR}/${RUN_ID}.json"
 exit "${EXIT}"
