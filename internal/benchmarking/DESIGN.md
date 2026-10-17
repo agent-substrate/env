@@ -286,10 +286,33 @@ while breaking the system.
 | W13 | Real Job Runner | runner interface over one trainer, measure and trace modes; exports trainer step breakdown and accelerator throughput | one real job runs through the orchestrator; trace mode yields a trace W12 converts and replays | W10, W11, W12 |
 | W14 | Open-loop mode (optional) | Poisson arrival mode in the load generator | in-memory test shows arrivals independent of completion; report shows the knee | W3 |
 
-Suggested parallel tracks: {W1} first; then {W2, W4, W8, W11} in parallel;
-then {W3, W5, W6, W7, W9}; then {W10, W12}; then W13; W14 whenever.
+## 9. Milestones (incremental delivery and verification)
 
-## 9. Out of scope for now
+Work items are delivered and integrated in five vertical milestones. Each
+milestone unlocks a general class of benchmark scenarios and ends with an
+end-to-end verification gate so integration, schema and cluster lifecycle
+defects surface before scaling up complexity or hardware cost.
+
+| Milestone | Functionality / Scenario Enabled | Work Items | End-to-End Verification Gate |
+|---|---|---|---|
+| **M1: Single-Job Step-Pool & Regression Gate (Core MVP)** | Deterministic multi-step simulated RL loops (with dynamic per-step image sets, environment reuse/churn, step pauses and async next-step pool prefetch) against an existing endpoint, with automated validity and regression diffing. | `W1`, `W2`, `W3`, `W4` (single-job & lifecycle tables), `W5` (event/schedule rules), `W6` | Resolve a seeded multi-step schedule with changing images per step $\to$ run `swebench-loader` in `steps` mode against a live endpoint $\to$ emit a valid `Report.json` with positive prefetch lead margin $\to$ pass `compare` against a baseline report. |
+| **M2: Automated SUT Lifecycle, Server Telemetry & Backend Drivers** | Self-contained single-job runs with automated SUT provisioning, server-side cluster health and hardware-cost telemetry, timed cluster reap to zero orphans, and A/B comparisons across backends and access layers (SDK vs. direct API). | `W7`, `W8`, `W9`, plus `W4`/`W5` extensions for measurements, hardware cost and zero-orphan reap | Provision a SUT from scratch $\to$ run an in-cluster simulated job through both the SDK driver and the direct-backend driver $\to$ attach scraped `Measurements` $\to$ verify `Reap` reaches zero server-side orphans $\to$ compare SDK vs. direct reports. |
+| **M3: Multi-Job Contention & Throughput Saturation** | Concurrent multi-loop RL workloads sharing one SUT (staggered or aligned step barriers, independent pool churn) to measure cross-job interference, plus open-loop arrival sweeps to find throughput knees. | `W10`, `W4` (cross-job timeline & interference split), `W14` | `bench run SCENARIO.yaml` executes multiple offset simulated jobs concurrently on a shared SUT, prewarms initial pools, produces a valid report with cross-job interference tables, and reaps the cluster to zero. |
+| **M4: SDK Telemetry & Trace-to-Simulation Replay** | Always-on low-overhead SDK event logging (`measure` mode) and offline conversion of verbose SDK call traces (`trace` mode) into deterministic schedules and trajectories replayable by the simulated loader without accelerators. | `W11`, `W12` | Capture a verbose `Trace.jsonl` from an SDK workload $\to$ convert via `W12` into `Trajectory` YAMLs and a `Resolved schedule` $\to$ replay through `M3` (`swebench-loader`) and verify step counts, concurrency histogram and think-time distribution match the trace. |
+| **M5: Live Trainer Benchmarking** | End-to-end real RL training loops orchestrated against the SUT in both `measure` mode (unified sandbox + trainer step/throughput reporting) and `trace` mode (feeding new real workloads into `M4`). | `W13` | Orchestrate one real trainer job in `measure` mode (yielding a valid `Report.json` with trainer step breakdown and accelerator throughput) and one in `trace` mode (whose trace converts and replays cleanly through `M4`). |
+
+**Parallel execution & fail-fast ordering**:
+- `M1` is the minimum viable product: it requires no cluster provisioner,
+  Prometheus scraper, or accelerators to start benchmarking an existing sandbox
+  endpoint.
+- `W11` (SDK instrumentation) only depends on `W1` and can be developed in
+  parallel with `M1`–`M3` so `M4` is ready as soon as `M1`'s loader pool (`W3`)
+  lands.
+- `M2` intentionally precedes `M3` so orphan leaks, rate limits (HTTP 429s) and
+  missing telemetry are caught on a single in-cluster job before multiplying
+  load across concurrent jobs.
+
+## 10. Out of scope for now
 
 Egress for sandboxes at scale, multiple SUTs in one scenario, and scheduling
 runs on a cadence. Each is its own spec.
