@@ -38,6 +38,36 @@ from .base import BackendDriver
 logger = logging.getLogger("ate_env.backend.substrate")
 
 
+class _WarmPoolDict(dict):
+    """Warm paused pool dictionary keyed by (template, image).
+
+    Allows string keys for backwards compatibility, treating 'template' as (template, None).
+    """
+
+    def _normalize(self, key: Any) -> Any:
+        if isinstance(key, str):
+            return (key, None)
+        return key
+
+    def __getitem__(self, key: Any) -> Any:
+        return super().__getitem__(self._normalize(key))
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        super().__setitem__(self._normalize(key), value)
+
+    def __contains__(self, key: Any) -> bool:
+        return super().__contains__(self._normalize(key))
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        return super().get(self._normalize(key), default)
+
+    def pop(self, key: Any, *args: Any) -> Any:
+        return super().pop(self._normalize(key), *args)
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        return super().setdefault(self._normalize(key), default)
+
+
 class SubstrateBackendDriver(BackendDriver):
     """Agent Substrate Backend Driver.
 
@@ -89,7 +119,7 @@ class SubstrateBackendDriver(BackendDriver):
 
         self._lock = threading.Lock()
         self._owned_actors: dict[str, RawSandboxInstance] = {}
-        self._warm_paused_pool: dict[str, list[str]] = {}
+        self._warm_paused_pool: _WarmPoolDict = _WarmPoolDict()
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _get_loop_runner(self) -> LoopRunner:
@@ -170,7 +200,9 @@ class SubstrateBackendDriver(BackendDriver):
             return env.template_key()
         return "default-template"
 
-    def _make_instance(self, actor_id: str, template_id: str, run_id: str) -> RawSandboxInstance:
+    def _make_instance(
+        self, actor_id: str, template_id: str, run_id: str, rootfs_image: str | None = None
+    ) -> RawSandboxInstance:
         planes = {
             "ate_env": DataPlaneEndpoint(
                 protocol="grpc",
@@ -183,6 +215,8 @@ class SubstrateBackendDriver(BackendDriver):
             "template": template_id,
             "atespace": self.atespace,
         }
+        if rootfs_image:
+            metadata["rootfs_image"] = rootfs_image
         if self.labels:
             metadata["labels"] = dict(self.labels)
         return RawSandboxInstance(
@@ -192,37 +226,53 @@ class SubstrateBackendDriver(BackendDriver):
             run_id=run_id,
             metadata=metadata,
             data_planes=planes,
+            rootfs_image=rootfs_image,
         )
 
     async def acquire_async(
-        self, template_id: str, run_id: str, timeout_s: float = 180.0
+        self,
+        template_id: str,
+        run_id: str,
+        timeout_s: float = 180.0,
+        rootfs_image: str | None = None,
     ) -> RawSandboxInstance:
         """Acquire a live sandbox instance within timeout_s."""
         to_s = timeout_s or self.acquire_timeout_s
         try:
             return await asyncio.wait_for(
-                self._acquire_internal(template_id, run_id), timeout=to_s
+                self._acquire_internal(template_id, run_id, rootfs_image=rootfs_image), timeout=to_s
             )
         except asyncio.TimeoutError as e:
             raise SandboxStartError(
                 f"Timed out acquiring sandbox for template {template_id} after {to_s:g}s"
             ) from e
 
-    async def _acquire_internal(self, template_id: str, run_id: str) -> RawSandboxInstance:
+    async def _acquire_internal(
+        self,
+        template_id: str,
+        run_id: str,
+        rootfs_image: str | None = None,
+    ) -> RawSandboxInstance:
         """Acquire or claim an environment.
 
         Note on readiness: Substrate resumes suspended environments implicitly on first
         guest traffic, so ready_timeout_s does not measure readiness here.
         """
+        pool_key = (template_id, rootfs_image)
         while True:
             actor_id: str | None = None
             with self._lock:
-                warm_list = self._warm_paused_pool.get(template_id)
+                warm_list = self._warm_paused_pool.get(pool_key)
                 if warm_list:
                     actor_id = warm_list.pop()
 
             if actor_id:
-                logger.info("Claimed warm paused actor %s for template %s", actor_id, template_id)
+                logger.info(
+                    "Claimed warm paused actor %s for template %s (rootfs_image=%s)",
+                    actor_id,
+                    template_id,
+                    rootfs_image,
+                )
                 # Verify warm actor still exists on the server
                 try:
                     await asyncio.wait_for(
@@ -237,16 +287,17 @@ class SubstrateBackendDriver(BackendDriver):
                 except Exception as e:
                     # Put back on unexpected error and raise
                     with self._lock:
-                        self._warm_paused_pool.setdefault(template_id, []).append(actor_id)
+                        self._warm_paused_pool.setdefault(pool_key, []).append(actor_id)
                     raise SandboxStartError(f"Error checking warm actor {actor_id}: {e}") from e
                 break
             else:
                 actor_id = f"sb-{uuid.uuid4().hex[:16]}"
                 logger.info(
-                    "Creating environment %s (template=%s, atespace=%s)...",
+                    "Creating environment %s (template=%s, atespace=%s, rootfs_image=%s)...",
                     actor_id,
                     template_id,
                     self.atespace,
+                    rootfs_image,
                 )
                 last_err: Exception | None = None
                 for attempt in range(4):
@@ -255,6 +306,7 @@ class SubstrateBackendDriver(BackendDriver):
                             actor_id,
                             template_name=template_id,
                             atespace=self.atespace,
+                            rootfs_image=rootfs_image,
                         )
                         last_err = None
                         break
@@ -273,23 +325,40 @@ class SubstrateBackendDriver(BackendDriver):
                     raise SandboxStartError(f"Failed to create environment {actor_id}: {last_err}") from last_err
                 break
 
-        instance = self._make_instance(actor_id, template_id, run_id)
+        instance = self._make_instance(actor_id, template_id, run_id, rootfs_image=rootfs_image)
         with self._lock:
             self._owned_actors[actor_id] = instance
         return instance
 
     def acquire(
-        self, template_id: str, run_id: str, timeout_s: float = 180.0
+        self,
+        template_id: str,
+        run_id: str,
+        timeout_s: float = 180.0,
+        rootfs_image: str | None = None,
     ) -> RawSandboxInstance:
-        return self._sync(self.acquire_async(template_id, run_id, timeout_s=timeout_s))
+        return self._sync(
+            self.acquire_async(template_id, run_id, timeout_s=timeout_s, rootfs_image=rootfs_image)
+        )
 
     async def warm_pool_async(
-        self, template_id: str, replicas: int, wait: bool = True, run_id: str | None = None
+        self,
+        template_id: str,
+        replicas: int,
+        wait: bool = True,
+        run_id: str | None = None,
+        rootfs_image: str | None = None,
     ) -> None:
         """Pre-warm a pool of actors by creating and suspending them."""
-        logger.info("Sizing warm pool for template %s to %d paused actors...", template_id, replicas)
+        logger.info(
+            "Sizing warm pool for template %s (rootfs_image=%s) to %d paused actors...",
+            template_id,
+            rootfs_image,
+            replicas,
+        )
+        pool_key = (template_id, rootfs_image)
         with self._lock:
-            current = list(self._warm_paused_pool.get(template_id, []))
+            current = list(self._warm_paused_pool.get(pool_key, []))
         needed = replicas - len(current)
         if needed <= 0:
             return
@@ -305,6 +374,7 @@ class SubstrateBackendDriver(BackendDriver):
                         actor_id,
                         template_name=template_id,
                         atespace=self.atespace,
+                        rootfs_image=rootfs_image,
                     )
                     if wait:
                         await self.client.suspend(actor_id, atespace=self.atespace)
@@ -333,24 +403,46 @@ class SubstrateBackendDriver(BackendDriver):
                 if isinstance(res, SandboxStartError):
                     raise res
                 logger.warning("Error provisioning warm actor: %s", res)
-            elif res is not None:
+            elif isinstance(res, str):
                 aid = res
                 with self._lock:
-                    self._warm_paused_pool.setdefault(template_id, []).append(aid)
+                    self._warm_paused_pool.setdefault(pool_key, []).append(aid)
                     self._owned_actors[aid] = self._make_instance(
-                        aid, template_id, run_id=effective_run_id
+                        aid, template_id, run_id=effective_run_id, rootfs_image=rootfs_image
                     )
 
     def warm_pool(
-        self, template_id: str, replicas: int, wait: bool = True, run_id: str | None = None
+        self,
+        template_id: str,
+        replicas: int,
+        wait: bool = True,
+        run_id: str | None = None,
+        rootfs_image: str | None = None,
     ) -> None:
-        self._sync(self.warm_pool_async(template_id, replicas, wait=wait, run_id=run_id))
+        self._sync(
+            self.warm_pool_async(
+                template_id,
+                replicas,
+                wait=wait,
+                run_id=run_id,
+                rootfs_image=rootfs_image,
+            )
+        )
 
-    async def unwarm_pool_async(self, template_id: str) -> None:
+    async def unwarm_pool_async(self, template_id: str, rootfs_image: str | None = None) -> None:
         """Drain and delete paused actors in the warm pool."""
-        logger.info("Unwarming pool for template %s...", template_id)
+        logger.info("Unwarming pool for template %s (rootfs_image=%s)...", template_id, rootfs_image)
         with self._lock:
-            to_delete = self._warm_paused_pool.pop(template_id, [])
+            if rootfs_image is not None:
+                to_delete = self._warm_paused_pool.pop((template_id, rootfs_image), [])
+            else:
+                keys_to_pop = [
+                    k for k in list(self._warm_paused_pool.keys())
+                    if (isinstance(k, tuple) and k[0] == template_id)
+                ]
+                to_delete = []
+                for k in keys_to_pop:
+                    to_delete.extend(self._warm_paused_pool.pop(k, []))
 
         sem = asyncio.Semaphore(16)
 
@@ -365,8 +457,8 @@ class SubstrateBackendDriver(BackendDriver):
 
         await asyncio.gather(*[_delete_one(aid) for aid in to_delete], return_exceptions=True)
 
-    def unwarm_pool(self, template_id: str) -> None:
-        self._sync(self.unwarm_pool_async(template_id))
+    def unwarm_pool(self, template_id: str, rootfs_image: str | None = None) -> None:
+        self._sync(self.unwarm_pool_async(template_id, rootfs_image=rootfs_image))
 
     async def release_async(self, instance_id: str, recycle: bool = False) -> None:
         """Release actor: deletes environment, or suspends if recycling.
@@ -380,8 +472,9 @@ class SubstrateBackendDriver(BackendDriver):
         if recycle and instance:
             try:
                 await self.client.suspend(instance_id, atespace=self.atespace)
+                pool_key = (instance.template_id, instance.rootfs_image)
                 with self._lock:
-                    self._warm_paused_pool.setdefault(instance.template_id, []).append(instance_id)
+                    self._warm_paused_pool.setdefault(pool_key, []).append(instance_id)
                     self._owned_actors[instance_id] = instance
                 logger.info("Recycled actor %s to paused warm pool", instance_id)
                 return
