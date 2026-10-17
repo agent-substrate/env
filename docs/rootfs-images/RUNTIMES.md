@@ -16,11 +16,13 @@ A runtime layer is three things:
 | the binary | an image volume on the ActorTemplate (`--layer name=image@sha256:...=/mount`) | mounts the runtime's image read-only at a path of your choice, next to the guest at `/ate` |
 | the process | a guest flag (`--sidecar '/mount/binary args...'`) | the guest starts it after it is listening, logs its output with a prefix, and restarts it with backoff if it exits |
 | its readiness | a guest flag (`--sidecar-readyz http://127.0.0.1:PORT/health`) | the guest's `/readyz`, which is the actor's wakeup probe, answers 503 until every such URL has answered 2xx once |
+| its configuration | a template flag (`--env NAME=VALUE`) | sets a variable on the container; the guest passes its environment to sidecars |
 
 The guest is the container's only process by contract, which is why it is the
 one that supervises the others. Sidecars run without a shell or `PATH` lookup,
 so the binary is an absolute path into its mount, and the rootfs image needs
-nothing for it. They inherit the container's user, environment and filesystem.
+nothing for it beyond, for a binary that is not statically linked, a
+compatible C library (the OpenHands layer needs glibc 2.31 or newer). They inherit the container's user, environment and filesystem.
 
 Template derivation keeps all of it. A base with layers yields derived
 templates with the same layers and the same guest flags, so environments
@@ -76,7 +78,11 @@ file endpoints.
 A verified stand-in for the mechanics, which needs nothing from any registry
 but Docker Hub, is in [`examples/runtime-layers`](../../examples/runtime-layers):
 the static `busybox:1.37-musl` mounted as the layer and its `httpd` as the
-sidecar, run under two different rootfs images.
+sidecar, run under two different rootfs images. A real daemon, the OpenHands agent-server in
+any image with glibc 2.31 or newer, configured by `--env`, is the
+[`integrations/openhands`](../../integrations/openhands) package: an OpenHands SDK workspace
+(`AteEnvWorkspace`, compatible with OpenHands' `AgentSandboxWorkspace`), the layer, and examples
+that drive it with OpenHands' own CodeAct agent.
 
 ## Who can reach the second runtime
 
@@ -98,6 +104,10 @@ sidecar, run under two different rootfs images.
   curl -H 'X-Env-Id: py1' -H 'X-Env-Port: 44772' localhost:7777/ready
   curl localhost:7777/v1alpha/envs/py1/ports/44772/ready   # the same, for clients without headers
   ```
+
+  The runtime must listen on all interfaces, not 127.0.0.1: the router
+  delivers to the actor's address, and a loopback-only listener answers
+  `502 bad gateway`.
 
   The path form, `/v1alpha/envs/{id}/ports/{port}/...` (or
   `/v1alpha/atespaces/{atespace}/envs/...`), is for clients that cannot set

@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -529,5 +530,93 @@ func TestImageFlagsDefaultToReleaseImages(t *testing.T) {
 	m := manifestConfig{apiImage: defaultAPIImage}
 	if err := m.resolveImages(); err == nil || !strings.Contains(err.Error(), "Substrate") {
 		t.Errorf("missing --worker-image should point at the Substrate repo, got %v", err)
+	}
+}
+
+func envMap(c *ateapipb.Container) (map[string]string, []string) {
+	m := map[string]string{}
+	var order []string
+	for _, e := range c.GetEnv() {
+		m[e.GetName()] = e.GetValue()
+		order = append(order, e.GetName())
+	}
+	return m, order
+}
+
+func TestBuildTemplateEnv(t *testing.T) {
+	cfg := testTemplateConfig()
+	cfg.env = []string{"OH_SESSION_API_KEYS_0=s3cret", "EMPTY=", "URL=http://x/?a=b"}
+	tmpl, err := buildTemplate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, order := envMap(tmpl.Containers[0])
+	if strings.Join(order, ",") != "PORT,OH_SESSION_API_KEYS_0,EMPTY,URL" {
+		t.Errorf("env order = %v, want PORT first, then the flags in order", order)
+	}
+	if got["PORT"] != "80" || got["OH_SESSION_API_KEYS_0"] != "s3cret" || got["EMPTY"] != "" || got["URL"] != "http://x/?a=b" {
+		t.Errorf("env = %v", got)
+	}
+
+	// A rootfs-image template keeps the variables: the sidecars that read them
+	// run there.
+	cfg.rootfsImage = "docker.io/library/python@sha256:" + testHex64
+	cfg.guestImage = "example.com/guest@sha256:" + testHex64
+	tmpl, err = buildTemplate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := envMap(tmpl.Containers[0]); got["OH_SESSION_API_KEYS_0"] != "s3cret" {
+		t.Errorf("rootfs-image template env = %v, want the --env values", got)
+	}
+}
+
+func TestTemplateConfigRejectsBadEnv(t *testing.T) {
+	for _, env := range [][]string{
+		{"NOEQUALS"},
+		{"1BAD=x"},
+		{"BAD-NAME=x"},
+		{"=x"},
+		{"PORT=81"},
+		{"A=1", "A=2"},
+	} {
+		cfg := testTemplateConfig()
+		cfg.env = env
+		if err := cfg.validateEnv(); err == nil {
+			t.Errorf("env %q: want error, got nil", env)
+		}
+	}
+}
+
+func TestManifestTemplateCommandEnv(t *testing.T) {
+	cmd := newManifestCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{
+		"template",
+		"--guest-image=example.com/guest@sha256:aaaa",
+		"--snapshots-bucket=gs://bucket/prefix/",
+		"--env=OH_SESSION_API_KEYS_0=k",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if out := buf.String(); !strings.Contains(out, "name: OH_SESSION_API_KEYS_0\n    value: k") {
+		t.Errorf("output lacks the --env variable:\n%s", out)
+	}
+}
+
+func TestManifestTemplateCommandRejectsBadEnv(t *testing.T) {
+	cmd := newManifestCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{
+		"template",
+		"--guest-image=example.com/guest@sha256:aaaa",
+		"--snapshots-bucket=gs://bucket/prefix/",
+		"--env=PORT=81",
+	})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--env PORT") {
+		t.Errorf("execute with --env PORT=81: want the --env error, got %v", err)
 	}
 }

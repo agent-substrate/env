@@ -1,0 +1,46 @@
+[
+  {
+    "thought": "Look around first.",
+    "tool": "terminal",
+    "args": {
+      "command": "head -1 /etc/os-release; echo \"user: $(id -un)\"; echo \"cwd: $(pwd)\"; ls / | head -8"
+    }
+  },
+  {
+    "tool": "terminal",
+    "args": {
+      "command": "mkdir -p /tmp/trajectory-demo"
+    }
+  },
+  {
+    "thought": "Write a file with OpenHands' file editor.",
+    "tool": "file_editor",
+    "args": {
+      "command": "create",
+      "path": "/tmp/trajectory-demo/notes.md",
+      "file_text": "# notes\n\nwritten by a trajectory\n"
+    }
+  },
+  {
+    "tool": "file_editor",
+    "args": {
+      "command": "str_replace",
+      "path": "/tmp/trajectory-demo/notes.md",
+      "old_str": "written by a trajectory",
+      "new_str": "written and edited by a trajectory"
+    }
+  },
+  {
+    "tool": "file_editor",
+    "args": {
+      "command": "view",
+      "path": "/tmp/trajectory-demo/notes.md"
+    }
+  },
+  {
+    "tool": "finish",
+    "args": {
+      "message": "Inspected the environment and wrote /tmp/trajectory-demo/notes.md."
+    }
+  }
+]

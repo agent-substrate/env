@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/agent-substrate/env/internal/apiservice"
@@ -107,6 +108,10 @@ type templateConfig struct {
 	// Empty means defaultActorCPU and defaultActorMemory.
 	cpu    string
 	memory string
+	// env are extra container environment variables, each NAME=VALUE. The
+	// guest passes its environment to sidecars, so this is how a runtime
+	// layer's daemon is configured.
+	env []string
 }
 
 // runtimeLayer is a parsed --layer value.
@@ -189,6 +194,12 @@ func (c *templateConfig) validateResources() error {
 		}
 	}
 	return nil
+}
+
+// validateEnv checks the --env flags before anything is built.
+func (c *templateConfig) validateEnv() error {
+	_, err := parseEnv(c.env)
+	return err
 }
 
 func (c *templateConfig) resolveImages() error {
@@ -293,6 +304,9 @@ It prints YAML to stdout without touching the cluster.`,
 			if err := tCfg.validateResources(); err != nil {
 				return err
 			}
+			if err := tCfg.validateEnv(); err != nil {
+				return err
+			}
 			tmpl, err := buildTemplate(tCfg)
 			if err != nil {
 				return err
@@ -313,6 +327,7 @@ It prints YAML to stdout without touching the cluster.`,
 	cmd.Flags().StringArrayVar(&tCfg.sidecarReadyz, "sidecar-readyz", nil, "URL the actor's readiness waits for, e.g. http://127.0.0.1:44772/ready (repeatable)")
 	cmd.Flags().StringVar(&tCfg.cpu, "cpu", defaultActorCPU, "CPU limit of each actor, a Kubernetes quantity such as 2 or 500m; Substrate requires one")
 	cmd.Flags().StringVar(&tCfg.memory, "memory", defaultActorMemory, "memory limit of each actor, a Kubernetes quantity such as 4Gi; Substrate requires one")
+	cmd.Flags().StringArrayVar(&tCfg.env, "env", nil, "environment variable for the actor's container as NAME=VALUE (repeatable); the guest passes it to sidecars, e.g. a layer daemon's API key")
 
 	return cmd
 }
@@ -513,6 +528,11 @@ func orDefault(v, def string) string {
 func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
 	tmpl := buildActorTemplate(cfg)
 	c := tmpl.Containers[0]
+	env, err := parseEnv(cfg.env)
+	if err != nil {
+		return nil, err
+	}
+	c.Env = append(c.Env, env...)
 	command := append([]string(nil), c.Command...)
 	if cfg.workspace != "" {
 		command = append(command, "-workspace", cfg.workspace)
@@ -625,4 +645,29 @@ func buildAPIService(cfg manifestConfig) *corev1.Service {
 			}},
 		},
 	}
+}
+
+// envName is a POSIX environment variable name.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// parseEnv turns NAME=VALUE flags into container env vars. PORT is the guest's
+// own and cannot be overridden; a name given twice is an error.
+func parseEnv(flags []string) ([]*ateapipb.EnvVar, error) {
+	var out []*ateapipb.EnvVar
+	seen := map[string]bool{}
+	for _, f := range flags {
+		name, value, ok := strings.Cut(f, "=")
+		if !ok || !envName.MatchString(name) {
+			return nil, fmt.Errorf("--env %q: want NAME=VALUE with NAME of letters, digits and '_', not starting with a digit", f)
+		}
+		if name == "PORT" {
+			return nil, errors.New("--env PORT: PORT is the guest's listen port and is set by the template")
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("--env %s is given twice", name)
+		}
+		seen[name] = true
+		out = append(out, &ateapipb.EnvVar{Name: name, Value: value})
+	}
+	return out, nil
 }
