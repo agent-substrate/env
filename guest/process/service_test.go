@@ -455,7 +455,7 @@ func TestNotFound(t *testing.T) {
 }
 
 func TestConcurrencyLimiter(t *testing.T) {
-	cfg := DefaultConfig("")
+	cfg := DefaultConfig(t.TempDir()) // not the shared default: the cleanup removes LogDir
 	cfg.MaxConcurrentProcesses = 2
 	client := setupTestServerWithConfig(t, cfg)
 	ctx := context.Background()
@@ -481,7 +481,7 @@ func TestConcurrencyLimiter(t *testing.T) {
 }
 
 func TestLogCapping(t *testing.T) {
-	cfg := DefaultConfig("")
+	cfg := DefaultConfig(t.TempDir()) // not the shared default: the cleanup removes LogDir
 	cfg.MaxLogBytes = 256
 	client := setupTestServerWithConfig(t, cfg)
 
@@ -497,7 +497,7 @@ func TestLogCapping(t *testing.T) {
 }
 
 func TestDefaultTimeoutKills(t *testing.T) {
-	cfg := DefaultConfig("")
+	cfg := DefaultConfig(t.TempDir()) // not the shared default: the cleanup removes LogDir
 	cfg.DefaultProcessTimeout = 100 * time.Millisecond
 	client := setupTestServerWithConfig(t, cfg)
 
