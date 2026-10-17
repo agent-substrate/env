@@ -44,10 +44,12 @@ Scenario.yaml + Dataset.jsonl
     park/wake/fork, trainer pauses, and next-step pool prefetch), or
     `open-loop` modes.
   - **Real jobs** run an actual RL trainer against the same SUT. In `measure`
-    mode, lightweight always-on SDK instrumentation emits the same `Events`
-    JSONL schema as the simulated loader. In `trace` mode, verbose SDK logs are
-    captured and converted offline into `Trajectories` and a `Resolved schedule`
-    that the simulated loader can replay repeatedly without accelerators.
+    mode, sandbox and cluster performance data come from scraped metrics
+    (server/SDK Prometheus counters and histograms) plus coarse per-step trainer
+    metrics, avoiding per-call logging overhead. In `trace` mode, a verbose SDK
+    flag logs individual calls and think times, which are converted offline into
+    `Trajectories` and a `Resolved schedule` that the simulated loader can
+    replay repeatedly without accelerators.
 
 ---
 
@@ -68,10 +70,10 @@ replaceable if the artifacts it touches are unchanged.
 | Benchmark | Driver | Output |
 |---|---|---|
 | Simulated RL | load generator replaying scripted workloads | formal numbers; fast, cheap, runs often |
-| Real RL | an actual trainer against the same SUT | formal numbers in *measure* mode, or a trace in *trace* mode, never both in one job |
+| Real RL | an actual trainer against the same SUT | formal numbers in *measure* mode (from scraped metrics + per-step trainer metrics), or a call trace in *trace* mode, never both in one job |
 
-Both share the dataset manifest, events, report, system description and
-validity rules. Each has its own setup and teardown.
+Both share the dataset manifest, report, system description and validity
+rules. Each has its own setup and teardown.
 
 ## 3. Artifacts (the contracts)
 
@@ -81,9 +83,9 @@ validity rules. Each has its own setup and teardown.
 | Dataset manifest | JSONL, one instance per line | dataset tooling | load generator, real runner, prewarm |
 | Trajectory | YAML | operator or trace converter | load generator |
 | Resolved schedule | JSON | orchestrator (simulated), trace converter (real) | load generator, report |
-| Trace | JSONL, one SDK call per line | SDK verbose flag | trace converter |
-| Events | JSONL, one operation per line | load generator, SDK instrumentation, prewarm, reaper | report |
-| Report | JSON, includes system description and validity | report | comparator, humans |
+| Trace | JSONL, one SDK call per line | SDK verbose flag (*trace* mode only) | trace converter |
+| Events | JSONL, one operation per line (simulated) or per training step (real) | load generator, prewarm, reaper, real trainer | report |
+| Report | JSON, includes system description, scraped measurements and validity | report | comparator, humans |
 
 Schema changes to any artifact require a version field bump and a reader that
 accepts the previous version.
@@ -132,10 +134,10 @@ Owns one loop. Interface: `Setup`, `Start`, `Wait`, `Collect`, `Teardown`.
   deletes leftover environments and the runner resources. Generalizes
   `benchmarking/swebench/run-in-cluster.sh`.
 - **Real**: Setup deploys the trainer (accelerators, weights, inference
-  server, SDK endpoint, trace flag only in trace mode). Collect pulls SDK
-  events, trainer step and throughput metrics, and the trace if present.
-  Teardown stops the trainer and releases accelerators. Lives beside the
-  trainer it wraps.
+  server, SDK endpoint, trace flag only in trace mode). Collect pulls coarse
+  per-step trainer metrics and the trace if present (bulk sandbox and cluster
+  performance data come from `Measurements`). Teardown stops the trainer and
+  releases accelerators. Lives beside the trainer it wraps.
 
 ### 5.4 Load generator
 `cmd/benchmarking/swebench-loader`. Seams: job spec in, `Backend` and
@@ -157,12 +159,12 @@ and pre-warming are never the throughput bottleneck. Modes:
   the throughput knee.
 
 ### 5.5 SDK instrumentation
-Always-on lightweight events, one per call, cheap enough for measure mode.
-Captures operation duration, sub-phase split (`claim` to `Ready` vs. `Ready`
-to first command), acquisition source (`warm_pool`, `golden_restore`, `fork`,
-`resume`, `cold_create`) and node image cache state (`warm` | `cold` when
-reported by the backend). A verbose trace flag adds payloads and timing
-detail. A converter turns a trace into trajectories plus an explicit schedule.
+In `measure` mode, the SDK exports in-memory Prometheus metrics (counters and
+histograms for operation duration, `claim`-to-`Ready` vs. `Ready`-to-first-command
+sub-phases, acquisition source and node cache state) scraped by `Measurements`,
+avoiding per-call logging overhead. In `trace` mode, a verbose flag logs one
+JSONL record per call with payloads and timing detail (`Trace.jsonl`). A
+converter turns a trace into trajectories plus an explicit schedule.
 
 ### 5.6 Measurements
 Per SUT, config-driven. Scrapes server-side and cluster metrics for the run
@@ -228,9 +230,9 @@ while breaking the system.
 
 1. **Strict schema enforcement across languages**: Go readers must reject
    unknown JSON fields (`DisallowUnknownFields`) or validate against `W1`'s
-   JSON Schema files. Python SDK event/trace emitters (`W11`) must validate
-   their output against the exact same JSON Schema files from `W1`, never a
-   hand-written copy.
+   JSON Schema files. Python SDK trace emitters (`W11`) and trainer step-event
+   emitters (`W13`) must validate their output against the exact same JSON
+   Schema files from `W1`, never a hand-written copy.
 2. **File-only boundaries (no in-memory shortcuts)**: The orchestrator,
    schedule resolver, trace converter, load generator, reporter and comparator
    must communicate strictly by reading and writing the section 3 files on
@@ -245,12 +247,11 @@ while breaking the system.
    - `Measurements` (`W9`) must distinguish `0` (measured zero errors) from
      `null`/error (metric missing or scrape failed). A failed scrape must fail
      measurement collection, never default to `0`.
-4. **Zero extra RPCs on the instrumented path**: In `measure` mode, SDK
-   instrumentation (`W11`) and backend drivers (`W8`) must extract attribution
-   fields (`source`, `node_cache`, sub-phase timings) from existing response
-   headers or payloads and buffer writes asynchronously. Issuing extra
-   status/inspect RPCs or synchronous per-event disk flushes on the hot path is
-   forbidden.
+4. **Zero extra RPCs or per-call logging in `measure` mode**: In `measure`
+   mode, SDK instrumentation (`W11`) exports in-memory Prometheus counters and
+   histograms (with attribution labels from existing response headers/payloads)
+   and never logs per-call lines or issues extra status/inspect RPCs on the hot
+   path. Per-call JSONL logging is restricted to `trace` mode.
 5. **Exact raw-event aggregation**: `Report` (`W4`) must compute percentiles
    (`p50`, `p90`, `p95`, `max`) over the merged raw event durations, never by
    averaging percentiles across steps, shards or jobs.
@@ -281,7 +282,7 @@ while breaking the system.
 | W8 | Provisioner, Reaper and Backend drivers | Helm/manifest provision, server-queried timed reap to zero and teardown; `Backend` drivers covering SDK and direct-API access across supported sandbox backends; system description written | hermetic fake-API unit tests plus cluster smoke run verifying server-side orphan count reaches zero | W1 |
 | W9 | Measurements | config-driven Prometheus/cluster queries (image pull, readiness rates, node/identity/429/DB/controller/queue health, sandboxes per node and vCPU) and log capture for a run window; distinguishes `0` from missing/failed scrape | test against fake Prometheus HTTP server covering both valid series and scrape failure; smoke run attaches measurements to report | W1, W8 |
 | W10 | Orchestrator CLI | `cmd/benchmarking/bench run SCENARIO.yaml` driving phases in 5.7 strictly via file artifacts, including timed reap | two simulated jobs with offsets run concurrently; reap converges to zero; report is valid | W2, W4, W5, W7, W8, W9 |
-| W11 | SDK instrumentation | lightweight async-buffered events always on (with sub-phase and acquisition source fields from existing responses, zero extra RPCs); verbose trace flag; overhead benchmarked | emitted events/traces validate against W1 JSON schemas; microbenchmark proves measure-mode overhead stays under bound; trace fixture produced | W1 |
+| W11 | SDK instrumentation | in-memory Prometheus metrics in `measure` mode (sub-phase and acquisition source labels from existing responses, zero extra RPCs, zero per-call logs); verbose `trace` flag emitting `Trace.jsonl`; overhead benchmarked | emitted traces validate against W1 JSON schema; microbenchmark proves measure-mode metric overhead stays under bound; trace fixture produced | W1 |
 | W12 | Trace converter | trace JSONL to trajectories plus explicit schedule preserving concurrency profile, payload sizes and per-step inter-command think times | end-to-end chain test: W11 trace $\to$ W12 $\to$ W3 load generator reproduces step counts, concurrency histogram and think-time distribution | W1, W2, W3, W11 |
 | W13 | Real Job Runner | runner interface over one trainer, measure and trace modes; exports trainer step breakdown and accelerator throughput | one real job runs through the orchestrator; trace mode yields a trace W12 converts and replays | W10, W11, W12 |
 | W14 | Open-loop mode (optional) | Poisson arrival mode in the load generator | in-memory test shows arrivals independent of completion; report shows the knee | W3 |
