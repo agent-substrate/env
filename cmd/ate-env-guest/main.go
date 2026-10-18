@@ -38,6 +38,8 @@ import (
 )
 
 func main() {
+	runIfPID1()
+
 	listen := flag.String("listen", ":80", "address to serve the guest API on")
 	logDir := flag.String("log-dir", "", "directory for process logs (defaults to /var/log/ate-jobs or temporary dir)")
 	workspace := flag.String("workspace", "/", "workspace root directory")
@@ -131,8 +133,8 @@ func main() {
 	}
 	// The supervisors stop their process groups with SIGTERM, a grace period
 	// and SIGKILL; that sequence needs this process to stay alive until it
-	// has run. Inside an actor the guest is PID 1 and the container would end
-	// with it anyway; outside one, this is what stops the sidecars.
+	// has run. Inside an actor, PID 1 is the minimal init in runIfPID1, which
+	// waits for this child process to exit before terminating the container.
 	waitBounded(&supervisors, 2*sidecarStopGrace+time.Second)
 }
 
