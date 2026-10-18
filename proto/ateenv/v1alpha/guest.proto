@@ -62,6 +62,11 @@ service ProcessService {
   // returns the process state right after delivery. Use StreamProcessOutput
   // to observe the effect.
   rpc SignalProcess(SignalProcessRequest) returns (Process);
+
+  // ResizeProcess updates the terminal window dimensions (rows and columns)
+  // of a process started with a PTY and delivers SIGWINCH to its foreground
+  // process group.
+  rpc ResizeProcess(ResizeProcessRequest) returns (ResizeProcessResponse);
 }
 
 // FileSystemService provides streaming file reading and writing capabilities inside
@@ -142,6 +147,14 @@ message Process {
   google.protobuf.Timestamp finished_at = 7;
 }
 
+// Pseudo-terminal configuration for interactive processes.
+message TTY {
+  // Initial terminal height in character cells (0 leaves the kernel default).
+  uint32 rows = 1;
+  // Initial terminal width in character cells (0 leaves the kernel default).
+  uint32 cols = 2;
+}
+
 // Request to start a process.
 message StartProcessRequest {
   // Command binary and arguments to execute (e.g. ["pytest", "tests/"] or ["sh", "-c", "ls -la"]).
@@ -156,6 +169,11 @@ message StartProcessRequest {
   // Maximum wall-clock run time. On expiry the process group receives SIGKILL.
   // Unset or zero applies the guest's default timeout.
   google.protobuf.Duration timeout = 5;
+  // If set, allocates a pseudo-terminal (PTY) as the process's controlling
+  // terminal. Stdin, stdout, and stderr are attached to the slave PTY,
+  // combined output is streamed on stdout (exempt from the default log cap),
+  // and stdin is implicitly enabled.
+  TTY tty = 6;
 }
 
 // Request to get a Process.
@@ -216,6 +234,19 @@ message SignalProcessRequest {
   // Signal to deliver to the process group.
   Signal signal = 2;
 }
+
+// Request to resize the pseudo-terminal of a running process.
+message ResizeProcessRequest {
+  // Identifier of the target process.
+  string process_id = 1;
+  // New terminal height in character cells.
+  uint32 rows = 2;
+  // New terminal width in character cells.
+  uint32 cols = 3;
+}
+
+// Response confirming the terminal resize.
+message ResizeProcessResponse {}
 
 // ============================================================================
 // --- FILESYSTEM SERVICE MESSAGES ---

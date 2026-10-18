@@ -530,3 +530,165 @@ func TestSignalRoundTrip(t *testing.T) {
 		t.Errorf("UNSPECIFIED must not map to a signal")
 	}
 }
+
+func TestTTYControllingTerminalAndMergedOutput(t *testing.T) {
+	client := setupTestServer(t)
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"sh", "-c", "tty; stty size; echo out-msg; echo err-msg >&2"},
+		Tty:     &ateenvv1alpha.TTY{Rows: 24, Cols: 80},
+	})
+
+	stdout, stderr, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: started.GetProcessId(),
+		Follow:    true,
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr on TTY process, got %q", stderr)
+	}
+	for _, want := range []string{"/dev/pts/", "24 80", "out-msg", "err-msg"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected stdout to contain %q, got:\n%s", want, stdout)
+		}
+	}
+	if exit == nil || exit.GetExitCode() != 0 {
+		t.Fatalf("expected exit_code 0, got %v", exit)
+	}
+}
+
+func TestTTYResizeAndSIGWINCH(t *testing.T) {
+	client := setupTestServer(t)
+	ctx := context.Background()
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"sh", "-c", `trap 'echo "winch:$(stty size)"; exit 0' WINCH; echo ready; while :; do sleep 0.05; done`},
+		Tty:     &ateenvv1alpha.TTY{Rows: 24, Cols: 80},
+	})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		stdout, _, _ := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{ProcessId: started.GetProcessId()})
+		if strings.Contains(stdout, "ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for process to arm trap; stdout=%q", stdout)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if _, err := client.ResizeProcess(ctx, &ateenvv1alpha.ResizeProcessRequest{
+		ProcessId: started.GetProcessId(),
+		Rows:      40,
+		Cols:      120,
+	}); err != nil {
+		t.Fatalf("ResizeProcess failed: %v", err)
+	}
+
+	stdout, _, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: started.GetProcessId(),
+		Follow:    true,
+	})
+	if !strings.Contains(stdout, "winch:40 120") {
+		t.Fatalf("expected winch:40 120 in stdout, got:\n%s", stdout)
+	}
+	if exit == nil || exit.GetExitCode() != 0 {
+		t.Fatalf("expected exit_code 0, got %v", exit)
+	}
+
+	// Resizing an exited process returns FailedPrecondition.
+	if _, err := client.ResizeProcess(ctx, &ateenvv1alpha.ResizeProcessRequest{
+		ProcessId: started.GetProcessId(),
+		Rows:      50,
+		Cols:      100,
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition on exited process, got %v", err)
+	}
+
+	// Resizing a non-TTY process returns FailedPrecondition.
+	noTTY := sh(t, client, "sleep 10")
+	t.Cleanup(func() {
+		_, _ = client.SignalProcess(ctx, &ateenvv1alpha.SignalProcessRequest{
+			ProcessId: noTTY.GetProcessId(),
+			Signal:    ateenvv1alpha.Signal_SIGNAL_KILL,
+		})
+	})
+	if _, err := client.ResizeProcess(ctx, &ateenvv1alpha.ResizeProcessRequest{
+		ProcessId: noTTY.GetProcessId(),
+		Rows:      50,
+		Cols:      100,
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition on non-TTY process, got %v", err)
+	}
+
+	// Resizing an unknown process returns NotFound.
+	if _, err := client.ResizeProcess(ctx, &ateenvv1alpha.ResizeProcessRequest{
+		ProcessId: "unknown",
+		Rows:      50,
+		Cols:      100,
+	}); status.Code(err) != codes.NotFound {
+		t.Fatalf("expected NotFound on unknown process, got %v", err)
+	}
+
+	// Empty process_id returns InvalidArgument.
+	if _, err := client.ResizeProcess(ctx, &ateenvv1alpha.ResizeProcessRequest{}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument on empty process_id, got %v", err)
+	}
+}
+
+func TestTTYInputAndCloseEOT(t *testing.T) {
+	client := setupTestServer(t)
+	ctx := context.Background()
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"cat"},
+		Tty:     &ateenvv1alpha.TTY{Rows: 24, Cols: 80},
+	})
+
+	in, err := client.WriteProcessInput(ctx)
+	if err != nil {
+		t.Fatalf("WriteProcessInput: %v", err)
+	}
+	if err := in.Send(&ateenvv1alpha.WriteProcessInputRequest{
+		ProcessId: started.GetProcessId(),
+		Data:      []byte("hello-pty\n"),
+		Close:     true,
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if _, err := in.CloseAndRecv(); err != nil {
+		t.Fatalf("CloseAndRecv: %v", err)
+	}
+
+	stdout, _, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: started.GetProcessId(),
+		Follow:    true,
+	})
+	if !strings.Contains(stdout, "hello-pty") {
+		t.Fatalf("expected hello-pty in stdout, got %q", stdout)
+	}
+	if exit == nil || exit.GetExitCode() != 0 {
+		t.Fatalf("expected exit_code 0 after EOT on PTY, got %v", exit)
+	}
+}
+
+func TestTTYExemptFromLogCap(t *testing.T) {
+	cfg := DefaultConfig("")
+	cfg.MaxLogBytes = 256
+	client := setupTestServerWithConfig(t, cfg)
+
+	started := start(t, client, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"sh", "-c", "for i in $(seq 1 100); do echo 'tty-line-0123456789abcdef'; done"},
+		Tty:     &ateenvv1alpha.TTY{Rows: 24, Cols: 80},
+	})
+	stdout, _, exit := collect(t, client, &ateenvv1alpha.StreamProcessOutputRequest{
+		ProcessId: started.GetProcessId(),
+		Follow:    true,
+	})
+	if strings.Contains(stdout, "truncated") {
+		t.Fatalf("TTY output must not be capped by MaxLogBytes, got:\n%s", stdout)
+	}
+	if len(stdout) < 2000 {
+		t.Fatalf("expected full TTY output (>2000 bytes), got %d bytes", len(stdout))
+	}
+	if exit == nil || exit.GetExitCode() != 0 {
+		t.Fatalf("expected exit_code 0, got %v", exit)
+	}
+}

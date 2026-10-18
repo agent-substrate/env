@@ -329,6 +329,61 @@ func (x *Process) GetFinishedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// Pseudo-terminal configuration for interactive processes.
+type TTY struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Initial terminal height in character cells (0 leaves the kernel default).
+	Rows uint32 `protobuf:"varint,1,opt,name=rows,proto3" json:"rows,omitempty"`
+	// Initial terminal width in character cells (0 leaves the kernel default).
+	Cols          uint32 `protobuf:"varint,2,opt,name=cols,proto3" json:"cols,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TTY) Reset() {
+	*x = TTY{}
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TTY) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TTY) ProtoMessage() {}
+
+func (x *TTY) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TTY.ProtoReflect.Descriptor instead.
+func (*TTY) Descriptor() ([]byte, []int) {
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TTY) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+func (x *TTY) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
 // Request to start a process.
 type StartProcessRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -343,14 +398,19 @@ type StartProcessRequest struct {
 	Stdin bool `protobuf:"varint,4,opt,name=stdin,proto3" json:"stdin,omitempty"`
 	// Maximum wall-clock run time. On expiry the process group receives SIGKILL.
 	// Unset or zero applies the guest's default timeout.
-	Timeout       *durationpb.Duration `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	Timeout *durationpb.Duration `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// If set, allocates a pseudo-terminal (PTY) as the process's controlling
+	// terminal. Stdin, stdout, and stderr are attached to the slave PTY,
+	// combined output is streamed on stdout (exempt from the default log cap),
+	// and stdin is implicitly enabled.
+	Tty           *TTY `protobuf:"bytes,6,opt,name=tty,proto3" json:"tty,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartProcessRequest) Reset() {
 	*x = StartProcessRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[1]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -362,7 +422,7 @@ func (x *StartProcessRequest) String() string {
 func (*StartProcessRequest) ProtoMessage() {}
 
 func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[1]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -375,7 +435,7 @@ func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProcessRequest.ProtoReflect.Descriptor instead.
 func (*StartProcessRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{1}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StartProcessRequest) GetCommand() []string {
@@ -413,6 +473,13 @@ func (x *StartProcessRequest) GetTimeout() *durationpb.Duration {
 	return nil
 }
 
+func (x *StartProcessRequest) GetTty() *TTY {
+	if x != nil {
+		return x.Tty
+	}
+	return nil
+}
+
 // Request to get a Process.
 type GetProcessRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -424,7 +491,7 @@ type GetProcessRequest struct {
 
 func (x *GetProcessRequest) Reset() {
 	*x = GetProcessRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[2]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +503,7 @@ func (x *GetProcessRequest) String() string {
 func (*GetProcessRequest) ProtoMessage() {}
 
 func (x *GetProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[2]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +516,7 @@ func (x *GetProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProcessRequest.ProtoReflect.Descriptor instead.
 func (*GetProcessRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{2}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetProcessRequest) GetProcessId() string {
@@ -480,7 +547,7 @@ type StreamProcessOutputRequest struct {
 
 func (x *StreamProcessOutputRequest) Reset() {
 	*x = StreamProcessOutputRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[3]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -492,7 +559,7 @@ func (x *StreamProcessOutputRequest) String() string {
 func (*StreamProcessOutputRequest) ProtoMessage() {}
 
 func (x *StreamProcessOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[3]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -505,7 +572,7 @@ func (x *StreamProcessOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamProcessOutputRequest.ProtoReflect.Descriptor instead.
 func (*StreamProcessOutputRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{3}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StreamProcessOutputRequest) GetProcessId() string {
@@ -551,7 +618,7 @@ type ProcessOutput struct {
 
 func (x *ProcessOutput) Reset() {
 	*x = ProcessOutput{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[4]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -563,7 +630,7 @@ func (x *ProcessOutput) String() string {
 func (*ProcessOutput) ProtoMessage() {}
 
 func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[4]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -576,7 +643,7 @@ func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessOutput.ProtoReflect.Descriptor instead.
 func (*ProcessOutput) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{4}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ProcessOutput) GetOutput() isProcessOutput_Output {
@@ -654,7 +721,7 @@ type WriteProcessInputRequest struct {
 
 func (x *WriteProcessInputRequest) Reset() {
 	*x = WriteProcessInputRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[5]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +733,7 @@ func (x *WriteProcessInputRequest) String() string {
 func (*WriteProcessInputRequest) ProtoMessage() {}
 
 func (x *WriteProcessInputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[5]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +746,7 @@ func (x *WriteProcessInputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteProcessInputRequest.ProtoReflect.Descriptor instead.
 func (*WriteProcessInputRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{5}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *WriteProcessInputRequest) GetProcessId() string {
@@ -714,7 +781,7 @@ type WriteProcessInputResponse struct {
 
 func (x *WriteProcessInputResponse) Reset() {
 	*x = WriteProcessInputResponse{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[6]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -726,7 +793,7 @@ func (x *WriteProcessInputResponse) String() string {
 func (*WriteProcessInputResponse) ProtoMessage() {}
 
 func (x *WriteProcessInputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[6]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -739,7 +806,7 @@ func (x *WriteProcessInputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteProcessInputResponse.ProtoReflect.Descriptor instead.
 func (*WriteProcessInputResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{6}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *WriteProcessInputResponse) GetBytesWritten() int64 {
@@ -762,7 +829,7 @@ type SignalProcessRequest struct {
 
 func (x *SignalProcessRequest) Reset() {
 	*x = SignalProcessRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[7]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +841,7 @@ func (x *SignalProcessRequest) String() string {
 func (*SignalProcessRequest) ProtoMessage() {}
 
 func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[7]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +854,7 @@ func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalProcessRequest.ProtoReflect.Descriptor instead.
 func (*SignalProcessRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{7}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SignalProcessRequest) GetProcessId() string {
@@ -802,6 +869,107 @@ func (x *SignalProcessRequest) GetSignal() Signal {
 		return x.Signal
 	}
 	return Signal_SIGNAL_UNSPECIFIED
+}
+
+// Request to resize the pseudo-terminal of a running process.
+type ResizeProcessRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Identifier of the target process.
+	ProcessId string `protobuf:"bytes,1,opt,name=process_id,json=processId,proto3" json:"process_id,omitempty"`
+	// New terminal height in character cells.
+	Rows uint32 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
+	// New terminal width in character cells.
+	Cols          uint32 `protobuf:"varint,3,opt,name=cols,proto3" json:"cols,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResizeProcessRequest) Reset() {
+	*x = ResizeProcessRequest{}
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResizeProcessRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResizeProcessRequest) ProtoMessage() {}
+
+func (x *ResizeProcessRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResizeProcessRequest.ProtoReflect.Descriptor instead.
+func (*ResizeProcessRequest) Descriptor() ([]byte, []int) {
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ResizeProcessRequest) GetProcessId() string {
+	if x != nil {
+		return x.ProcessId
+	}
+	return ""
+}
+
+func (x *ResizeProcessRequest) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+func (x *ResizeProcessRequest) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+// Response confirming the terminal resize.
+type ResizeProcessResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResizeProcessResponse) Reset() {
+	*x = ResizeProcessResponse{}
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResizeProcessResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResizeProcessResponse) ProtoMessage() {}
+
+func (x *ResizeProcessResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResizeProcessResponse.ProtoReflect.Descriptor instead.
+func (*ResizeProcessResponse) Descriptor() ([]byte, []int) {
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{10}
 }
 
 // Request to read a file from the container.
@@ -820,7 +988,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[8]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -832,7 +1000,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[8]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -845,7 +1013,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{8}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ReadFileRequest) GetPath() string {
@@ -873,7 +1041,7 @@ type ReadFileResponse struct {
 
 func (x *ReadFileResponse) Reset() {
 	*x = ReadFileResponse{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[9]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -885,7 +1053,7 @@ func (x *ReadFileResponse) String() string {
 func (*ReadFileResponse) ProtoMessage() {}
 
 func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[9]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -898,7 +1066,7 @@ func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
 func (*ReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{9}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ReadFileResponse) GetChunk() []byte {
@@ -932,7 +1100,7 @@ type WriteFileRequest struct {
 
 func (x *WriteFileRequest) Reset() {
 	*x = WriteFileRequest{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[10]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -944,7 +1112,7 @@ func (x *WriteFileRequest) String() string {
 func (*WriteFileRequest) ProtoMessage() {}
 
 func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[10]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -957,7 +1125,7 @@ func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileRequest.ProtoReflect.Descriptor instead.
 func (*WriteFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{10}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *WriteFileRequest) GetPath() string {
@@ -999,7 +1167,7 @@ type WriteFileResponse struct {
 
 func (x *WriteFileResponse) Reset() {
 	*x = WriteFileResponse{}
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[11]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1011,7 +1179,7 @@ func (x *WriteFileResponse) String() string {
 func (*WriteFileResponse) ProtoMessage() {}
 
 func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[11]
+	mi := &file_proto_ateenv_v1alpha_guest_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1024,7 +1192,7 @@ func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileResponse.ProtoReflect.Descriptor instead.
 func (*WriteFileResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{11}
+	return file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WriteFileResponse) GetBytesWritten() int64 {
@@ -1049,13 +1217,17 @@ const file_proto_ateenv_v1alpha_guest_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12;\n" +
 	"\vfinished_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAt\"\x84\x02\n" +
+	"finishedAt\"-\n" +
+	"\x03TTY\x12\x12\n" +
+	"\x04rows\x18\x01 \x01(\rR\x04rows\x12\x12\n" +
+	"\x04cols\x18\x02 \x01(\rR\x04cols\"\xab\x02\n" +
 	"\x13StartProcessRequest\x12\x18\n" +
 	"\acommand\x18\x01 \x03(\tR\acommand\x12\x10\n" +
 	"\x03cwd\x18\x02 \x01(\tR\x03cwd\x12>\n" +
 	"\x03env\x18\x03 \x03(\v2,.ateenv.v1alpha.StartProcessRequest.EnvEntryR\x03env\x12\x14\n" +
 	"\x05stdin\x18\x04 \x01(\bR\x05stdin\x123\n" +
-	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x1a6\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12%\n" +
+	"\x03tty\x18\x06 \x01(\v2\x13.ateenv.v1alpha.TTYR\x03tty\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"2\n" +
@@ -1083,7 +1255,13 @@ const file_proto_ateenv_v1alpha_guest_proto_rawDesc = "" +
 	"\x14SignalProcessRequest\x12\x1d\n" +
 	"\n" +
 	"process_id\x18\x01 \x01(\tR\tprocessId\x12.\n" +
-	"\x06signal\x18\x02 \x01(\x0e2\x16.ateenv.v1alpha.SignalR\x06signal\"9\n" +
+	"\x06signal\x18\x02 \x01(\x0e2\x16.ateenv.v1alpha.SignalR\x06signal\"]\n" +
+	"\x14ResizeProcessRequest\x12\x1d\n" +
+	"\n" +
+	"process_id\x18\x01 \x01(\tR\tprocessId\x12\x12\n" +
+	"\x04rows\x18\x02 \x01(\rR\x04rows\x12\x12\n" +
+	"\x04cols\x18\x03 \x01(\rR\x04cols\"\x17\n" +
+	"\x15ResizeProcessResponse\"9\n" +
 	"\x0fReadFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\rR\x04mode\"(\n" +
@@ -1139,14 +1317,15 @@ const file_proto_ateenv_v1alpha_guest_proto_rawDesc = "" +
 	"\fSIGNAL_WINCH\x10\x1c\x12\r\n" +
 	"\tSIGNAL_IO\x10\x1d\x12\x0e\n" +
 	"\n" +
-	"SIGNAL_SYS\x10\x1f2\xc8\x03\n" +
+	"SIGNAL_SYS\x10\x1f2\xa6\x04\n" +
 	"\x0eProcessService\x12L\n" +
 	"\fStartProcess\x12#.ateenv.v1alpha.StartProcessRequest\x1a\x17.ateenv.v1alpha.Process\x12H\n" +
 	"\n" +
 	"GetProcess\x12!.ateenv.v1alpha.GetProcessRequest\x1a\x17.ateenv.v1alpha.Process\x12b\n" +
 	"\x13StreamProcessOutput\x12*.ateenv.v1alpha.StreamProcessOutputRequest\x1a\x1d.ateenv.v1alpha.ProcessOutput0\x01\x12j\n" +
 	"\x11WriteProcessInput\x12(.ateenv.v1alpha.WriteProcessInputRequest\x1a).ateenv.v1alpha.WriteProcessInputResponse(\x01\x12N\n" +
-	"\rSignalProcess\x12$.ateenv.v1alpha.SignalProcessRequest\x1a\x17.ateenv.v1alpha.Process2\xb8\x01\n" +
+	"\rSignalProcess\x12$.ateenv.v1alpha.SignalProcessRequest\x1a\x17.ateenv.v1alpha.Process\x12\\\n" +
+	"\rResizeProcess\x12$.ateenv.v1alpha.ResizeProcessRequest\x1a%.ateenv.v1alpha.ResizeProcessResponse2\xb8\x01\n" +
 	"\x11FileSystemService\x12O\n" +
 	"\bReadFile\x12\x1f.ateenv.v1alpha.ReadFileRequest\x1a .ateenv.v1alpha.ReadFileResponse0\x01\x12R\n" +
 	"\tWriteFile\x12 .ateenv.v1alpha.WriteFileRequest\x1a!.ateenv.v1alpha.WriteFileResponse(\x01BCZAgithub.com/agent-substrate/env/proto/ateenv/v1alpha;ateenvv1alphab\x06proto3"
@@ -1164,53 +1343,59 @@ func file_proto_ateenv_v1alpha_guest_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_ateenv_v1alpha_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_ateenv_v1alpha_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_ateenv_v1alpha_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_proto_ateenv_v1alpha_guest_proto_goTypes = []any{
 	(ProcessState)(0),                  // 0: ateenv.v1alpha.ProcessState
 	(Signal)(0),                        // 1: ateenv.v1alpha.Signal
 	(*Process)(nil),                    // 2: ateenv.v1alpha.Process
-	(*StartProcessRequest)(nil),        // 3: ateenv.v1alpha.StartProcessRequest
-	(*GetProcessRequest)(nil),          // 4: ateenv.v1alpha.GetProcessRequest
-	(*StreamProcessOutputRequest)(nil), // 5: ateenv.v1alpha.StreamProcessOutputRequest
-	(*ProcessOutput)(nil),              // 6: ateenv.v1alpha.ProcessOutput
-	(*WriteProcessInputRequest)(nil),   // 7: ateenv.v1alpha.WriteProcessInputRequest
-	(*WriteProcessInputResponse)(nil),  // 8: ateenv.v1alpha.WriteProcessInputResponse
-	(*SignalProcessRequest)(nil),       // 9: ateenv.v1alpha.SignalProcessRequest
-	(*ReadFileRequest)(nil),            // 10: ateenv.v1alpha.ReadFileRequest
-	(*ReadFileResponse)(nil),           // 11: ateenv.v1alpha.ReadFileResponse
-	(*WriteFileRequest)(nil),           // 12: ateenv.v1alpha.WriteFileRequest
-	(*WriteFileResponse)(nil),          // 13: ateenv.v1alpha.WriteFileResponse
-	nil,                                // 14: ateenv.v1alpha.StartProcessRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),      // 15: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),        // 16: google.protobuf.Duration
+	(*TTY)(nil),                        // 3: ateenv.v1alpha.TTY
+	(*StartProcessRequest)(nil),        // 4: ateenv.v1alpha.StartProcessRequest
+	(*GetProcessRequest)(nil),          // 5: ateenv.v1alpha.GetProcessRequest
+	(*StreamProcessOutputRequest)(nil), // 6: ateenv.v1alpha.StreamProcessOutputRequest
+	(*ProcessOutput)(nil),              // 7: ateenv.v1alpha.ProcessOutput
+	(*WriteProcessInputRequest)(nil),   // 8: ateenv.v1alpha.WriteProcessInputRequest
+	(*WriteProcessInputResponse)(nil),  // 9: ateenv.v1alpha.WriteProcessInputResponse
+	(*SignalProcessRequest)(nil),       // 10: ateenv.v1alpha.SignalProcessRequest
+	(*ResizeProcessRequest)(nil),       // 11: ateenv.v1alpha.ResizeProcessRequest
+	(*ResizeProcessResponse)(nil),      // 12: ateenv.v1alpha.ResizeProcessResponse
+	(*ReadFileRequest)(nil),            // 13: ateenv.v1alpha.ReadFileRequest
+	(*ReadFileResponse)(nil),           // 14: ateenv.v1alpha.ReadFileResponse
+	(*WriteFileRequest)(nil),           // 15: ateenv.v1alpha.WriteFileRequest
+	(*WriteFileResponse)(nil),          // 16: ateenv.v1alpha.WriteFileResponse
+	nil,                                // 17: ateenv.v1alpha.StartProcessRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),      // 18: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),        // 19: google.protobuf.Duration
 }
 var file_proto_ateenv_v1alpha_guest_proto_depIdxs = []int32{
 	0,  // 0: ateenv.v1alpha.Process.state:type_name -> ateenv.v1alpha.ProcessState
-	15, // 1: ateenv.v1alpha.Process.started_at:type_name -> google.protobuf.Timestamp
-	15, // 2: ateenv.v1alpha.Process.finished_at:type_name -> google.protobuf.Timestamp
-	14, // 3: ateenv.v1alpha.StartProcessRequest.env:type_name -> ateenv.v1alpha.StartProcessRequest.EnvEntry
-	16, // 4: ateenv.v1alpha.StartProcessRequest.timeout:type_name -> google.protobuf.Duration
-	2,  // 5: ateenv.v1alpha.ProcessOutput.exit:type_name -> ateenv.v1alpha.Process
-	1,  // 6: ateenv.v1alpha.SignalProcessRequest.signal:type_name -> ateenv.v1alpha.Signal
-	3,  // 7: ateenv.v1alpha.ProcessService.StartProcess:input_type -> ateenv.v1alpha.StartProcessRequest
-	4,  // 8: ateenv.v1alpha.ProcessService.GetProcess:input_type -> ateenv.v1alpha.GetProcessRequest
-	5,  // 9: ateenv.v1alpha.ProcessService.StreamProcessOutput:input_type -> ateenv.v1alpha.StreamProcessOutputRequest
-	7,  // 10: ateenv.v1alpha.ProcessService.WriteProcessInput:input_type -> ateenv.v1alpha.WriteProcessInputRequest
-	9,  // 11: ateenv.v1alpha.ProcessService.SignalProcess:input_type -> ateenv.v1alpha.SignalProcessRequest
-	10, // 12: ateenv.v1alpha.FileSystemService.ReadFile:input_type -> ateenv.v1alpha.ReadFileRequest
-	12, // 13: ateenv.v1alpha.FileSystemService.WriteFile:input_type -> ateenv.v1alpha.WriteFileRequest
-	2,  // 14: ateenv.v1alpha.ProcessService.StartProcess:output_type -> ateenv.v1alpha.Process
-	2,  // 15: ateenv.v1alpha.ProcessService.GetProcess:output_type -> ateenv.v1alpha.Process
-	6,  // 16: ateenv.v1alpha.ProcessService.StreamProcessOutput:output_type -> ateenv.v1alpha.ProcessOutput
-	8,  // 17: ateenv.v1alpha.ProcessService.WriteProcessInput:output_type -> ateenv.v1alpha.WriteProcessInputResponse
-	2,  // 18: ateenv.v1alpha.ProcessService.SignalProcess:output_type -> ateenv.v1alpha.Process
-	11, // 19: ateenv.v1alpha.FileSystemService.ReadFile:output_type -> ateenv.v1alpha.ReadFileResponse
-	13, // 20: ateenv.v1alpha.FileSystemService.WriteFile:output_type -> ateenv.v1alpha.WriteFileResponse
-	14, // [14:21] is the sub-list for method output_type
-	7,  // [7:14] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	18, // 1: ateenv.v1alpha.Process.started_at:type_name -> google.protobuf.Timestamp
+	18, // 2: ateenv.v1alpha.Process.finished_at:type_name -> google.protobuf.Timestamp
+	17, // 3: ateenv.v1alpha.StartProcessRequest.env:type_name -> ateenv.v1alpha.StartProcessRequest.EnvEntry
+	19, // 4: ateenv.v1alpha.StartProcessRequest.timeout:type_name -> google.protobuf.Duration
+	3,  // 5: ateenv.v1alpha.StartProcessRequest.tty:type_name -> ateenv.v1alpha.TTY
+	2,  // 6: ateenv.v1alpha.ProcessOutput.exit:type_name -> ateenv.v1alpha.Process
+	1,  // 7: ateenv.v1alpha.SignalProcessRequest.signal:type_name -> ateenv.v1alpha.Signal
+	4,  // 8: ateenv.v1alpha.ProcessService.StartProcess:input_type -> ateenv.v1alpha.StartProcessRequest
+	5,  // 9: ateenv.v1alpha.ProcessService.GetProcess:input_type -> ateenv.v1alpha.GetProcessRequest
+	6,  // 10: ateenv.v1alpha.ProcessService.StreamProcessOutput:input_type -> ateenv.v1alpha.StreamProcessOutputRequest
+	8,  // 11: ateenv.v1alpha.ProcessService.WriteProcessInput:input_type -> ateenv.v1alpha.WriteProcessInputRequest
+	10, // 12: ateenv.v1alpha.ProcessService.SignalProcess:input_type -> ateenv.v1alpha.SignalProcessRequest
+	11, // 13: ateenv.v1alpha.ProcessService.ResizeProcess:input_type -> ateenv.v1alpha.ResizeProcessRequest
+	13, // 14: ateenv.v1alpha.FileSystemService.ReadFile:input_type -> ateenv.v1alpha.ReadFileRequest
+	15, // 15: ateenv.v1alpha.FileSystemService.WriteFile:input_type -> ateenv.v1alpha.WriteFileRequest
+	2,  // 16: ateenv.v1alpha.ProcessService.StartProcess:output_type -> ateenv.v1alpha.Process
+	2,  // 17: ateenv.v1alpha.ProcessService.GetProcess:output_type -> ateenv.v1alpha.Process
+	7,  // 18: ateenv.v1alpha.ProcessService.StreamProcessOutput:output_type -> ateenv.v1alpha.ProcessOutput
+	9,  // 19: ateenv.v1alpha.ProcessService.WriteProcessInput:output_type -> ateenv.v1alpha.WriteProcessInputResponse
+	2,  // 20: ateenv.v1alpha.ProcessService.SignalProcess:output_type -> ateenv.v1alpha.Process
+	12, // 21: ateenv.v1alpha.ProcessService.ResizeProcess:output_type -> ateenv.v1alpha.ResizeProcessResponse
+	14, // 22: ateenv.v1alpha.FileSystemService.ReadFile:output_type -> ateenv.v1alpha.ReadFileResponse
+	16, // 23: ateenv.v1alpha.FileSystemService.WriteFile:output_type -> ateenv.v1alpha.WriteFileResponse
+	16, // [16:24] is the sub-list for method output_type
+	8,  // [8:16] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_ateenv_v1alpha_guest_proto_init() }
@@ -1218,7 +1403,7 @@ func file_proto_ateenv_v1alpha_guest_proto_init() {
 	if File_proto_ateenv_v1alpha_guest_proto != nil {
 		return
 	}
-	file_proto_ateenv_v1alpha_guest_proto_msgTypes[4].OneofWrappers = []any{
+	file_proto_ateenv_v1alpha_guest_proto_msgTypes[5].OneofWrappers = []any{
 		(*ProcessOutput_Stdout)(nil),
 		(*ProcessOutput_Stderr)(nil),
 		(*ProcessOutput_Exit)(nil),
@@ -1229,7 +1414,7 @@ func file_proto_ateenv_v1alpha_guest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ateenv_v1alpha_guest_proto_rawDesc), len(file_proto_ateenv_v1alpha_guest_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   13,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
