@@ -428,3 +428,57 @@ func TestShellKilledByTimeout(t *testing.T) {
 		t.Errorf("timed out run = %+v, want exit code 137", res)
 	}
 }
+
+func TestProcessTTYAndResize(t *testing.T) {
+	f := newFixture(t)
+	sb := f.create(t, "sb-tty")
+	ctx := t.Context()
+
+	proc, err := sb.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{
+		Command: []string{"sh", "-c", `trap 'echo "size:$(stty size)"; exit 0' WINCH; echo ready; while :; do sleep 0.05; done`},
+		Tty:     &ateenvv1alpha.TTY{Rows: 25, Cols: 90},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := proc.Output(ctx, &ateenvv1alpha.StreamProcessOutputRequest{Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf strings.Builder
+	for !strings.Contains(buf.String(), "ready") {
+		msg, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("waiting for ready: %v", err)
+		}
+		buf.Write(msg.GetStdout())
+	}
+
+	if err := proc.Resize(ctx, 50, 132); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+
+	var exit *ateenvv1alpha.Process
+	for {
+		msg, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("reading output after resize: %v", err)
+		}
+		buf.Write(msg.GetStdout())
+		if msg.GetExit() != nil {
+			exit = msg.GetExit()
+		}
+	}
+
+	if !strings.Contains(buf.String(), "size:50 132") {
+		t.Errorf("output = %q, want size:50 132", buf.String())
+	}
+	if exit == nil || exit.GetExitCode() != 0 {
+		t.Errorf("exit = %v, want exit_code 0", exit)
+	}
+}

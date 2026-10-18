@@ -308,6 +308,16 @@ func (s *Server) SignalProcess(ctx context.Context, req *ateenvv1alpha.SignalPro
 	return client.SignalProcess(outCtx, req)
 }
 
+// ResizeProcess updates the window size of a process's pseudo-terminal inside the environment.
+func (s *Server) ResizeProcess(ctx context.Context, req *ateenvv1alpha.ResizeProcessRequest) (*ateenvv1alpha.ResizeProcessResponse, error) {
+	client, outCtx, closeFn, err := s.processClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer closeFn()
+	return client.ResizeProcess(outCtx, req)
+}
+
 // StreamProcessOutput streams stdout, stderr and the exit message from a process.
 func (s *Server) StreamProcessOutput(req *ateenvv1alpha.StreamProcessOutputRequest, stream grpc.ServerStreamingServer[ateenvv1alpha.ProcessOutput]) error {
 	client, outCtx, closeFn, err := s.processClient(stream.Context())

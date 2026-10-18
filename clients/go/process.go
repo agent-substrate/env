@@ -92,6 +92,18 @@ func (p *Process) Signal(ctx context.Context, sig ateenvv1alpha.Signal) error {
 	return fromGRPCError(err)
 }
 
+// Resize updates the window dimensions of the process's pseudo-terminal and
+// delivers SIGWINCH to its foreground process group. The process must have
+// been started with a TTY.
+func (p *Process) Resize(ctx context.Context, rows, cols uint32) error {
+	_, err := p.env.client.process.ResizeProcess(p.env.withEnv(ctx), &ateenvv1alpha.ResizeProcessRequest{
+		ProcessId: p.id,
+		Rows:      rows,
+		Cols:      cols,
+	})
+	return fromGRPCError(err)
+}
+
 // Kill sends SIGKILL and waits for the process to exit. Killing a process
 // that has already exited is not an error.
 func (p *Process) Kill(ctx context.Context) (*ateenvv1alpha.Process, error) {

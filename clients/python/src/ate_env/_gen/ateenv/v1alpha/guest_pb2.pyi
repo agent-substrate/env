@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import datetime
 
 from google.protobuf import duration_pb2 as _duration_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
@@ -115,8 +114,16 @@ class Process(_message.Message):
     finished_at: _timestamp_pb2.Timestamp
     def __init__(self, process_id: _Optional[str] = ..., command: _Optional[_Iterable[str]] = ..., pid: _Optional[int] = ..., state: _Optional[_Union[ProcessState, str]] = ..., exit_code: _Optional[int] = ..., started_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., finished_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
+class TTY(_message.Message):
+    __slots__ = ("rows", "cols")
+    ROWS_FIELD_NUMBER: _ClassVar[int]
+    COLS_FIELD_NUMBER: _ClassVar[int]
+    rows: int
+    cols: int
+    def __init__(self, rows: _Optional[int] = ..., cols: _Optional[int] = ...) -> None: ...
+
 class StartProcessRequest(_message.Message):
-    __slots__ = ("command", "cwd", "env", "stdin", "timeout")
+    __slots__ = ("command", "cwd", "env", "stdin", "timeout", "tty")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -129,12 +136,14 @@ class StartProcessRequest(_message.Message):
     ENV_FIELD_NUMBER: _ClassVar[int]
     STDIN_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_FIELD_NUMBER: _ClassVar[int]
+    TTY_FIELD_NUMBER: _ClassVar[int]
     command: _containers.RepeatedScalarFieldContainer[str]
     cwd: str
     env: _containers.ScalarMap[str, str]
     stdin: bool
     timeout: _duration_pb2.Duration
-    def __init__(self, command: _Optional[_Iterable[str]] = ..., cwd: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., stdin: _Optional[bool] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    tty: TTY
+    def __init__(self, command: _Optional[_Iterable[str]] = ..., cwd: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., stdin: _Optional[bool] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., tty: _Optional[_Union[TTY, _Mapping]] = ...) -> None: ...
 
 class GetProcessRequest(_message.Message):
     __slots__ = ("process_id",)
@@ -187,6 +196,20 @@ class SignalProcessRequest(_message.Message):
     process_id: str
     signal: Signal
     def __init__(self, process_id: _Optional[str] = ..., signal: _Optional[_Union[Signal, str]] = ...) -> None: ...
+
+class ResizeProcessRequest(_message.Message):
+    __slots__ = ("process_id", "rows", "cols")
+    PROCESS_ID_FIELD_NUMBER: _ClassVar[int]
+    ROWS_FIELD_NUMBER: _ClassVar[int]
+    COLS_FIELD_NUMBER: _ClassVar[int]
+    process_id: str
+    rows: int
+    cols: int
+    def __init__(self, process_id: _Optional[str] = ..., rows: _Optional[int] = ..., cols: _Optional[int] = ...) -> None: ...
+
+class ResizeProcessResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
 
 class ReadFileRequest(_message.Message):
     __slots__ = ("path", "mode")

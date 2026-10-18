@@ -58,6 +58,8 @@ var (
 	ErrNoStdin = errors.New("process was started without stdin")
 	// ErrStdinClosed is returned when writing input after stdin has been closed.
 	ErrStdinClosed = errors.New("stdin is closed")
+	// ErrNoTTY is returned when resizing a process started without a PTY.
+	ErrNoTTY = errors.New("process was started without a tty")
 	// ErrTooManyProcesses is returned when the concurrency limit is reached.
 	ErrTooManyProcesses = errors.New("maximum concurrent processes limit reached")
 )
@@ -107,6 +109,12 @@ func DefaultConfig(logDir string) TrackerConfig {
 	}
 }
 
+// TTYOptions configures a pseudo-terminal for a process.
+type TTYOptions struct {
+	Rows uint32
+	Cols uint32
+}
+
 // StartOptions describes a process to launch.
 type StartOptions struct {
 	// Command is the binary and its arguments.
@@ -116,11 +124,15 @@ type StartOptions struct {
 	// Env holds extra environment variables layered on the guest's environment.
 	Env map[string]string
 	// Stdin opens a pipe for standard input fed by WriteInput. When false,
-	// stdin reads as empty.
+	// stdin reads as empty (unless TTY is set, which implicitly enables stdin).
 	Stdin bool
 	// Timeout kills the process group after this duration. Zero uses the
 	// tracker's DefaultProcessTimeout.
 	Timeout time.Duration
+	// TTY allocates a pseudo-terminal as the process's controlling terminal,
+	// merges stdout/stderr onto stdout (exempt from MaxLogBytes), and enables
+	// stdin and Resize.
+	TTY *TTYOptions
 }
 
 // ProcessState tracks the execution state and I/O handles of a process.
@@ -139,8 +151,11 @@ type ProcessState struct {
 	StderrPath string
 
 	stdinMu     sync.Mutex
-	stdin       io.WriteCloser // nil when started without stdin
+	stdin       io.WriteCloser // nil when started without stdin or TTY
 	stdinClosed bool
+
+	ptmx    *os.File      // non-nil when started with a PTY
+	ptyDone chan struct{} // closed once copyPTY drains ptmx
 
 	output *notifier
 	done   chan struct{}
@@ -354,30 +369,63 @@ func (t *Tracker) Start(opts StartOptions) (*ProcessState, error) {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}
-	// Wrap output writers with byte limiters to prevent disk fill-up and
-	// wake output streamers on every write.
-	cmd.Stdout = &cappedWriter{w: stdoutFile, limit: t.config.MaxLogBytes, onWrite: state.output.notify}
-	cmd.Stderr = &cappedWriter{w: stderrFile, limit: t.config.MaxLogBytes, onWrite: state.output.notify}
-	// Give the process its own group so signals reach the whole tree.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	if opts.Stdin {
-		stdin, err := cmd.StdinPipe()
+	var ttySlave *os.File
+	if opts.TTY != nil {
+		ptmx, slave, err := openPTY(opts.TTY.Rows, opts.TTY.Cols)
 		if err != nil {
 			stdoutFile.Close()
 			stderrFile.Close()
 			t.decrementActive()
-			return nil, fmt.Errorf("opening stdin pipe: %w", err)
+			return nil, fmt.Errorf("allocating pty: %w", err)
 		}
-		state.stdin = stdin
+		ttySlave = slave
+		state.ptmx = ptmx
+		state.stdin = ptmx
+		state.ptyDone = make(chan struct{})
+		cmd.Stdin = ttySlave
+		cmd.Stdout = ttySlave
+		cmd.Stderr = ttySlave
+		cmd.SysProcAttr = ptySysProcAttr()
+	} else {
+		// Wrap output writers with byte limiters to prevent disk fill-up and
+		// wake output streamers on every write.
+		cmd.Stdout = &cappedWriter{w: stdoutFile, limit: t.config.MaxLogBytes, onWrite: state.output.notify}
+		cmd.Stderr = &cappedWriter{w: stderrFile, limit: t.config.MaxLogBytes, onWrite: state.output.notify}
+		// Give the process its own group so signals reach the whole tree.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+		if opts.Stdin {
+			stdin, err := cmd.StdinPipe()
+			if err != nil {
+				stdoutFile.Close()
+				stderrFile.Close()
+				t.decrementActive()
+				return nil, fmt.Errorf("opening stdin pipe: %w", err)
+			}
+			state.stdin = stdin
+		}
 	}
 
 	state.StartedAt = time.Now()
 	if err := cmd.Start(); err != nil {
+		if ttySlave != nil {
+			_ = ttySlave.Close()
+		}
+		if state.ptmx != nil {
+			_ = state.ptmx.Close()
+		}
 		stdoutFile.Close()
 		stderrFile.Close()
 		t.decrementActive()
 		return nil, fmt.Errorf("starting process: %w", err)
+	}
+	if ttySlave != nil {
+		// Close the parent's copy of the slave PTY so master reads observe
+		// EIO/EOF as soon as the child closes its slave descriptor.
+		_ = ttySlave.Close()
+		// TTY processes are exempt from MaxLogBytes (limit: 0) so long-running
+		// interactive sessions (top, vim, shells) do not get truncated.
+		go copyPTY(state.ptmx, &cappedWriter{w: stdoutFile, limit: 0, onWrite: state.output.notify}, state.ptyDone)
 	}
 	state.Pid = cmd.Process.Pid
 
@@ -399,11 +447,37 @@ func (t *Tracker) Start(opts StartOptions) (*ProcessState, error) {
 	return state, nil
 }
 
+// copyPTY drains the PTY master into dst until EOF or EIO (returned on Linux
+// when the last slave descriptor closes).
+func copyPTY(ptmx *os.File, dst io.Writer, done chan<- struct{}) {
+	defer close(done)
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := ptmx.Read(buf)
+		if n > 0 {
+			_, _ = dst.Write(buf[:n])
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
 // reap waits for the process to exit, records its exit status, and flushes
 // the output spool before signalling waiters.
 func (t *Tracker) reap(state *ProcessState, cmd *exec.Cmd, stdoutFile, stderrFile *os.File) {
 	_ = cmd.Wait() // Wait also closes the stdin pipe, if any.
 	finishedAt := time.Now()
+
+	if state.ptyDone != nil {
+		select {
+		case <-state.ptyDone:
+		case <-time.After(100 * time.Millisecond):
+			_ = state.ptmx.Close()
+			<-state.ptyDone
+		}
+		_ = state.ptmx.Close()
+	}
 
 	// Wait returned only after the stdout/stderr copiers finished, so the
 	// spool is complete once synced.
@@ -536,8 +610,42 @@ func (t *Tracker) CloseInput(processID string) error {
 		return nil
 	}
 	state.stdinClosed = true
+	if state.ptmx != nil {
+		// On a PTY, ptmx is shared with output reading and Resize; deliver
+		// EOT (Ctrl-D) rather than closing the master fd prematurely.
+		_, _ = state.ptmx.Write([]byte{0x04})
+		return nil
+	}
 	if err := state.stdin.Close(); err != nil {
 		return fmt.Errorf("closing stdin: %w", err)
+	}
+	return nil
+}
+
+// Resize updates the terminal window size of a running PTY process and
+// delivers SIGWINCH to its foreground process group.
+func (t *Tracker) Resize(processID string, rows, cols uint32) error {
+	state, err := t.Get(processID)
+	if err != nil {
+		return err
+	}
+
+	state.mu.RLock()
+	running := state.State == ateenvv1alpha.ProcessState_PROCESS_STATE_RUNNING
+	ptmx := state.ptmx
+	state.mu.RUnlock()
+
+	if !running {
+		return ErrExited
+	}
+	if ptmx == nil {
+		return ErrNoTTY
+	}
+	if err := setWinsize(ptmx, rows, cols); err != nil {
+		if state.Exited() {
+			return ErrExited
+		}
+		return err
 	}
 	return nil
 }
