@@ -104,8 +104,20 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.workerImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and worker image %q", pool.Spec, cfg.workerImage)
 	}
-	if len(pool.Labels) != 0 {
-		t.Errorf("workerpool labels = %v, want empty", pool.Labels)
+	if got := pool.Labels; len(got) != 1 || got[workerPoolLabel] != pool.Name {
+		t.Errorf("workerpool labels = %v, want %s=%s", got, workerPoolLabel, pool.Name)
+	}
+	// The default template selects exactly this pool: Substrate copies the
+	// pool's labels to its workers and matches the template's selector
+	// against them, an AND over equal labels.
+	sel := buildActorTemplate(testTemplateConfig()).GetWorkerSelector().GetMatchLabels()
+	for k, v := range sel {
+		if pool.Labels[k] != v {
+			t.Errorf("template selector %v does not match pool labels %v", sel, pool.Labels)
+		}
+	}
+	if len(sel) == 0 {
+		t.Error("template has no worker selector; it can cold-boot on any pool")
 	}
 	if pool.Spec.Template != nil {
 		t.Errorf("workerpool template = %v, want nil", pool.Spec.Template)
@@ -166,8 +178,8 @@ func TestBuildActorTemplate(t *testing.T) {
 	if got := template.GetSnapshotConfig().GetGoldenSnapshotConfig(); got != nil {
 		t.Errorf("golden snapshot config = %v, want nil (omitted means enabled)", got)
 	}
-	if template.GetWorkerSelector() != nil {
-		t.Errorf("worker selector = %v, want nil", template.WorkerSelector)
+	if got := template.GetWorkerSelector().GetMatchLabels(); len(got) != 1 || got[workerPoolLabel] != "default-template-workerpool" {
+		t.Errorf("worker selector = %v, want %s=default-template-workerpool", got, workerPoolLabel)
 	}
 	probe := template.Containers[0].GetWakeupProbe()
 	if probe.GetHttpGet() == nil || probe.GetHttpGet().GetPath() != "/readyz" || probe.GetHttpGet().GetPort() != 80 {
@@ -561,5 +573,29 @@ func TestManifestAccessPolicyCommand(t *testing.T) {
 		if b["role"] != "editor" || len(members) != 1 || members[0] != want {
 			t.Errorf("binding = %v, want editor for %s", b, want)
 		}
+	}
+}
+
+func TestManifestTemplateSelectsTheNamedPool(t *testing.T) {
+	cmd := newManifestCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"template", "--template", "py", "--workerpool", "team-pool",
+		"--guest-image=example.com/guest@sha256:aaaa", "--snapshots-bucket=gs://b/p/"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "workerSelector:\n  matchLabels:\n    ate-env/workerpool: team-pool") {
+		t.Errorf("template does not select team-pool:\n%s", out.String())
+	}
+	out.Reset()
+	cmd = newManifestCommand()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"template", "--template", "py", "--guest-image=example.com/guest@sha256:aaaa", "--snapshots-bucket=gs://b/p/"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "ate-env/workerpool: py-workerpool") {
+		t.Errorf("default pool is not <template>-workerpool:\n%s", out.String())
 	}
 }

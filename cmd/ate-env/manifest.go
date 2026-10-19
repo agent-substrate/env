@@ -38,6 +38,17 @@ import (
 // apiName is the name of the API service Deployment and Service.
 const apiName = "ate-env-api"
 
+// workerPoolLabel labels the WorkerPool with its own name, and templates
+// select their pool by it. Substrate copies a pool's labels to its workers and
+// matches a template's workerSelector against them. Since substrate#2780 the
+// template names no sandbox class, thus without a selector an actor that
+// boots without a snapshot can land on any pool of any class in the cluster.
+const workerPoolLabel = "ate-env/workerpool"
+
+// defaultWorkerPool is the pool name both commands use unless --workerpool
+// says otherwise.
+func defaultWorkerPool(template string) string { return template + "-workerpool" }
+
 // sandboxConfigName is the Substrate SandboxConfig the WorkerPool's gvisor
 // sandbox class refers to. `ate-setup deploy ate-system` installs exactly this
 // one, so a pool declared with it is schedulable on a stock install. Since
@@ -85,7 +96,10 @@ binaries default it to the ate-env-api image published with the release
 
 // templateConfig holds configuration for generating a Substrate ActorTemplate manifest.
 type templateConfig struct {
-	template        string
+	template string
+	// workerPool is the WorkerPool the template's actors run on; the template
+	// selects it by workerPoolLabel.
+	workerPool      string
 	atespace        string
 	guestImage      string
 	guestCommand    []string
@@ -245,7 +259,7 @@ the "template" subcommand: ate-env manifest template`,
 				mCfg.template = apiservice.DefaultTemplate
 			}
 			if mCfg.workerPool == "" {
-				mCfg.workerPool = mCfg.template + "-workerpool"
+				mCfg.workerPool = defaultWorkerPool(mCfg.template)
 			}
 			if err := mCfg.resolveImages(); err != nil {
 				return err
@@ -310,6 +324,9 @@ It prints YAML to stdout without touching the cluster.`,
 			if tCfg.template == "" {
 				tCfg.template = apiservice.DefaultTemplate
 			}
+			if tCfg.workerPool == "" {
+				tCfg.workerPool = defaultWorkerPool(tCfg.template)
+			}
 			if err := tCfg.resolveImages(); err != nil {
 				return err
 			}
@@ -331,6 +348,7 @@ It prints YAML to stdout without touching the cluster.`,
 	}
 
 	cmd.Flags().StringVar(&tCfg.template, "template", apiservice.DefaultTemplate, "ActorTemplate name")
+	cmd.Flags().StringVar(&tCfg.workerPool, "workerpool", "", "WorkerPool the actors run on, selected by its "+workerPoolLabel+" label (defaults to <template>-workerpool, as in ate-env manifest)")
 	cmd.Flags().StringVar(&tCfg.atespace, "atespace", apiservice.DefaultAtespace, "Substrate atespace for the ActorTemplate")
 	cmd.Flags().StringVar(&tCfg.guestImage, "guest-image", defaultGuestImage, imageDefaultHelp("digest-pinned ate-env-guest image (repo@sha256:...)", defaultGuestImage))
 	cmd.Flags().StringSliceVar(&tCfg.guestCommand, "guest-command", []string{"/ko-app/ate-env-guest"}, "guest container entrypoint")
@@ -513,6 +531,8 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cfg.workerPool,
 			Namespace: cfg.namespace,
+			// Copied to the pool's workers; templates select the pool by it.
+			Labels: map[string]string{workerPoolLabel: cfg.workerPool},
 		},
 		Spec: atev1alpha1.WorkerPoolSpec{
 			Replicas:    cfg.replicas,
@@ -535,11 +555,18 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 	if atespace == "" {
 		atespace = apiservice.DefaultAtespace
 	}
+	pool := cfg.workerPool
+	if pool == "" {
+		pool = defaultWorkerPool(cfg.template)
+	}
 	return &ateapipb.ActorTemplate{
 		Metadata: &ateapipb.ResourceMetadata{
 			Name:     cfg.template,
 			Atespace: atespace,
 		},
+		// Pin the actors to their pool, thus to its sandbox class: the
+		// template names no class since substrate#2780.
+		WorkerSelector: &ateapipb.Selector{MatchLabels: map[string]string{workerPoolLabel: pool}},
 		Containers: []*ateapipb.Container{{
 			Name:    "guest",
 			Image:   cfg.guestImage,

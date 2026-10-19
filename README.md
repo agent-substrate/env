@@ -70,7 +70,12 @@ installed and a snapshots bucket. ate-env is built against Substrate
 [`0443aec3`](https://github.com/agent-substrate/substrate/commit/0443aec3) (2026-10-17): from that
 commit the WorkerPool alone chooses the sandbox (`spec.sandboxClasses`), the ActorTemplate names
 none, and Substrate rejects a template that still sends `sandboxConfig`, while an older Substrate
-requires one. Use an ate-env from before this bump with an older Substrate. The templates also use
+requires one. Use an ate-env from before this bump with an older Substrate. Because the template no
+longer names a class, an actor booting without a snapshot can land on any pool whose labels its
+template's `workerSelector` matches, and on any pool at all without a selector. `ate-env` labels its
+WorkerPool `ate-env/workerpool: <pool>` and each template selects that label, thus actors stay on
+their pool and its sandbox class; `--workerpool` on `ate-env manifest template` must name the same
+pool as on `ate-env manifest` (both default to `<template>-workerpool`). The templates also use
 `snapshotConfig` and `wakeupProbe` and declare CPU and memory limits, and `--worker-image` must be the
 `ateworker-gvisor` image published by the same Substrate install.
 
@@ -86,8 +91,11 @@ When you upgrade an existing cluster across these changes:
 
 - Create the atespace and the access policy (step 1) before you apply the new manifest. Without them
   `ate-env-api` fails at startup with `PermissionDenied` while it checks the default atespace.
-- Base templates registered before need no change: Substrate drops their old `sandboxConfig` when
-  it stores them. Register new bases with this `ate-env`.
+- Base templates registered before keep working, because Substrate drops their old `sandboxConfig`
+  when it stores them, but they have no `workerSelector`. On a cluster with more than one
+  WorkerPool, register them again (delete the base and its `<base>-<12 hex digits>` derived
+  templates, then `ate-env manifest template`), or their actors can boot on another pool. Apply the
+  new manifest first, so the pool carries the label the templates select.
 - A base registered before the CPU and memory limits (Substrate before
   [`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)) still needs registering
   again: Substrate cannot update an ActorTemplate in place, thus each template `ate-env-api` derives
