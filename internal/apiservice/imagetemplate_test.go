@@ -39,7 +39,6 @@ func modeABase() *ateapipb.ActorTemplate {
 			WakeupProbe: &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}},
 		}},
 		SnapshotConfig: &ateapipb.SnapshotConfig{StorageLocation: "gs://b/p/", PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY},
-		SandboxConfig:  &ateapipb.SandboxConfig{SandboxClass: "gvisor", ConfigName: "gvisor-default"},
 		Resources: &ateapipb.Resources{Limits: []*ateapipb.Limits{
 			{Name: "cpu", Quantity: "2"}, {Name: "memory", Quantity: "4Gi"},
 		}},
@@ -124,10 +123,9 @@ func TestDeriveImageTemplateFromGuestImageBase(t *testing.T) {
 	// Everything else carries over.
 	if !proto.Equal(got.GetWorkerSelector(), base.GetWorkerSelector()) ||
 		!proto.Equal(got.GetSnapshotConfig(), base.GetSnapshotConfig()) ||
-		!proto.Equal(got.GetSandboxConfig(), base.GetSandboxConfig()) ||
 		!proto.Equal(c.GetWakeupProbe(), base.GetContainers()[0].GetWakeupProbe()) ||
 		len(c.GetEnv()) != 1 {
-		t.Error("worker selector, snapshots, sandbox config, readyz or env did not carry over")
+		t.Error("worker selector, snapshots, readyz or env did not carry over")
 	}
 }
 

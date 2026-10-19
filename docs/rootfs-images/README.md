@@ -19,7 +19,7 @@ process  = /ate/ko-app/ate-env-guest, from a second image mounted read-only at /
 ```
 
 Substrate materializes both at actor start. Everything else about the template
-(worker selector, snapshot settings, sandbox class, resources, readiness probe)
+(worker selector, snapshot settings, resources, readiness probe)
 is the same as for a guest-image template, and the guest behaves identically:
 the environment's `shell`, process and file APIs, MCP, and suspend and resume
 all work unchanged.
@@ -63,7 +63,7 @@ ate-env create job1 --template py312
 `--rootfs-image` makes the rootfs image the container and the guest an image
 volume; `--workspace` is passed to the guest as `-workspace` in either mode. The
 printed template is plain YAML you can edit before registering it (resources,
-worker selector, sandbox class).
+worker selector). The sandbox class is the worker pool's, not the template's.
 
 ## Option B: create from an image on demand
 
@@ -137,7 +137,7 @@ runnable example in [`examples/runtime-layers`](../../examples/runtime-layers).
 - Bumping the guest means a new base template (templates are immutable), and a
   new base name yields new derived names. Existing derived templates keep the
   guest they were built with.
-- Resources, sandbox class and worker selector come from the base; a rootfs image
+- Resources and worker selector come from the base, and the sandbox from the worker pool; a rootfs image
   that needs more is served by registering its own template (Option A) or a
   second base.
 - The rootfs image's existence is not checked at create time. A bad reference is

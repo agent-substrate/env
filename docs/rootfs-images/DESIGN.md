@@ -146,8 +146,9 @@ piece, and it belongs with the OpenSandbox backend that needs it.
 
 ## Security
 
-- The rootfs image is run with the same sandbox class and configuration as the
-  base, so injection changes what runs, not how it is isolated.
+- The rootfs image runs in the same sandbox as any other actor of the worker
+  pool (the pool's sandbox class decides it; the template names none), so
+  injection changes what runs, not how it is isolated.
 - The guest volume is read-only. The rootfs image cannot alter the guest.
 - Digest pinning is enforced for both images at every entry point. A tag could
   be re-pointed between the golden bake and a later cold boot, which would

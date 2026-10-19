@@ -296,8 +296,18 @@ func (c *Client) Get(ctx context.Context, atespace, id string) (*ateapipb.Actor,
 
 // Suspend checkpoints and stops the actor with ID in atespace.
 // If atespace is empty, DefaultAtespace is used.
+//
+// The suspend is synchronous: it returns once the snapshot is in durable
+// storage, thus a suspended environment survives the loss of its node.
+// Substrate's default became asynchronous in substrate#2805 (the snapshot
+// stays on the node and uploads in the background); ate-env keeps the
+// durable behavior it always had.
 func (c *Client) Suspend(ctx context.Context, atespace, id string) error {
-	if _, err := c.control.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: c.ref(atespace, id)}); err != nil {
+	req := &ateapipb.SuspendActorRequest{
+		Actor:   c.ref(atespace, id),
+		Options: &ateapipb.SuspendOptions{Mode: ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS},
+	}
+	if _, err := c.control.SuspendActor(ctx, req); err != nil {
 		return fmt.Errorf("ate: suspending %q: %w", id, wrapGRPCError(err))
 	}
 	return nil

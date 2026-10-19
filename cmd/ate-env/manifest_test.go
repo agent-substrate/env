@@ -24,6 +24,7 @@ import (
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/yaml"
 )
 
 func testManifestConfig() manifestConfig {
@@ -84,8 +85,8 @@ func TestTemplateConfigResolveImages(t *testing.T) {
 func TestBuildManifests(t *testing.T) {
 	cfg := testManifestConfig()
 	objs := buildManifests(cfg)
-	if len(objs) != 4 {
-		t.Fatalf("got %d manifests, want 4", len(objs))
+	if len(objs) != 5 {
+		t.Fatalf("got %d manifests, want 5", len(objs))
 	}
 
 	ns := objs[0].(*corev1.Namespace)
@@ -103,8 +104,20 @@ func TestBuildManifests(t *testing.T) {
 	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.workerImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and worker image %q", pool.Spec, cfg.workerImage)
 	}
-	if len(pool.Labels) != 0 {
-		t.Errorf("workerpool labels = %v, want empty", pool.Labels)
+	if got := pool.Labels; len(got) != 1 || got[workerPoolLabel] != pool.Name {
+		t.Errorf("workerpool labels = %v, want %s=%s", got, workerPoolLabel, pool.Name)
+	}
+	// The default template selects exactly this pool: Substrate copies the
+	// pool's labels to its workers and matches the template's selector
+	// against them, an AND over equal labels.
+	sel := buildActorTemplate(testTemplateConfig()).GetWorkerSelector().GetMatchLabels()
+	for k, v := range sel {
+		if pool.Labels[k] != v {
+			t.Errorf("template selector %v does not match pool labels %v", sel, pool.Labels)
+		}
+	}
+	if len(sel) == 0 {
+		t.Error("template has no worker selector; it can cold-boot on any pool")
 	}
 	if pool.Spec.Template != nil {
 		t.Errorf("workerpool template = %v, want nil", pool.Spec.Template)
@@ -116,15 +129,15 @@ func TestBuildManifests(t *testing.T) {
 	if sc.Name != atev1alpha1.SandboxClassGvisor || sc.ConfigRef == nil || sc.ConfigRef.Name != sandboxConfigName {
 		t.Errorf("workerpool sandboxClasses[0] = %+v, want gvisor with configRef %q", sc, sandboxConfigName)
 	}
-	// The pool's class and the template's are the same string since
-	// substrate#2586 made the proto field a string. A pool of the wrong class
-	// never hosts the template's actors.
-	tmplClass := buildActorTemplate(testTemplateConfig()).GetSandboxConfig().GetSandboxClass()
-	if tmplClass != string(sc.Name) {
-		t.Errorf("workerpool sandbox class %q != template sandbox class %q", sc.Name, tmplClass)
+	sa := objs[2].(*corev1.ServiceAccount)
+	if sa.Name != apiName || sa.Namespace != cfg.namespace || sa.AutomountServiceAccountToken == nil || *sa.AutomountServiceAccountToken {
+		t.Errorf("service account = %s/%s automount %v, want %s/%s with no API token", sa.Namespace, sa.Name, sa.AutomountServiceAccountToken, cfg.namespace, apiName)
 	}
 
-	deployment := objs[2].(*appsv1.Deployment)
+	deployment := objs[3].(*appsv1.Deployment)
+	if pod := deployment.Spec.Template.Spec; pod.ServiceAccountName != apiName {
+		t.Errorf("api pod service account = %q, want %q (the principal the access policy names)", pod.ServiceAccountName, apiName)
+	}
 	containers := deployment.Spec.Template.Spec.Containers
 	if len(containers) != 1 || containers[0].Image != cfg.apiImage {
 		t.Errorf("api containers = %+v, want one container with image %q", containers, cfg.apiImage)
@@ -133,7 +146,7 @@ func TestBuildManifests(t *testing.T) {
 		t.Errorf("api replicas = %d, want 1", *deployment.Spec.Replicas)
 	}
 
-	service := objs[3].(*corev1.Service)
+	service := objs[4].(*corev1.Service)
 	if service.Spec.Selector["app"] != apiName {
 		t.Errorf("api service selector = %v, want app=%s", service.Spec.Selector, apiName)
 	}
@@ -165,11 +178,8 @@ func TestBuildActorTemplate(t *testing.T) {
 	if got := template.GetSnapshotConfig().GetGoldenSnapshotConfig(); got != nil {
 		t.Errorf("golden snapshot config = %v, want nil (omitted means enabled)", got)
 	}
-	if got := template.GetSandboxConfig().GetConfigName(); got != sandboxConfigName {
-		t.Errorf("sandbox config name = %q, want %q (must match the WorkerPool configRef)", got, sandboxConfigName)
-	}
-	if template.GetWorkerSelector() != nil {
-		t.Errorf("worker selector = %v, want nil", template.WorkerSelector)
+	if got := template.GetWorkerSelector().GetMatchLabels(); len(got) != 1 || got[workerPoolLabel] != "default-template-workerpool" {
+		t.Errorf("worker selector = %v, want %s=default-template-workerpool", got, workerPoolLabel)
 	}
 	probe := template.Containers[0].GetWakeupProbe()
 	if probe.GetHttpGet() == nil || probe.GetHttpGet().GetPath() != "/readyz" || probe.GetHttpGet().GetPort() != 80 {
@@ -178,9 +188,6 @@ func TestBuildActorTemplate(t *testing.T) {
 	// Substrate rejects an ActorTemplate without both limits (substrate#2285).
 	if got := limits(template); got["cpu"] != defaultActorCPU || got["memory"] != defaultActorMemory || len(got) != 2 {
 		t.Errorf("resources.limits = %v, want cpu=%s memory=%s", got, defaultActorCPU, defaultActorMemory)
-	}
-	if got := template.GetSandboxConfig().GetSandboxClass(); got != "gvisor" {
-		t.Errorf("sandbox class = %q, want gvisor (Substrate accepts gvisor or microvm)", got)
 	}
 }
 
@@ -250,7 +257,7 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 	cfg.apiPort = 9999
 	objs := buildManifests(cfg)
 
-	deployment := objs[2].(*appsv1.Deployment)
+	deployment := objs[3].(*appsv1.Deployment)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	if got := container.Args[1]; got != "0.0.0.0:9999" {
 		t.Errorf("api -listen arg = %q, want 0.0.0.0:9999", got)
@@ -262,7 +269,7 @@ func TestBuildManifestsCustomAPIPort(t *testing.T) {
 		t.Errorf("api probe port = %d, want 9999", got)
 	}
 
-	service := objs[3].(*corev1.Service)
+	service := objs[4].(*corev1.Service)
 	if service.Spec.Ports[0].Port != 9999 || service.Spec.Ports[0].TargetPort.IntValue() != 9999 {
 		t.Errorf("api service ports = %+v, want 9999 -> 9999", service.Spec.Ports)
 	}
@@ -275,13 +282,15 @@ func TestWriteManifests(t *testing.T) {
 	}
 	out := buf.String()
 
-	if got := strings.Count(out, "\n---\n"); got != 3 {
-		t.Errorf("got %d document separators, want 3:\n%s", got, out)
+	if got := strings.Count(out, "\n---\n"); got != 4 {
+		t.Errorf("got %d document separators, want 4:\n%s", got, out)
 	}
 	for _, want := range []string{
 		"kind: Namespace",
 		"ate.dev/api-access: \"true\"",
 		"kind: WorkerPool",
+		"kind: ServiceAccount",
+		"serviceAccountName: ate-env-api",
 		"kind: Deployment",
 		"kind: Service",
 		"sandboxClasses:",
@@ -368,10 +377,14 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 	if !strings.Contains(out, "image: example.com/guest@sha256:aaaa") || !strings.Contains(out, "storageLocation: gs://bucket/prefix/") {
 		t.Errorf("expected guest image and storage location in output:\n%s", out)
 	}
-	for _, want := range []string{"sandboxClass: gvisor", "name: cpu\n    quantity: \"4\"", "name: memory\n    quantity: 8Gi"} {
+	for _, want := range []string{"name: cpu\n    quantity: \"4\"", "name: memory\n    quantity: 8Gi"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
+	}
+	// Substrate rejects a template with sandboxConfig since substrate#2780.
+	if strings.Contains(out, "sandboxConfig") || strings.Contains(out, "sandboxClass") {
+		t.Errorf("template names a sandbox; the worker pool decides it now:\n%s", out)
 	}
 }
 
@@ -529,5 +542,60 @@ func TestImageFlagsDefaultToReleaseImages(t *testing.T) {
 	m := manifestConfig{apiImage: defaultAPIImage}
 	if err := m.resolveImages(); err == nil || !strings.Contains(err.Error(), "Substrate") {
 		t.Errorf("missing --worker-image should point at the Substrate repo, got %v", err)
+	}
+}
+
+func TestManifestAccessPolicyCommand(t *testing.T) {
+	for _, ns := range []string{"", "team-env"} {
+		cmd := newManifestCommand()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		args := []string{"access-policy"}
+		if ns != "" {
+			args = append(args, "--namespace", ns)
+		}
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		want := "user:system:serviceaccount:" + map[bool]string{true: "ate-env", false: ns}[ns == ""] + ":ate-env-api"
+		var m map[string]any
+		if err := yaml.Unmarshal(out.Bytes(), &m); err != nil {
+			t.Fatalf("%q: %v", out.String(), err)
+		}
+		md, _ := m["metadata"].(map[string]any)
+		bindings, _ := m["bindings"].([]any)
+		if md["name"] != "default" || md["atespace"] != nil || len(bindings) != 1 {
+			t.Fatalf("policy = %v, want metadata.name default, no atespace, one binding", m)
+		}
+		b := bindings[0].(map[string]any)
+		members, _ := b["members"].([]any)
+		if b["role"] != "editor" || len(members) != 1 || members[0] != want {
+			t.Errorf("binding = %v, want editor for %s", b, want)
+		}
+	}
+}
+
+func TestManifestTemplateSelectsTheNamedPool(t *testing.T) {
+	cmd := newManifestCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"template", "--template", "py", "--workerpool", "team-pool",
+		"--guest-image=example.com/guest@sha256:aaaa", "--snapshots-bucket=gs://b/p/"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "workerSelector:\n  matchLabels:\n    ate-env/workerpool: team-pool") {
+		t.Errorf("template does not select team-pool:\n%s", out.String())
+	}
+	out.Reset()
+	cmd = newManifestCommand()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"template", "--template", "py", "--guest-image=example.com/guest@sha256:aaaa", "--snapshots-bucket=gs://b/p/"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "ate-env/workerpool: py-workerpool") {
+		t.Errorf("default pool is not <template>-workerpool:\n%s", out.String())
 	}
 }

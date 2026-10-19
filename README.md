@@ -65,28 +65,59 @@ verification, pinning and how releases are cut.
 
 Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
 installed and a snapshots bucket. ate-env is built against Substrate
-[`3a2ca623`](https://github.com/agent-substrate/substrate/commit/3a2ca623) (2026-10-16, Go module
-`go.ate.dev/substrate`). The cluster needs a Substrate recent enough to accept what ate-env writes:
-the WorkerPool declares `spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and
-`wakeupProbe`, names its sandbox class as the string `gvisor`, and declares CPU and memory limits.
-That means Substrate at or after
-[`63a17a92`](https://github.com/agent-substrate/substrate/commit/63a17a92) (2026-10-15), which also
-renamed the worker image: `--worker-image` must be the `ateworker-gvisor` image published by that
-Substrate install. An older Substrate rejects the string sandbox class (from
-[`9ec49759`](https://github.com/agent-substrate/substrate/commit/9ec49759)) or the limits (from
-[`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)); use an ate-env from before
-this bump with it.
+[`ddb46651`](https://github.com/agent-substrate/substrate/commit/ddb46651) (2026-10-18, Go module
+`go.ate.dev/substrate`). The cluster needs Substrate at or after
+[`0443aec3`](https://github.com/agent-substrate/substrate/commit/0443aec3) (2026-10-17): from that
+commit the WorkerPool alone chooses the sandbox (`spec.sandboxClasses`), the ActorTemplate names
+none, and Substrate rejects a template that still sends `sandboxConfig`, while an older Substrate
+requires one. Use an ate-env from before this bump with an older Substrate. Because the template no
+longer names a class, an actor booting without a snapshot can land on any pool whose labels its
+template's `workerSelector` matches, and on any pool at all without a selector. `ate-env` labels its
+WorkerPool `ate-env/workerpool: <pool>` and each template selects that label, thus actors stay on
+their pool and its sandbox class; `--workerpool` on `ate-env manifest template` must name the same
+pool as on `ate-env manifest` (both default to `<template>-workerpool`). The templates also use
+`snapshotConfig` and `wakeupProbe` and declare CPU and memory limits, and `--worker-image` must be the
+`ateworker-gvisor` image published by the same Substrate install.
 
-When you upgrade an existing cluster across that boundary, register your base templates again.
-Substrate cannot update an ActorTemplate in place, and a base registered earlier has no CPU and memory
-limits, thus each template `ate-env-api` derives from it for a rootfs image fails with
-`resources: Required`. Delete the base and its derived templates (named `<base>-<12 hex digits>`) with
-`kubectl-ate delete actor-template`, then register the base again with `ate-env manifest template`.
-Each environment created after that derives its template again, with the limits.
+`ate-env-api` suspends synchronously: a suspend returns once the snapshot is in object storage, thus a
+suspended environment survives the loss of its node. Substrate's own default became asynchronous in
+[`b40d34f1`](https://github.com/agent-substrate/substrate/commit/b40d34f1).
+
+Substrate enforces authorization by default. `ate-env-api` runs as its own ServiceAccount
+(`ate-env/ate-env-api`) and needs the editor role on each atespace it creates environments in; the
+atespace must exist first, because creating one takes a global owner. Step 1 sets both up.
+
+When you upgrade an existing cluster across these changes:
+
+- Create the atespace and the access policy (step 1) before you apply the new manifest. Without them
+  `ate-env-api` fails at startup with `PermissionDenied` while it checks the default atespace.
+- Base templates registered before keep working, because Substrate drops their old `sandboxConfig`
+  when it stores them, but they have no `workerSelector`. On a cluster with more than one
+  WorkerPool, register them again (delete the base and its `<base>-<12 hex digits>` derived
+  templates, then `ate-env manifest template`), or their actors can boot on another pool. Apply the
+  new manifest first, so the pool carries the label the templates select.
+- A base registered before the CPU and memory limits (Substrate before
+  [`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)) still needs registering
+  again: Substrate cannot update an ActorTemplate in place, thus each template `ate-env-api` derives
+  from it fails with `resources: Required`. Delete the base and its derived templates (named
+  `<base>-<12 hex digits>`) with `kubectl-ate delete actor-template`, then register the base again.
 
 ### 1. Deploy the Kubernetes Resources
 
-Deploy the namespace, worker pool, and API service:
+Give `ate-env-api` access to its atespace, once, as an owner of the atespace (on a stock install the
+default `kubectl-ate` identity is a bootstrap owner):
+
+```bash
+kubectl ate create atespace ate-env
+ate-env manifest access-policy | kubectl ate create access-policy -a ate-env -f -
+```
+
+An atespace has one access policy. If `ate-env` already has one, add the binding that
+`ate-env manifest access-policy` prints to it with `kubectl ate get access-policy` and
+`kubectl ate update access-policy`. Repeat both commands for each other atespace you create
+environments in.
+
+Deploy the namespace, worker pool, ServiceAccount and API service:
 
 ```bash
 # With a release binary the API image defaults to the release's. The worker
