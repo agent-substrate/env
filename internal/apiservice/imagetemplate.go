@@ -40,18 +40,7 @@ const defaultGuestBinary = "/ko-app/ate-env-guest"
 // guest's own path moves under the mount, never a shell or another binary.
 const guestBinaryName = "ate-env-guest"
 
-// imageTemplateDigestLen is how many hex digits of the digest go into a
-// derived template's name: enough to make collisions a non-concern and short
-// enough to keep the name a valid k8s short name next to any base name.
-const imageTemplateDigestLen = 12
-
 var digestRef = regexp.MustCompile(`@sha256:([0-9a-f]{64})$`)
-
-// shortName is the shape substrate accepts for a resource name (k8s short
-// name): lowercase alphanumerics and '-', at most 63 characters.
-var shortName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
-
-const maxShortNameLen = 63
 
 // ImageDigest returns the hex digest of a digest-pinned image reference, or an
 // error when the reference is not pinned. Substrate requires pinned images in
@@ -64,24 +53,6 @@ func ImageDigest(image string) (string, error) {
 	return m[1], nil
 }
 
-// ImageTemplateName is the name of the ActorTemplate derived from base for
-// image: "<base>-<first 12 hex digits of the digest>".
-func ImageTemplateName(base, image string) (string, error) {
-	digest, err := ImageDigest(image)
-	if err != nil {
-		return "", err
-	}
-	name := base + "-" + digest[:imageTemplateDigestLen]
-	if len(name) > maxShortNameLen {
-		return "", fmt.Errorf("derived template name %q is %d characters, the limit is %d; use a shorter base template name",
-			name, len(name), maxShortNameLen)
-	}
-	if !shortName.MatchString(name) {
-		return "", fmt.Errorf("derived template name %q is not a valid resource name (lowercase alphanumerics and '-')", name)
-	}
-	return name, nil
-}
-
 // DeriveImageTemplate returns a copy of base, named name, whose container runs
 // image unmodified with the ate-env-guest mounted into it as a read-only image
 // volume at GuestMountPath.
@@ -92,8 +63,7 @@ func ImageTemplateName(base, image string) (string, error) {
 // mount; or one that already mounts the guest as an image volume (named
 // GuestVolumeName), in which case only the container image changes.
 // Everything else carries over: worker selector, snapshots, sandbox config,
-// resources, env, readiness, and any other volumes, such as extra runtime
-// layers, together with the command-line flags that start them.
+// resources, env, readiness, and any other volumes.
 func DeriveImageTemplate(base *ateapipb.ActorTemplate, name, image string) (*ateapipb.ActorTemplate, error) {
 	if base == nil {
 		return nil, errors.New("base template is required")
@@ -142,8 +112,7 @@ func DeriveImageTemplate(base *ateapipb.ActorTemplate, name, image string) (*ate
 }
 
 // guestVolume returns the template's guest image volume, or nil when the
-// guest is the container image. Other image volumes (extra runtime layers)
-// do not count: they can be present in either kind of base.
+// guest is the container image.
 func guestVolume(tmpl *ateapipb.ActorTemplate) *ateapipb.Volume {
 	for _, v := range tmpl.GetVolumes() {
 		if v.GetName() == GuestVolumeName && v.GetImage() != nil {

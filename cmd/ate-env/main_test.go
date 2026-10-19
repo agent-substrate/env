@@ -203,21 +203,14 @@ func TestHelpOutput(t *testing.T) {
 	})
 }
 
-func TestCreateImageFlag(t *testing.T) {
-	args := []string{"create", "dev1", "--rootfs-image", "example.com/task@sha256:abc"}
-	root := newRootCommand(args)
-	cmd, _, err := root.Find(args[:2])
+func TestCreateHasNoRootfsImageFlag(t *testing.T) {
+	root := newRootCommand([]string{"create", "dev1"})
+	cmd, _, err := root.Find([]string{"create", "dev1"})
 	if err != nil {
 		t.Fatalf("root.Find failed: %v", err)
 	}
-	if cmd.Flags().Lookup("rootfs-image") == nil {
-		t.Fatal("create has no --rootfs-image flag")
-	}
-	if err := cmd.ParseFlags(args[2:]); err != nil {
-		t.Fatalf("parsing --rootfs-image: %v", err)
-	}
-	if got, _ := cmd.Flags().GetString("rootfs-image"); got != "example.com/task@sha256:abc" {
-		t.Errorf("--rootfs-image = %q", got)
+	if cmd.Flags().Lookup("rootfs-image") != nil {
+		t.Error("create still has a --rootfs-image flag; on-demand image templates were removed")
 	}
 }
 
