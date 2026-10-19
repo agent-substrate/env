@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The examples run OpenHands' default agent and tools.
+# The examples (examples/openhands) run OpenHands' default agent and tools.
 examples = ["openhands-tools==1.55.0"]
 # The integration tests start a real agent-server on localhost behind a fake
 # port proxy.
@@ -48,7 +48,6 @@ ate-env-client = { path = "../../clients/python", editable = true }
 
 [tool.ruff]
 target-version = "py312"
-extend-exclude = ["examples/trajectories"]
 
 [tool.ruff.lint]
 # The same rules as clients/python.

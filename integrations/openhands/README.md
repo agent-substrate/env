@@ -35,10 +35,7 @@ How it fits together:
 |---|---|
 | [`src/ate_env_openhands/`](src/ate_env_openhands) | `AteEnvWorkspace`, `port_url` |
 | [`layer/`](layer) | the runtime layer: Dockerfile, hash-locked dependencies, `lock.sh` |
-| [`examples/convo_with_ate_env.py`](examples/convo_with_ate_env.py) | OpenHands' agent-sandbox example 17 with the workspace line changed |
-| [`examples/codeact_agent.py`](examples/codeact_agent.py) | OpenHands' CodeAct agent in an environment, with a model or `--scripted` |
-| [`examples/run_trajectory.py`](examples/run_trajectory.py), [`oh_tool.py`](examples/oh_tool.py), [`trajectories/`](examples/trajectories) | executes a CodeAct trajectory from outside and records the observations |
-| [`examples/demo.sh`](examples/demo.sh) | registers the base template and drives the agent-server over plain HTTP, one environment per image |
+| [`../../examples/openhands`](../../examples/openhands) | the examples: OpenHands' agent-sandbox example 17, CodeAct, trajectory execution, a plain-HTTP demo |
 | [`tests/`](tests) | unit and integration tests: a fake ate-env-api and port proxy in front of a real agent-server |
 
 ## 1. Install
@@ -157,116 +154,15 @@ later changes.
 
 ## 5. Examples
 
-[`convo_with_ate_env.py`](examples/convo_with_ate_env.py) is OpenHands' agent-sandbox example 17
-with the workspace line changed: a command, a conversation, a pause and resume, a second message.
+The scripts that use the package are in [`examples/openhands`](../../examples/openhands), next to
+the repository's other examples:
 
-The CodeAct agent, OpenHands' default agent (terminal, file editor, task tracker, finish) running on
-the agent-server inside an existing environment:
-
-```bash
-SESSION_KEY=<key> LLM_MODEL=<litellm model> LLM_API_KEY=<key> [LLM_BASE_URL=<url>] \
-  python integrations/openhands/examples/codeact_agent.py my-env "Fix the failing test in /testbed"
-```
-
-The agent-server calls the model from inside the environment, so the model endpoint must be reachable
-from the actor: allowed by Substrate's egress policy, or served inside the cluster. The model's API
-key goes into the sandbox with it (see [Limits](#limits)). `--scripted` needs
-no model at all. It starts `scripted_llm.py` inside the environment and points the agent at it; the
-agent loop, its tools and the event stream run for real, only the decisions are canned:
-
-```
-  task    Inspect this sandbox: report the operating system, the working directory and the top-level…
-  action  terminal: {'command': 'head -1 /etc/os-release; echo "cwd: $(pwd)"; ls | head -5; mkdir -p /tmp/codeact-demo', …}
-  result  terminal: PRETTY_NAME="Ubuntu 22.04.5 LTS" cwd: / ate bin boot dev etc
-  action  file_editor: {'command': 'create', 'path': '/tmp/codeact-demo/hello.txt', 'file_text': 'hello from CodeAct\n'}
-  result  file_editor: File created successfully at: /tmp/codeact-demo/hello.txt
-  action  terminal: {'command': 'cat /tmp/codeact-demo/hello.txt && wc -c /tmp/codeact-demo/hello.txt', …}
-  result  terminal: hello from CodeAct 19 /tmp/codeact-demo/hello.txt
-  action  finish: {'message': 'Inspected the sandbox and wrote /tmp/codeact-demo/hello.txt.'}
-status: finished after 2.0s
-```
-
-### Execute a trajectory from outside
-
-`run_trajectory.py` connects to an environment and executes a CodeAct trajectory there: the tool
-calls an agent makes, in OpenHands' vocabulary (`terminal`, `file_editor`, `finish`), as a JSON list
-of `{"tool", "args", "thought"}`. Terminal commands go through the agent-server's command endpoint.
-File edits go through OpenHands' own `file_editor`, served inside the environment by `oh_tool.py` on
-the layer's Python and reached through ate-env-api like the agent-server, so observations read
-exactly as the agent sees them, and `undo_edit` works across steps. Each observation is printed and,
-with `--out`, recorded next to its call; the file is rewritten after each step. Nothing inside the
-environment calls a model: put a model call before each step and this is a client-side agent, with
-the model wherever it is reachable.
-
-```bash
-SESSION_KEY=<key> python integrations/openhands/examples/run_trajectory.py <env> \
-  integrations/openhands/examples/trajectories/django-11099.json --workdir /testbed --out run.json
-```
-
-- Working directory: a terminal step runs in its `cwd`, else in `--workdir` (default `$WORKDIR`,
-  else `/`). The image's WORKDIR does not apply, because the agent-server runs in `/` where the guest
-  starts it; the same holds for `AteEnvWorkspace`'s `working_dir` and the examples' `WORKDIR`.
-- Errors: a tool that reports an error (a non-zero exit status, a `file_editor` error) is an
-  observation like any other and the run goes on. A step that cannot be executed (a malformed step,
-  an unknown tool, an HTTP error, a timeout) is recorded with `"is_error": true, "failed": true`; the
-  run stops there unless `--keep-going` is given, and the script exits with status 1.
-- `oh_tool.py` requires the session key (below) and is stopped and removed at the end of the run.
-
-On the SWE-bench `django__django-11099` image (username validators accept a trailing newline):
-
-```
-[2] thought  Reproduce: $ matches before a trailing newline.
-[2] terminal   {"command": "/opt/miniconda3/envs/testbed/bin/python -c \"from django.conf import settings; …
-      ASCIIUsernameValidator accepts a trailing newline
-      UnicodeUsernameValidator accepts a trailing newline
-      [exit 0]
-      -> ok in 0.41s
-…
-[4] thought  Anchor at the true end of string with \Z, in both validators.
-[4] file_editor{"command": "str_replace", "path": "/testbed/django/contrib/auth/validators.py", …
-      The file /testbed/django/contrib/auth/validators.py has been edited. …
-          10	    regex = r'^[\w.@+-]+\Z'
-      -> ok in 0.31s
-…
-[6] thought  Check the reproduction again.
-      ASCIIUsernameValidator rejects a trailing newline
-      UnicodeUsernameValidator rejects a trailing newline
-      -> ok in 0.44s
-[7] thought  Run the validator tests.
-      Ran 22 tests in 0.208s
-      OK
-      -> ok in 0.84s
-…
-9 steps in 5.2s
-```
-
-`django-11099-grade.json` is the reward step, run the same way afterwards: it applies SWE-bench's
-hidden test change for that instance and runs the target tests with the fix (`OK`) and with the fix
-stashed (`FAILED (failures=2)`).
-
-### The plain-HTTP demo
-
-`demo.sh` registers the base template and checks the agent-server over plain HTTP for a list of
-images:
-
-```bash
-kubectl -n ate-env port-forward deploy/ate-env-api 7777:7777 &
-GUEST_IMAGE=<registry>/ate-env-guest@sha256:<digest> \
-SNAPSHOTS_BUCKET=<object-storage-url> \
-LAYER_IMAGE=<registry>/oh-agent-server-layer@sha256:<digest> \
-IMAGES="docker.io/library/ubuntu@sha256:<digest> docker.io/library/node@sha256:<digest>" \
-integrations/openhands/examples/demo.sh
-```
-
-It also takes `PORT`, `AGENT_SERVER_ENV` (extra `NAME=VALUE` settings), `COMMAND`, `WORKDIR` and
-`KEEP=1` (leave the environments up for the SDK scripts); see its header. It exits 1 if any
-agent-server did not answer.
-
-The session key is `SESSION_KEY`, else a random one that is never printed; set it with `KEEP=1`, so
-that you can reach the environments afterwards. Templates are immutable and the key is in them, also
-in the per-image templates that creates derive (`<base>-<12 hex digits of the image digest>`). So
-before registering, the demo deletes the base template and every template derived from it, with
-their golden snapshots; with `REUSE=1` (and the same `SESSION_KEY`) it keeps them instead.
+| file | what it is |
+|---|---|
+| [`convo_with_ate_env.py`](../../examples/openhands/convo_with_ate_env.py) | OpenHands' agent-sandbox example 17 with the workspace line changed |
+| [`codeact_agent.py`](../../examples/openhands/codeact_agent.py) | OpenHands' CodeAct agent in an environment, with a model or `--scripted` |
+| [`run_trajectory.py`](../../examples/openhands/run_trajectory.py) | executes a CodeAct trajectory from outside and records the observations |
+| [`demo.sh`](../../examples/openhands/demo.sh) | registers the base template and drives the agent-server over plain HTTP |
 
 ## Versions
 
@@ -335,24 +231,7 @@ GKE with gVisor workers, Substrate from 2026-10-12, ate-env-api with the port pr
   templates, and shared by the templates derived from it.
 - The agent-server runs as the image's user and keeps its state under that user's home. The first
   environment on a node pulls the layer.
-- `codeact_agent.py` calls the model from inside the environment (see above); `run_trajectory.py`
-  and a client-side agent built on it do not.
-- `codeact_agent.py` sends `LLM_API_KEY` to the agent-server inside the sandbox, as part of the
-  agent's model settings. The agent's commands run there as the same user, so a task, or a model
-  steered by one, can read the key (from the agent-server's memory or its conversation files, which
-  also end up in snapshots). Use a key scoped and rate-limited for this purpose, a model endpoint
-  inside the cluster that needs no key, or `--scripted`. The script creates the conversation with
-  `delete_on_close=True`, so the agent-server deletes it, files included, when the script ends; a
-  client that dies first leaves it behind until the environment is deleted.
-- `oh_tool.py` listens on all interfaces (port 9100), so it is reachable through ate-env-api like the
-  agent-server. It requires the agent-server's session key in `X-Session-API-Key` on every request
-  (401 otherwise, compared in constant time) and refuses to start without `OH_SESSION_API_KEYS_0`.
-  The agent-server removes that variable from the commands it runs, so `run_trajectory.py` passes it
-  in the start command; the agent-server keeps that command in its record of commands, which only
-  holders of the key can read. A malformed request gets 400, a non-numeric port is an error.
-  `run_trajectory.py` stops it with an authenticated `POST /shutdown` and deletes `/tmp/oh_tool.py`
-  and its log at the end of the run, also after an error; if the client dies first, the server
-  keeps running in the environment (and in its snapshots) until the environment is deleted or
-  someone with the key posts `/shutdown`. The file editor's undo history stays under `/tmp`.
 - A daemon reached through ate-env-api must listen on all interfaces, not 127.0.0.1: the router
   delivers to the actor's address, and a loopback-only listener answers `502 bad gateway`.
+- The examples have their own limits (model calls from inside the environment, the model key, the
+  tool runner): see [`examples/openhands`](../../examples/openhands/README.md#limits).

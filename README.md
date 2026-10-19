@@ -412,6 +412,7 @@ curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
 For complete runnable Go programs:
 - **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 - **Guest Daemon**: See [guest-daemon](examples/guest-daemon/main.go) to run a standalone in-actor gRPC service for asynchronous process execution and chunked file transfer.
+- **OpenHands**: See [openhands](examples/openhands/README.md) to run OpenHands' agents on the agent-server mounted into any task image, through the [integrations/openhands](integrations/openhands/README.md) package.
 
 For using environments from a framework, see [integrations/nemo-gym](integrations/nemo-gym/README.md), a NeMo Gym sandbox provider registered through the `nemo_gym.sandbox_providers` entry point, and [integrations/openhands](integrations/openhands/README.md), an OpenHands SDK workspace with the agent-server mounted into any task image.
 

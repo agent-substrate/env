@@ -15,7 +15,7 @@
 
 # The OpenHands agent-server attached to unmodified images, end to end.
 #
-# The agent-server comes from a runtime layer (../layer/Dockerfile) mounted read-only
+# The agent-server comes from a runtime layer (../../integrations/openhands/layer/Dockerfile) mounted read-only
 # at /opt/oh; the guest starts it as a sidecar and holds the actor's readiness
 # until it answers /health. Callers outside the cluster reach it through
 # ate-env-api's port proxy with three routing headers plus the agent-server's
@@ -34,7 +34,7 @@
 # Required:
 #   GUEST_IMAGE       digest-pinned ate-env-guest image (with the -sidecar flags)
 #   SNAPSHOTS_BUCKET  object-storage URL for actor snapshots
-#   LAYER_IMAGE       digest-pinned layer image built from ../layer/Dockerfile
+#   LAYER_IMAGE       digest-pinned layer image built from ../../integrations/openhands/layer/Dockerfile
 #   IMAGES            space-separated digest-pinned images to run the
 #                     agent-server in; any image with /bin/sh and glibc 2.31
 #                     or newer

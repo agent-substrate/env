@@ -19,7 +19,7 @@ examples/02_remote_agent_server/17_convo_with_agent_sandbox_server.py: the
 workspace line changes, the rest is the same. The environment runs TASK_IMAGE
 unmodified; the agent-server comes from the base template's runtime layer.
 
-Prerequisites (see ../README.md):
+Prerequisites (see README.md and ../../integrations/openhands/README.md):
   1. ate-env-api reachable, for example
        kubectl port-forward -n ate-env svc/ate-env-api 7777:7777
   2. The base template with the agent-server layer, registered once
@@ -36,6 +36,7 @@ agent-server), thus Substrate's egress policy must allow the model endpoint.
 import os
 import time
 
+from ate_env_openhands import AteEnvWorkspace
 from openhands.sdk import (
     LLM,
     Conversation,
@@ -44,8 +45,6 @@ from openhands.sdk import (
 )
 from openhands.tools.preset.default import get_default_agent
 from pydantic import SecretStr
-
-from ate_env_openhands import AteEnvWorkspace
 
 logger = get_logger(__name__)
 

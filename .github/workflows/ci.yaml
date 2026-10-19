@@ -78,4 +78,4 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e 'clients/python[dev]' -e 'integrations/openhands[test]'
       - run: python -m pytest integrations/openhands/tests -q
-      - run: ruff check integrations/openhands
+      - run: ruff check integrations/openhands examples/openhands
