@@ -118,6 +118,11 @@ func TestSuspend(t *testing.T) {
 	if st := f.control.Status("sb-susp"); st != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("status = %v, want SUSPENDED", st)
 	}
+	// Substrate's default is asynchronous since substrate#2805; ate-env asks
+	// for a durable suspend.
+	if got := f.control.SuspendModes; len(got) != 1 || got[0] != ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS {
+		t.Fatalf("suspend modes = %v, want one SYNCHRONOUS", got)
+	}
 }
 
 func TestSuspendMissing(t *testing.T) {

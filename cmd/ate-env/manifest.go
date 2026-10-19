@@ -38,9 +38,10 @@ import (
 // apiName is the name of the API service Deployment and Service.
 const apiName = "ate-env-api"
 
-// sandboxConfigName is the Substrate SandboxConfig both the WorkerPool and the
-// ActorTemplate refer to. `ate-setup deploy ate-system` installs exactly this
-// one, so a pool declared with it is schedulable on a stock install.
+// sandboxConfigName is the Substrate SandboxConfig the WorkerPool's gvisor
+// sandbox class refers to. `ate-setup deploy ate-system` installs exactly this
+// one, so a pool declared with it is schedulable on a stock install. Since
+// substrate#2780 the ActorTemplate names no sandbox: the worker pool decides.
 const sandboxConfigName = "gvisor-default"
 
 // Default compute limits for each actor. Substrate requires both on every
@@ -264,7 +265,35 @@ the "template" subcommand: ate-env manifest template`,
 	cmd.Flags().Int32Var(&mCfg.replicas, "replicas", 5, "number of pre-warmed worker pods")
 
 	cmd.AddCommand(newManifestTemplateCommand())
+	cmd.AddCommand(newManifestAccessPolicyCommand())
 
+	return cmd
+}
+
+func newManifestAccessPolicyCommand() *cobra.Command {
+	namespace := apiservice.DefaultNamespace
+	cmd := &cobra.Command{
+		Use:   "access-policy",
+		Short: "Generate the Substrate access policy that lets ate-env-api manage environments",
+		Long: `Access-policy prints a Substrate access policy, in the form kubectl-ate reads,
+that grants ate-env-api's ServiceAccount the editor role on an atespace.
+
+Substrate enforces authorization by default: ate-env-api then needs editor on
+each atespace it creates environments in, and the atespace must exist, because
+creating one takes a global owner. As an owner of the atespace (the default
+kubectl-ate identity on a stock install), run once for each atespace:
+
+  kubectl ate create atespace ate-env
+  ate-env manifest access-policy | kubectl ate create access-policy -a ate-env -f -
+
+An atespace has one policy. If it already has one, add the binding to it with
+"kubectl ate get access-policy" and "kubectl ate update access-policy".`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return writeProtoYAML(cmd.OutOrStdout(), buildAccessPolicy(namespace), "access policy")
+		},
+	}
+	cmd.Flags().StringVar(&namespace, "namespace", namespace, "Kubernetes namespace ate-env-api runs in (its ServiceAccount's namespace)")
 	return cmd
 }
 
@@ -323,29 +352,73 @@ func buildManifests(cfg manifestConfig) []any {
 	return []any{
 		buildNamespace(cfg),
 		buildWorkerPool(cfg),
+		buildAPIServiceAccount(cfg),
 		buildAPIDeployment(cfg),
 		buildAPIService(cfg),
 	}
 }
 
+// apiPrincipal is the identity ate-env-api presents to the Substrate control
+// plane: its own ServiceAccount, through a projected token. Access policies
+// name it with a "user:" prefix (see the access-policy subcommand).
+func apiPrincipal(namespace string) string {
+	return "system:serviceaccount:" + namespace + ":" + apiName
+}
+
+// buildAPIServiceAccount returns the ServiceAccount ate-env-api runs as. A
+// dedicated account gives the control plane a stable principal to authorize;
+// the namespace's default account would be shared with anything else there.
+// ate-env-api never calls the Kubernetes API, thus no API token is mounted.
+func buildAPIServiceAccount(cfg manifestConfig) *corev1.ServiceAccount {
+	automount := false
+	return &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      apiName,
+			Namespace: cfg.namespace,
+			Labels:    map[string]string{"app": apiName},
+		},
+		AutomountServiceAccountToken: &automount,
+	}
+}
+
+// buildAccessPolicy returns the Substrate access policy that lets ate-env-api
+// manage environments in one atespace: the editor role creates, suspends and
+// deletes actors, and creates the per-image templates it derives.
+func buildAccessPolicy(namespace string) *ateapipb.AccessPolicy {
+	return &ateapipb.AccessPolicy{
+		Metadata: &ateapipb.ResourceMetadata{Name: "default"},
+		Bindings: []*ateapipb.Binding{{
+			Role:    "editor",
+			Members: []string{"user:" + apiPrincipal(namespace)},
+		}},
+	}
+}
+
 // writeActorTemplate writes a single Substrate ActorTemplate as protojson-shaped YAML.
 func writeActorTemplate(w io.Writer, tmpl *ateapipb.ActorTemplate) error {
+	return writeProtoYAML(w, tmpl, "actor template")
+}
+
+// writeProtoYAML writes a Substrate control-plane message as protojson-shaped
+// YAML, the form kubectl-ate reads, without its server-managed status.
+func writeProtoYAML(w io.Writer, msg proto.Message, what string) error {
 	opts := protojson.MarshalOptions{
 		UseProtoNames: false,
 	}
-	jsonBytes, err := opts.Marshal(tmpl)
+	jsonBytes, err := opts.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("encoding actor template json: %w", err)
+		return fmt.Errorf("encoding %s json: %w", what, err)
 	}
 	var m map[string]any
 	if err := json.Unmarshal(jsonBytes, &m); err != nil {
-		return fmt.Errorf("decoding actor template json: %w", err)
+		return fmt.Errorf("decoding %s json: %w", what, err)
 	}
 	delete(m, "status")
 	prune(m)
 	data, err := yaml.Marshal(m)
 	if err != nil {
-		return fmt.Errorf("encoding actor template yaml: %w", err)
+		return fmt.Errorf("encoding %s yaml: %w", what, err)
 	}
 	_, err = w.Write(data)
 	return err
@@ -444,13 +517,13 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 		Spec: atev1alpha1.WorkerPoolSpec{
 			Replicas:    cfg.replicas,
 			WorkerImage: cfg.workerImage,
-			// The CRD requires exactly one sandbox class per pool, and
-			// actors only schedule onto workers of their template's class,
-			// so keep this in step with buildActorTemplate. The configRef is
-			// the SandboxConfig the workers run; the template names the same
-			// one in sandboxConfig.configName.
+			// The CRD requires exactly one sandbox class per pool. Since
+			// substrate#2780 the pool alone decides the sandbox: the
+			// ActorTemplate names none, and an actor restores onto a worker of
+			// its snapshot's class. The configRef is the SandboxConfig the
+			// workers run.
 			SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{
-				Name:      atev1alpha1.SandboxClassGvisor, // the template's sandboxConfig.sandboxClass is the same string
+				Name:      atev1alpha1.SandboxClassGvisor,
 				ConfigRef: &atev1alpha1.SandboxConfigReference{Name: sandboxConfigName},
 			}},
 		},
@@ -488,10 +561,6 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 			// state intact. MEMORY is also the server default, but the API
 			// schema marks the field required, so say it explicitly.
 			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
-		},
-		SandboxConfig: &ateapipb.SandboxConfig{
-			SandboxClass: string(atev1alpha1.SandboxClassGvisor),
-			ConfigName:   sandboxConfigName,
 		},
 		Resources: &ateapipb.Resources{Limits: []*ateapipb.Limits{
 			{Name: "cpu", Quantity: orDefault(cfg.cpu, defaultActorCPU)},
@@ -548,6 +617,7 @@ func buildTemplate(cfg templateConfig) (*ateapipb.ActorTemplate, error) {
 // buildAPIDeployment returns the ate-env-api Deployment, pointed at the
 // in-cluster Substrate endpoints.
 func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
+	automountAPIToken := false
 	labels := map[string]string{"app": apiName}
 	replicas := cfg.apiReplicas
 	tokenExpiration := int64(7200)
@@ -564,6 +634,11 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					// The ServiceAccount is the principal the control plane
+					// authorizes (buildAccessPolicy); the projected ateapi token
+					// below is minted for it.
+					ServiceAccountName:           apiName,
+					AutomountServiceAccountToken: &automountAPIToken,
 					Containers: []corev1.Container{{
 						Name:  apiName,
 						Image: cfg.apiImage,

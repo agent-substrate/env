@@ -51,6 +51,8 @@ type Server struct {
 	// Substrate does for an identity allowed to use but not create atespaces.
 	DenyCreateAtespace bool
 	templates          map[string]*ateapipb.ActorTemplate
+	// SuspendModes records the durability mode of each SuspendActor call.
+	SuspendModes []ateapipb.DurabilityMode
 }
 
 // New returns an empty fake control server.
@@ -272,6 +274,7 @@ func (s *Server) SuspendActor(ctx context.Context, req *ateapipb.SuspendActorReq
 	if err != nil {
 		return nil, err
 	}
+	s.SuspendModes = append(s.SuspendModes, req.GetOptions().GetMode())
 	s.suspend(a)
 	return &ateapipb.SuspendActorResponse{Actor: clone(a)}, nil
 }
@@ -290,18 +293,6 @@ func (s *Server) suspend(a *ateapipb.Actor) {
 			},
 		}},
 	}
-}
-
-func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest) (*ateapipb.PauseActorResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, err := s.get(req.GetActor())
-	if err != nil {
-		return nil, err
-	}
-	// Substrate reports a paused actor as SUSPENDED (substrate#2620).
-	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}
-	return &ateapipb.PauseActorResponse{Actor: clone(a)}, nil
 }
 
 func (s *Server) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequest) (*ateapipb.Actor, error) {
