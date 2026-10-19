@@ -60,9 +60,6 @@ const DefaultHostSuffix = "actors.resources.substrate.ate.dev"
 const (
 	DefaultControlAddr = "api.ate-system.svc.cluster.local:443"
 	DefaultRouterAddr  = "atenet-router.ate-system.svc.cluster.local:80"
-	// DefaultRouterConnectAddr is the router's plaintext CONNECT listener, which
-	// tunnels to a port on an actor other than 80.
-	DefaultRouterConnectAddr = "atenet-router.ate-system.svc.cluster.local:8081"
 )
 
 // DefaultAtespace is the Substrate atespace every environment actor lives in.
@@ -70,9 +67,6 @@ const DefaultAtespace = "ate-env"
 
 // ErrNotFound is returned when an env, file, or directory does not exist.
 var ErrNotFound = errors.New("not found")
-
-// ErrAlreadyExists is returned when a resource with the same name exists.
-var ErrAlreadyExists = errors.New("already exists")
 
 // Options configures a Client.
 type Options struct {
@@ -319,39 +313,6 @@ func (c *Client) Delete(ctx context.Context, atespace, id string) error {
 
 // ref returns the ObjectRef identifying the actor backing actor id in atespace.
 // If atespace is empty, DefaultAtespace is used.
-// GetActorTemplate reads an ActorTemplate. A missing template is ErrNotFound.
-func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
-	if name == "" {
-		return nil, errors.New("ate: template name is required")
-	}
-	tmpl, err := c.control.GetActorTemplate(ctx, &ateapipb.GetActorTemplateRequest{ActorTemplate: c.ref(atespace, name)})
-	if err != nil {
-		return nil, fmt.Errorf("ate: getting template %q: %w", name, wrapGRPCError(err))
-	}
-	return tmpl, nil
-}
-
-// CreateActorTemplate creates an ActorTemplate in its metadata's atespace. A
-// name collision is ErrAlreadyExists, so callers racing to create the same
-// derived template can treat it as success.
-func (c *Client) CreateActorTemplate(ctx context.Context, tmpl *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
-	name := tmpl.GetMetadata().GetName()
-	if name == "" {
-		return nil, errors.New("ate: template metadata.name is required")
-	}
-	if tmpl.GetMetadata().GetAtespace() == "" {
-		tmpl.Metadata.Atespace = DefaultAtespace
-	}
-	created, err := c.control.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: tmpl})
-	if err != nil {
-		if status.Code(err) == codes.AlreadyExists {
-			return nil, fmt.Errorf("ate: creating template %q: %w: %s", name, ErrAlreadyExists, status.Convert(err).Message())
-		}
-		return nil, fmt.Errorf("ate: creating template %q: %w", name, wrapGRPCError(err))
-	}
-	return created, nil
-}
-
 func (c *Client) ref(atespace, id string) *ateapipb.ObjectRef {
 	if atespace == "" {
 		atespace = DefaultAtespace

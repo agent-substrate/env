@@ -18,7 +18,7 @@ from ate_env.config import FleetConfig, ValidationError
 
 
 def test_unknown_fields_are_rejected():
-    # Previously silently dropped by pydantic (e.g. the NeMo/TML doc snippets).
+    # Previously silently dropped by pydantic (e.g. stale doc snippets).
     with pytest.raises(ValidationError, match="warm_pool_size"):
         FleetConfig(warm_pool_size=64)
     with pytest.raises(ValidationError, match="warmpool_replicas"):
