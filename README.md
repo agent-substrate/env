@@ -29,7 +29,6 @@ while this project adds the environment-shaped API on top.
 - **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
 - **`clients/go`** — The Go client library to manage environments, run commands, and perform file operations.
 - **`clients/python`** — Python client for environment lifecycle management and batch sandbox orchestration ([README](clients/python/README.md)).
-- **`integrations/nemo-gym`** — A [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) sandbox provider that runs rollout sandboxes as environments, built on the Python client ([README](integrations/nemo-gym/README.md)).
 
 ## Installation
 
@@ -77,12 +76,11 @@ Substrate install. An older Substrate rejects the string sandbox class (from
 [`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)); use an ate-env from before
 this bump with it.
 
-When you upgrade an existing cluster across that boundary, register your base templates again.
-Substrate cannot update an ActorTemplate in place, and a base registered earlier has no CPU and memory
-limits, thus each template `ate-env-api` derives from it for a rootfs image fails with
-`resources: Required`. Delete the base and its derived templates (named `<base>-<12 hex digits>`) with
-`kubectl-ate delete actor-template`, then register the base again with `ate-env manifest template`.
-Each environment created after that derives its template again, with the limits.
+When you upgrade an existing cluster across that boundary, register your templates again.
+Substrate cannot update an ActorTemplate in place, and a template registered earlier has no CPU and
+memory limits. Delete it with `kubectl-ate delete actor-template`, then register it again with
+`ate-env manifest template`. Templates that older `ate-env-api` versions derived per rootfs image
+(named `<base>-<12 hex digits>`) are no longer used and can be deleted the same way.
 
 ### 1. Deploy the Kubernetes Resources
 
@@ -121,8 +119,7 @@ ate-env manifest template \
 ```
 
 Each actor gets 2 CPUs and 4 GiB unless you pass `--cpu` and `--memory` (Kubernetes quantities such as
-`500m` or `8Gi`; CPU at most `999.999`, as Substrate requires). Substrate requires both limits and books them against worker capacity; templates
-derived per rootfs image inherit them.
+`500m` or `8Gi`; CPU at most `999.999`, as Substrate requires). Substrate requires both limits and books them against worker capacity.
 
 That template's container is the guest image itself. To run another image unmodified, name
 it with `--rootfs-image`: the guest is then mounted into it as a read-only OCI image volume at
@@ -135,30 +132,6 @@ ate-env manifest template --template py312 \
   --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
 ```
 
-A second runtime rides along the same way: `--layer` mounts its image read-only next to the
-guest, `--sidecar` has the guest start and supervise a process from it, and `--sidecar-readyz`
-holds the actor's readiness until that process answers. Here a static busybox stands in for a
-runtime daemon and serves HTTP on port 44772 inside the environment:
-
-```bash
-ate-env manifest template --template layered \
-  --rootfs-image   docker.io/library/python@sha256:<digest> \
-  --guest-image    <registry>/ate-env-guest@sha256:<digest> \
-  --layer          web=docker.io/library/busybox@sha256:<digest of the 1.37-musl tag>=/opt/web \
-  --sidecar        '/opt/web/bin/busybox httpd -f -p 44772 -h /' \
-  --sidecar-readyz http://127.0.0.1:44772/etc/hostname \
-  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
-```
-
-Layers must be self-contained: the `1.37-musl` busybox is static, while the glibc build fails
-on images with an older libc. The runnable version is
-[`examples/runtime-layers/demo.sh`](examples/runtime-layers/demo.sh).
-
-See [docs/rootfs-images/README.md](docs/rootfs-images/README.md) for the full guide, including
-creating environments from an image on demand, [docs/rootfs-images/RUNTIMES.md](docs/rootfs-images/RUNTIMES.md)
-for injecting a second runtime as a layer, and [docs/rootfs-images/DESIGN.md](docs/rootfs-images/DESIGN.md)
-for the design.
-
 Then create and use an environment:
 
 ```bash
@@ -167,17 +140,6 @@ kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 
 # Create an environment.
 ate-env create dev1
-
-# Or run any digest-pinned image unmodified. ate-env-api derives a template
-# from default-template on first use (guest mounted in as an image volume)
-# and reuses it for later environments on the same image.
-ate-env create py1 --rootfs-image docker.io/library/python@sha256:<digest>
-
-# Or from the layered template above: the second runtime answers inside the
-# environment, and any other image on that base inherits it.
-ate-env create web1 --template layered
-ate-env web1 shell '/opt/web/bin/busybox wget -qO- http://127.0.0.1:44772/etc/os-release'
-ate-env create node1 --template layered --rootfs-image docker.io/library/node@sha256:<digest>
 
 # Execute a shell command inside the environment.
 ate-env dev1 shell 'echo hello > /note.txt'
@@ -260,7 +222,7 @@ Manages the lifecycle of isolated execution environments (defined in [`proto/ate
 
 | RPC | Description |
 | --- | ----------- |
-| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate, or from a digest-pinned `rootfs_image` on top of one: the template becomes the base, the image the container, and the guest is mounted in as a read-only image volume |
+| `CreateEnvironment` | Creates and starts a new environment actor from an ActorTemplate |
 | `GetEnvironment` | Retrieves environment details and status |
 | `SuspendEnvironment` | Suspends and checkpoints the environment to snapshot storage |
 | `DeleteEnvironment` | Deletes the environment permanently |
@@ -288,56 +250,6 @@ Provides chunked streaming file reading and writing within the environment conta
 | `ReadFile` | Streams raw binary or text file contents in chunks |
 | `WriteFile` | Streams raw binary or text chunks directly to a target file |
 
-
-## Reaching a service inside an environment
-
-A daemon that listens on a port inside an environment, such as one a runtime layer starts next to
-the guest ([docs/rootfs-images/RUNTIMES.md](docs/rootfs-images/RUNTIMES.md)), is reachable through
-the API's listener. A plain HTTP request that carries `X-Env-Id` and `X-Env-Port` (and
-`X-Env-Atespace` outside `ate-env`) is forwarded through the Substrate router to that port, whatever
-its path; the API strips the three headers. The router resumes a suspended environment first,
-and the proxy waits for the wake up to `--wake-budget` (the same wait as a guest call) before it
-answers 503.
-
-```bash
-curl -H 'X-Env-Id: dev1' -H 'X-Env-Port: 6000' localhost:7777/health
-```
-
-Clients that cannot set headers, such as WebSocket clients and browsers, put the target in the path
-instead: `/v1alpha/envs/{id}/ports/{port}/...`, or `/v1alpha/atespaces/{atespace}/envs/{id}/ports/{port}/...`
-outside `ate-env`. The API strips that prefix and forwards the rest, so a client given
-`http://localhost:7777/v1alpha/envs/dev1/ports/6000` as its base URL works unchanged. WebSocket upgrades pass
-through either form; gRPC to the daemon is not supported yet.
-
-```bash
-curl localhost:7777/v1alpha/envs/dev1/ports/6000/health
-```
-
-The path form reaches the daemon exactly as sent: a path without the trailing slash is the daemon's
-root, and `//` or `..` after the prefix are not cleaned or redirected.
-
-**Who can use it.** The forwarding does not authenticate callers. Whoever can reach the API's
-listener can reach any TCP port of any actor the Substrate router serves, in any atespace,
-including actors that ate-env did not create. The guest API already reaches each actor that runs
-the guest; the forwarding extends that reach to every port. Keep the listener inside the cluster
-(the manifest's Service is `ClusterIP`), restrict it with a NetworkPolicy where other workloads
-share the cluster, and make each daemon check its own credential.
-
-**Browsers.** The path form refuses a state-changing request or a WebSocket handshake that a browser
-sends from a page of another origin, so a web page cannot drive a daemon through a `kubectl
-port-forward`. A page served by the forwarded daemon itself is same-origin and passes. All daemons
-behind one listener share that origin, thus a page from one daemon can call another.
-`--port-proxy-trusted-origins` adds origins, such as a UI on its own host. The header form needs no
-check: a browser sends custom headers to another origin only after a CORS preflight, which the API
-never approves. DNS rebinding, where a page on an attacker's name resolves to the forwarded
-listener, is not blocked yet; it needs a check of the `Host` header across the whole listener, the
-MCP endpoint included.
-
-| Flag | Default | Effect |
-|---|---|---|
-| `--atenet-connect` | `atenet-router.ate-system.svc.cluster.local:8081` | The router's CONNECT listener. An empty value turns the forwarding off. |
-| `--port-proxy-trusted-origins` | none | Comma-separated browser origins allowed to use the path form. |
-| `--port-proxy-response-header-timeout` | `0`, no limit | Bound on the wait for a daemon's response headers. Without it, the caller's deadline ends the wait. |
 
 ## Built-in MCP Server
 
@@ -411,8 +323,6 @@ curl -X POST localhost:7777/v1alpha/envs/dev1/mcp \
 For complete runnable Go programs:
 - **MCP**: See [mcp](examples/mcp/main.go) to connect to an environment's MCP endpoint, discover tools, and execute tool calls.
 - **Guest Daemon**: See [guest-daemon](examples/guest-daemon/main.go) to run a standalone in-actor gRPC service for asynchronous process execution and chunked file transfer.
-
-For using environments from a framework, see [integrations/nemo-gym](integrations/nemo-gym/README.md): a NeMo Gym sandbox provider registered through the `nemo_gym.sandbox_providers` entry point.
 
 ## Cleanup
 
