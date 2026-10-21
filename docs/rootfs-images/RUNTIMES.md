@@ -78,6 +78,16 @@ but Docker Hub, is in [`examples/runtime-layers`](../../examples/runtime-layers)
 the static `busybox:1.37-musl` mounted as the layer and its `httpd` as the
 sidecar, run under two different rootfs images.
 
+### NeMo runtime layer
+
+[`integrations/nemo-gym/layer`](../../integrations/nemo-gym/layer) is a
+complete layer of this shape: a relocatable CPython with NeMo Skills' local
+sandbox server and NeMo Gym's exec server installed, started with
+`--sidecar '/opt/nemo/python/bin/python3 -m nemo_runtime.sandbox_server --host 0.0.0.0 --port 6000'`
+and gated with `--sidecar-readyz http://127.0.0.1:6000/health`. The NeMo Gym
+provider hands the port out as `endpoint()`; see
+[integrations/nemo-gym](../../integrations/nemo-gym/README.md#services-inside-the-sandbox-the-nemo-runtime-layer).
+
 ## Who can reach the second runtime
 
 - **Processes inside the environment** reach it at `127.0.0.1:<port>` right

@@ -33,6 +33,7 @@ One gRPC endpoint, `ate-env-api`, carries everything (see the
 | `upload_file` / `download_file` | `Env.write_file` / `Env.read_file_bytes` | `FileSystemService` in the guest |
 | `status(handle)` | `Client.get(id)` → lifecycle status | `EnvironmentService`; does **not** wake a parked sandbox |
 | `close(handle)` | `Client.delete(id)`, NOT_FOUND-safe | `EnvironmentService` |
+| `endpoint(handle, port)` (nemo-gym 0.7) | `Client.get(id)` for existence, then a static `SandboxEndpoint` | ate-env-api's port proxy: each request goes through the router to that port in the sandbox, where a runtime layer's daemon listens (see below) |
 
 Environment ids are `gym-<10 hex>`; each handle remembers the atespace it was created in.
 
@@ -206,30 +207,65 @@ To share one `ate_env.Client` between the provider and other code, pass it in:
 
 Unknown keys are rejected at `create()` time, as are unknown keys anywhere in the config block.
 
-### Services inside the sandbox: an injected daemon
+### Services inside the sandbox: the NeMo runtime layer
 
 Some NeMo components talk to a service inside the sandbox instead of running commands through
-`exec`: an exec server, a code-execution sandbox server, a tool daemon. The task images do not
-contain it, and rebuilding hundreds of thousands of SWE-bench images to add it is not an option.
-ate-env attaches such a daemon at runtime the same way it attaches its own guest: as a read-only
-OCI image volume, a *runtime layer*, that the guest starts and supervises next to itself
+`exec`: NeMo Skills' code-execution sandbox server (what `ns_tools` and the math recipes call for
+`ipython` and `python` tool calls), NeMo Gym's own exec server (what the ECS Fargate provider
+injects), a tool daemon. The task images do not contain them, and rebuilding hundreds of thousands
+of SWE-bench images to add them is not an option. ate-env attaches such a daemon at runtime the
+same way it attaches its own guest: as a read-only OCI image volume, a *runtime layer*, that the
+guest starts and supervises next to itself
 ([docs/rootfs-images/RUNTIMES.md](../../docs/rootfs-images/RUNTIMES.md)). The provider implements
 nemo-gym 0.7's `SupportsSandboxEndpoint`, so Gym reaches the daemon from outside the cluster's
 actor network.
 
+[`layer/`](layer/) is that layer for NeMo: one OCI image, built from scratch, that holds a
+relocatable CPython 3.12 ([python-build-standalone](https://github.com/astral-sh/python-build-standalone))
+with hash-pinned wheels and two servers, each started with the layer's own interpreter so the task
+image contributes nothing but its kernel and filesystem:
+
+| server | command (as a guest sidecar) | protocol | from |
+|---|---|---|---|
+| NeMo Skills local sandbox server | `/opt/nemo/python/bin/python3 -m nemo_runtime.sandbox_server --host 0.0.0.0 --port 6000` | `POST /execute` (`generated_code`, `language` = `ipython`/`python`/`shell`/`lean4`, `timeout`, `std_input`), IPython sessions by `X-Session-ID`, `GET /health` | `nemo_skills/code_execution/local_sandbox/local_sandbox_server.py`, vendored verbatim ([provenance](layer/third_party/nemo-skills/README.md)) |
+| NeMo Gym exec server | `/opt/nemo/python/bin/python3 -m nemo_runtime.exec_server --host 0.0.0.0 --port 19542` | `POST /exec` (`cmd`, `timeout`), `POST /upload`, `GET /download?path=`, `GET /health` | the `EXEC_SERVER_SCRIPT` of `nemo_gym/sandbox/providers/ecs_fargate/engine.py`, vendored verbatim ([provenance](layer/third_party/nemo-gym/README.md)) |
+
+Both execute whatever they are sent, with the task image's user and filesystem, and neither
+authenticates its caller; see the trust note below. `ipython` and `python` code runs on the
+layer's interpreter and its packages (IPython, psutil, Flask and their dependencies, nothing
+else); `shell` runs the task image's `/bin/sh`; a task image's own Python is used only when the
+code calls it by path.
+
+Build and push it once per registry (linux/amd64 and linux/arm64; `layer/lock.sh` refreshes the
+hash-pinned requirements):
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 --provenance=false --sbom=false \
+  --push -t <registry>/nemo-runtime-layer:<tag> integrations/nemo-gym/layer
+crane digest <registry>/nemo-runtime-layer:<tag>   # templates take the digest, not the tag
+```
+
 1. **Put the daemon on the base template, once.** Every environment created from this base with a
    task image (`rootfs_image`) gets the daemon; the task images stay unmodified.
+   [`hack/runtime-layer-demo.sh`](hack/runtime-layer-demo.sh) does this and the steps below.
 
    ```bash
-   ate-env manifest template --template gym-base \
-     --layer          nemo=<registry>/nemo-daemon@sha256:<digest>=/opt/nemo \
-     --sidecar        '/opt/nemo/daemon --port 6000' \
+   ate-env manifest template --template gym-nemo \
+     --rootfs-image   docker.io/library/python@sha256:<digest> \
+     --layer          nemo=<registry>/nemo-runtime-layer@sha256:<digest>=/opt/nemo \
+     --sidecar        '/opt/nemo/python/bin/python3 -m nemo_runtime.sandbox_server --host 0.0.0.0 --port 6000' \
      --sidecar-readyz http://127.0.0.1:6000/health \
      --snapshots-bucket gs://<bucket>/ate-env/ | kubectl-ate create actor-template -f -
    ```
 
-   The actor reports ready only once the daemon answers its readiness URL, so `create()` returns
-   a sandbox whose daemon is up.
+   Add a second `--sidecar`/`--sidecar-readyz` pair for the exec server when a recipe needs it.
+   The actor reports ready only once every sidecar answers its readiness URL, so `create()`
+   returns a sandbox whose daemon is up. Give the base a task image of its own
+   (`--rootfs-image`): the guest's image is Alpine-based and cannot run the layer's glibc
+   interpreter, so a base without one never bakes its golden snapshot and shows `ERROR` in
+   `kubectl-ate get actor-template`, although the templates derived from it for real task images
+   work. Point `create.template` (not a per-sandbox `provider_options` template, which selects the
+   base itself) at it, so each task image derives from the base and inherits the layer.
 
 2. **Select the base and declare the port.**
 
@@ -240,7 +276,7 @@ actor network.
          api_url: ate-env-api.ate-env:7777
          # endpoint_url: http://ate-env-api.ate-env:7777   # default: api_url
        create:
-         template: gym-base
+         template: gym-nemo
    ```
 
    ```python
@@ -265,21 +301,30 @@ actor network.
    the guest's port 80. Set `connection.endpoint_url` when the code that calls the daemon reaches
    ate-env-api at another address than the provider does.
 
+Verified 2026-10-21 on a GKE cluster (gVisor pool, Substrate `ddb46651`, ate-env-api with the port
+proxy) with `hack/runtime-layer-demo.sh` and `tests/test_e2e.py -k runtime_layer`: environments from
+unmodified `python:3.12-slim` and `debian:bookworm-slim` (no Python inside) were serving 4 to 5 s
+after `create`, with readiness gated on both sidecars' `/health`; `POST /execute` answered from
+inside the environment, through the header form and through the path form, an IPython session kept
+its state across two calls, `language: python` ran on the layer's interpreter where the image had
+none, and the exec server answered `POST /exec`. The layer image is 87 MB compressed.
+
 Limits:
 
 - **HTTP/1.1 only.** The router tunnels HTTP to the port, not raw TCP. Streamed responses are
   flushed as they arrive and WebSocket upgrades pass through; gRPC to the daemon is not supported
   yet.
 - **The daemon must be self-contained.** A layer cannot rely on the task image's libraries: ship a
-  static binary, or put the interpreter and its packages in the layer. NeMo Skills' sandbox server
-  (Flask on CPython, port 6000, `POST /execute`, `GET /health`) fits only with a relocatable Python
-  inside its layer; Gym's ECS exec server needs `python3` in the task image.
+  static binary, or put the interpreter and its packages in the layer, as `layer/` does for the two
+  NeMo servers. The layer's CPython is a glibc build, so a task image needs glibc 2.17 or newer
+  (every manylinux-era distribution; not Alpine or another musl image).
 - **The daemon must listen on `0.0.0.0`.** The router reaches the port on the actor's address; a
   daemon bound to `127.0.0.1` only answers processes inside the sandbox, and requests through the
   endpoint fail with 502.
 - **No authentication in front of the daemon.** Anyone who can reach ate-env-api can call any port
-  in any sandbox through it. Keep ate-env-api inside the cluster, and give the daemon its own
-  credential when the sandbox runs untrusted code.
+  in any sandbox through it, and both NeMo servers run what they are sent. Keep ate-env-api inside
+  the cluster; the sandbox is the trust boundary, the same as with NeMo Skills' own sandbox
+  container and the ECS provider's exec server.
 - Port 80 belongs to the guest. The daemon shares the task image's user, environment and
   filesystem.
 - Each distinct task image yields one derived ActorTemplate on its base, created on first use and
@@ -302,6 +347,13 @@ python3 -m venv .venv
 kubectl port-forward -n ate-env svc/ate-env-api 7777:7777 &
 SUBSTRATE_E2E_API_URL=127.0.0.1:7777 .venv/bin/python -m pytest tests/test_e2e.py -q
 # SUBSTRATE_E2E_TEMPLATE=<name> picks the ActorTemplate (default: default-template)
+
+# The runtime-layer test needs a base template with the NeMo runtime layer (register one
+# with hack/runtime-layer-demo.sh); it creates a sandbox on it, resolves endpoint() and
+# calls NeMo Skills' sandbox server through ate-env-api's port proxy:
+SUBSTRATE_E2E_API_URL=127.0.0.1:7777 SUBSTRATE_E2E_RUNTIME_TEMPLATE=gym-nemo \
+  SUBSTRATE_E2E_RUNTIME_IMAGE=docker.io/library/python@sha256:<digest> \
+  .venv/bin/python -m pytest tests/test_e2e.py -q -k runtime_layer
 ```
 
 ## Benchmark

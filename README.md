@@ -29,7 +29,7 @@ while this project adds the environment-shaped API on top.
 - **`cmd/ate-env-guest`** — The daemon server running inside each actor serving command executions, file read/write, and built-in MCP tools.
 - **`clients/go`** — The Go client library to manage environments, run commands, and perform file operations.
 - **`clients/python`** — Python client for environment lifecycle management and batch sandbox orchestration ([README](clients/python/README.md)).
-- **`integrations/nemo-gym`** — A [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) sandbox provider that runs rollout sandboxes as environments, built on the Python client ([README](integrations/nemo-gym/README.md)).
+- **`integrations/nemo-gym`** — A [NeMo Gym](https://github.com/NVIDIA-NeMo/Gym) sandbox provider that runs rollout sandboxes as environments, built on the Python client, plus a runtime layer that injects NeMo Skills' sandbox server and NeMo Gym's exec server into any task image ([README](integrations/nemo-gym/README.md)).
 
 ## Installation
 
