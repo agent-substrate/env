@@ -60,13 +60,24 @@ python-protos:
 python-test:
 	cd clients/python && python3 -m pytest
 
+# The worker image is built from the Substrate module go.mod pins, in its own
+# module directory so its .ko.yaml and go.sum apply. --base-import-paths and
+# the version stamp match what Substrate's `ate-setup publish worker-images`
+# does, so the image lands at $(ATE_ENV_IMAGE_REPO)/ateworker-gvisor.
+SUBSTRATE_DIR = $(shell go list -m -f '{{.Dir}}' go.ate.dev/substrate)
+SUBSTRATE_VERSION = $(shell go list -m -f '{{.Version}}' go.ate.dev/substrate)
+
 images:
 	@echo "Building and pushing container images to $(ATE_ENV_IMAGE_REPO)..."
 	@guest_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-guest ko build --bare ./cmd/ate-env-guest | tail -n 1); \
 	api_img=$$(KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO)/ate-env-api ko build --bare ./cmd/ate-env-api | tail -n 1); \
+	worker_img=$$(cd $(SUBSTRATE_DIR) && KO_DOCKER_REPO=$(ATE_ENV_IMAGE_REPO) \
+		GOFLAGS=-ldflags=-X=go.ate.dev/substrate/internal/version.Version=$(SUBSTRATE_VERSION) \
+		ko build --base-import-paths ./cmd/ateworker-gvisor | tail -n 1); \
 	echo "Published:" && \
-	echo "  --guest-image $$guest_img" && \
-	echo "  --api-image   $$api_img"
+	echo "  --guest-image  $$guest_img" && \
+	echo "  --api-image    $$api_img" && \
+	echo "  --worker-image $$worker_img"
 
 clean:
 	rm -rf bin
