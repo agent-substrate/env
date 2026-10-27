@@ -43,69 +43,40 @@ this repo's images. Building from source works too, but then `--api-image` and
 go install github.com/agent-substrate/env/cmd/ate-env@latest
 ```
 
-## Images
-
-Each release publishes two images to GitHub Container Registry, multi-platform,
-signed, and meant to be used by digest:
-
-| image | runs |
-|---|---|
-| `ghcr.io/agent-substrate/env/ate-env-api` | the API service, in the cluster |
-| `ghcr.io/agent-substrate/env/ate-env-guest` | inside every environment actor |
-
-The digests are in the release notes and in the `images_<tag>.txt` asset; the
-release's `ate-env` binary defaults to them. The worker image
-(`--worker-image`, `ateworker-gvisor`) comes from the
-[Substrate repo](https://github.com/agent-substrate/substrate) and must match the
-Substrate version on your cluster. See [docs/release.md](docs/release.md) for
-verification, pinning and how releases are cut.
-
 ## Quickstart
 
-Prerequisites: a cluster with [Agent Substrate](https://github.com/agent-substrate/substrate)
-installed and a snapshots bucket. ate-env is built against Substrate
-[`3a2ca623`](https://github.com/agent-substrate/substrate/commit/3a2ca623) (2026-10-16, Go module
-`go.ate.dev/substrate`). The cluster needs a Substrate recent enough to accept what ate-env writes:
-the WorkerPool declares `spec.sandboxClasses`, the ActorTemplate uses `snapshotConfig` and
-`wakeupProbe`, names its sandbox class as the string `gvisor`, and declares CPU and memory limits.
-That means Substrate at or after
-[`63a17a92`](https://github.com/agent-substrate/substrate/commit/63a17a92) (2026-10-15), which also
-renamed the worker image: `--worker-image` must be the `ateworker-gvisor` image published by that
-Substrate install. An older Substrate rejects the string sandbox class (from
-[`9ec49759`](https://github.com/agent-substrate/substrate/commit/9ec49759)) or the limits (from
-[`c58f374a`](https://github.com/agent-substrate/substrate/commit/c58f374a)); use an ate-env from before
-this bump with it.
+Prerequisites: a cluster running [Agent Substrate](https://github.com/agent-substrate/substrate)
+at or after [`63a17a92`](https://github.com/agent-substrate/substrate/commit/63a17a92), and a GCS
+bucket for snapshots. ate-env is built and tested against
+[`3a2ca623`](https://github.com/agent-substrate/substrate/commit/3a2ca623).
 
-When you upgrade an existing cluster across that boundary, register your templates again.
-Substrate cannot update an ActorTemplate in place, and a template registered earlier has no CPU and
-memory limits. Delete it with `kubectl-ate delete actor-template`, then register it again with
-`ate-env manifest template`. Templates that older `ate-env-api` versions derived per rootfs image
-(named `<base>-<12 hex digits>`) are no longer used and can be deleted the same way.
+### 1. Build and Push the Images
 
-### 1. Deploy the Kubernetes Resources
+Build and push the `ate-env-api`, `ate-env-guest` and Substrate `ateworker-gvisor` images with
+[ko](https://ko.build):
+
+```bash
+export ATE_ENV_IMAGE_REPO=registry.example.com/substrate-env
+make images
+```
+
+It prints the digest-pinned refs to pass as `--api-image`, `--guest-image` and `--worker-image`. The
+worker image is built from the Substrate version in `go.mod`; if your cluster runs a different one,
+build it from that Substrate checkout with `ate-setup publish worker-images` instead.
+
+### 2. Deploy the Kubernetes Resources
 
 Deploy the namespace, worker pool, and API service:
 
 ```bash
-# With a release binary the API image defaults to the release's. The worker
-# image is ateworker-gvisor from the Substrate repo at your cluster's version; in
-# that checkout, `go run ./cmd/ate-setup publish worker-images` pushes it and
-# prints the digest-pinned ref. Use the digest: a :latest tag is whatever was
-# built last, and a stale worker image registers workers with no capacity.
 ate-env manifest \
-  --worker-image   <registry>/ateworker-gvisor@sha256:<digest> | kubectl apply -f -
-# From a source build, add: --api-image ghcr.io/agent-substrate/env/ate-env-api@sha256:<digest>
+  --worker-image   $ATE_ENV_IMAGE_REPO/ateworker-gvisor@sha256:<digest> | kubectl apply -f -
 
 # Ensure that the pods are running:
 kubectl get pods -n ate-env
 ```
 
-`ate-env-api` waits for a suspended environment to wake before forwarding a guest call, up to
-`--wake-budget` (default 2m; cold image pulls and cross-region snapshot reads exceed the router's own
-parking budget) and, once the control plane reports the environment RUNNING, up to
-`--wake-running-budget` (default 20s). Both are flags on the API deployment.
-
-### 2. Register the ActorTemplate in Substrate
+### 3. Register the ActorTemplate in Substrate
 
 Substrate manages ActorTemplates directly in its control plane rather than Kubernetes CRDs. Use `ate-env manifest template` to generate the Substrate ActorTemplate manifest:
 
@@ -114,23 +85,11 @@ Templates live in the `ate-env` atespace, which `ate-env-api` creates when it st
 ```bash
 # With a release binary the guest image defaults to the release's.
 ate-env manifest template \
-  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
-# From a source build, add: --guest-image ghcr.io/agent-substrate/env/ate-env-guest@sha256:<digest>
+  --snapshots-bucket <gcs-bucket> | kubectl-ate create actor-template -f -
 ```
 
 Each actor gets 2 CPUs and 4 GiB unless you pass `--cpu` and `--memory` (Kubernetes quantities such as
 `500m` or `8Gi`; CPU at most `999.999`, as Substrate requires). Substrate requires both limits and books them against worker capacity.
-
-That template's container is the guest image itself. To run another image unmodified, name
-it with `--rootfs-image`: the guest is then mounted into it as a read-only OCI image volume at
-`/ate` and started from there, so the rootfs image is never rebuilt.
-
-```bash
-ate-env manifest template --template py312 \
-  --rootfs-image   docker.io/library/python@sha256:<digest> \
-  --guest-image    <registry>/ate-env-guest@sha256:<digest> \
-  --snapshots-bucket <object-storage-url> | kubectl-ate create actor-template -f -
-```
 
 Then create and use an environment:
 
@@ -259,12 +218,9 @@ The API exposes a streamable MCP endpoint at `POST /v1alpha/envs/{id}/mcp` servi
 
 | Tool | Category | Description |
 | ---- | -------- | ----------- |
-| `read_file` | Filesystem | Read a text file with optional line numbers or line ranges |
-| `write_file` | Filesystem | Create or overwrite a file |
-| `edit_file` | Filesystem | Replace exact text matching target content in a file |
-| `glob` | Filesystem | Search for files matching glob patterns |
-| `grep` | Filesystem | Search for text or regular expressions across files |
-| `shell` | Shell | Run a shell command line inside the environment |
+| `read_file` | Filesystem | Read a file |
+| `write_file` | Filesystem | Create or overwrite a file, with an optional POSIX mode |
+| `shell` | Shell | Run a shell command line inside the environment, with optional cwd, env, stdin and timeout |
 
 ### JSON-RPC Over HTTP
 
