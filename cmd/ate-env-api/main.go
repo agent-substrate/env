@@ -31,6 +31,7 @@ import (
 	"github.com/agent-substrate/env/internal/mcp"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func main() {
@@ -38,6 +39,8 @@ func main() {
 		listen            = flag.String("listen", "0.0.0.0:7777", "address to serve the API on")
 		ateapi            = flag.String("ateapi", ate.DefaultControlAddr, "address of the ateapi gRPC control plane")
 		atenet            = flag.String("atenet", ate.DefaultRouterAddr, "address of the atenet HTTP router")
+		atenetCredBundle  = flag.String("atenet-credential-bundle", "", "PEM credential bundle (cert+key) presented as the client certificate to the atenet router; empty dials the router in plaintext")
+		atenetCAFile      = flag.String("atenet-ca-file", "", "PEM trust bundle for the atenet router's serving certificate; required with -atenet-credential-bundle")
 		hostSuffix        = flag.String("host-suffix", ate.DefaultHostSuffix, "atenet router host suffix for actor routing")
 		skipVerify        = flag.Bool("skip-verify", true, "skip TLS certificate verification on the control plane connection")
 		tokenFile         = flag.String("ateapi-token-file", "", "file with a bearer token for the control plane, e.g. a projected ServiceAccount token with the ateapi audience")
@@ -46,9 +49,18 @@ func main() {
 	)
 	flag.Parse()
 
+	var routerCreds credentials.TransportCredentials
+	if *atenetCredBundle != "" {
+		var err error
+		if routerCreds, err = ate.RouterTLSCredentials(*atenetCredBundle, *atenetCAFile); err != nil {
+			log.Fatalf("loading atenet router credentials: %v", err)
+		}
+	}
+
 	client, err := ate.New(ate.Options{
 		ControlAddr:     *ateapi,
 		RouterAddr:      *atenet,
+		RouterCreds:     routerCreds,
 		HostSuffix:      *hostSuffix,
 		SkipVerify:      *skipVerify,
 		BearerTokenFile: *tokenFile,

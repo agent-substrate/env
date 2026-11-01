@@ -35,7 +35,7 @@ import (
 	"strings"
 	"sync"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -78,6 +78,10 @@ type Options struct {
 	// (typically a port-forward of svc/atenet-router in ate-system).
 	// Required for Cmd and filesystem operations.
 	RouterAddr string
+
+	// RouterCreds are the transport credentials for router connections,
+	// e.g. from RouterTLSCredentials. Nil means plaintext.
+	RouterCreds credentials.TransportCredentials
 
 	// HostSuffix overrides the router host suffix. Defaults to
 	// DefaultHostSuffix.
@@ -155,6 +159,15 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// RouterCreds returns the transport credentials for router connections:
+// Options.RouterCreds, or plaintext if unset or c is nil.
+func (c *Client) RouterCreds() credentials.TransportCredentials {
+	if c == nil || c.opts.RouterCreds == nil {
+		return insecure.NewCredentials()
+	}
+	return c.opts.RouterCreds
+}
+
 // DialGuest dials the guest daemon inside actor id in atespace via the atenet router.
 func (c *Client) DialGuest(atespace, id string) (*grpc.ClientConn, error) {
 	if c.opts.RouterAddr == "" {
@@ -180,7 +193,7 @@ func (c *Client) DialGuest(atespace, id string) (*grpc.ClientConn, error) {
 	targetActor := atespace + "/" + id
 	conn, err := grpc.NewClient(
 		c.opts.RouterAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(c.RouterCreds()),
 		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 			ctx = metadata.AppendToOutgoingContext(ctx, TargetActorHeader, targetActor)
 			return invoker(ctx, method, req, reply, cc, opts...)

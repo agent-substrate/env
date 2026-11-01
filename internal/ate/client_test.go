@@ -23,7 +23,7 @@ import (
 	"github.com/agent-substrate/env/internal/ate"
 	"github.com/agent-substrate/env/internal/internaltest/fakecontrol"
 	"github.com/agent-substrate/env/internal/internaltest/fakerouter"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 )
 
 type fixture struct {

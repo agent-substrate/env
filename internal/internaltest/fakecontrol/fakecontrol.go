@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -216,23 +216,11 @@ func (s *Server) suspend(a *ateapipb.Actor) {
 			Owner:    ateapipb.SnapshotOwner_SNAPSHOT_OWNER_ACTOR,
 			Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
 			DurableSnapshot: &ateapipb.SnapshotStorage{
-				Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+				State:  ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED,
 				Object: &ateapipb.ObjectSnapshot{},
 			},
 		}},
 	}
-}
-
-func (s *Server) PauseActor(ctx context.Context, req *ateapipb.PauseActorRequest) (*ateapipb.PauseActorResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, err := s.get(req.GetActor())
-	if err != nil {
-		return nil, err
-	}
-	// Substrate reports a paused actor as SUSPENDED (substrate#2620).
-	a.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}
-	return &ateapipb.PauseActorResponse{Actor: clone(a)}, nil
 }
 
 func (s *Server) DeleteActor(ctx context.Context, req *ateapipb.DeleteActorRequest) (*ateapipb.Actor, error) {
