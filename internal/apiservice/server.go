@@ -26,10 +26,9 @@ import (
 
 	"github.com/agent-substrate/env/internal/ate"
 	ateenvv1alpha "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -423,7 +422,7 @@ func (s *Server) guestConn(ctx context.Context, atespace, id string) (*grpc.Clie
 	targetActor := atespace + "/" + id
 	conn, err := grpc.NewClient(
 		s.routerAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(s.client.RouterCreds()),
 		grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 			ctx = metadata.AppendToOutgoingContext(ctx, ate.TargetActorHeader, targetActor)
 			return invoker(ctx, method, req, reply, cc, opts...)

@@ -20,8 +20,8 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/env/internal/apiservice"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -96,15 +96,12 @@ func TestBuildManifests(t *testing.T) {
 		t.Errorf("namespace label %s = %q, want \"true\" (ate-system admits API clients by it)", apiAccessLabel, got)
 	}
 
-	pool := objs[1].(*atev1alpha1.WorkerPool)
+	pool := objs[1].(*atev1.WorkerPool)
 	if pool.Namespace != cfg.namespace || pool.Name != "default-template-workerpool" {
 		t.Errorf("workerpool = %s/%s, want %s/default-template-workerpool", pool.Namespace, pool.Name, cfg.namespace)
 	}
 	if pool.Spec.Replicas != 3 || pool.Spec.WorkerImage != cfg.workerImage {
 		t.Errorf("workerpool spec = %+v, want replicas 3 and worker image %q", pool.Spec, cfg.workerImage)
-	}
-	if len(pool.Labels) != 0 {
-		t.Errorf("workerpool labels = %v, want empty", pool.Labels)
 	}
 	if pool.Spec.Template != nil {
 		t.Errorf("workerpool template = %v, want nil", pool.Spec.Template)
@@ -113,15 +110,19 @@ func TestBuildManifests(t *testing.T) {
 		t.Fatalf("workerpool sandboxClasses = %+v, want exactly one", pool.Spec.SandboxClasses)
 	}
 	sc := pool.Spec.SandboxClasses[0]
-	if sc.Name != atev1alpha1.SandboxClassGvisor || sc.ConfigRef == nil || sc.ConfigRef.Name != sandboxConfigName {
+	if sc.Name != atev1.SandboxClassGvisor || sc.ConfigRef == nil || sc.ConfigRef.Name != sandboxConfigName {
 		t.Errorf("workerpool sandboxClasses[0] = %+v, want gvisor with configRef %q", sc, sandboxConfigName)
 	}
-	// The pool's class and the template's are the same string since
-	// substrate#2586 made the proto field a string. A pool of the wrong class
-	// never hosts the template's actors.
-	tmplClass := buildActorTemplate(testTemplateConfig()).GetSandboxConfig().GetSandboxClass()
-	if tmplClass != string(sc.Name) {
-		t.Errorf("workerpool sandbox class %q != template sandbox class %q", sc.Name, tmplClass)
+	// The template selects workers by the pool's labels; a pool it does not
+	// select never hosts its actors.
+	sel := buildActorTemplate(testTemplateConfig()).GetWorkerSelector().GetMatchLabels()
+	if len(sel) == 0 {
+		t.Error("template worker selector is empty, want the pool's labels")
+	}
+	for k, v := range sel {
+		if pool.Labels[k] != v {
+			t.Errorf("workerpool labels %v do not match template worker selector %v", pool.Labels, sel)
+		}
 	}
 
 	deployment := objs[2].(*appsv1.Deployment)
@@ -165,38 +166,21 @@ func TestBuildActorTemplate(t *testing.T) {
 	if got := template.GetSnapshotConfig().GetGoldenSnapshotConfig(); got != nil {
 		t.Errorf("golden snapshot config = %v, want nil (omitted means enabled)", got)
 	}
-	if got := template.GetSandboxConfig().GetConfigName(); got != sandboxConfigName {
-		t.Errorf("sandbox config name = %q, want %q (must match the WorkerPool configRef)", got, sandboxConfigName)
-	}
-	if template.GetWorkerSelector() != nil {
-		t.Errorf("worker selector = %v, want nil", template.WorkerSelector)
-	}
 	probe := template.Containers[0].GetWakeupProbe()
 	if probe.GetHttpGet() == nil || probe.GetHttpGet().GetPath() != "/readyz" || probe.GetHttpGet().GetPort() != 80 {
 		t.Errorf("wakeupProbe = %+v, want HTTP GET /readyz on port 80", probe)
 	}
 	// Substrate rejects an ActorTemplate without both limits (substrate#2285).
-	if got := limits(template); got["cpu"] != defaultActorCPU || got["memory"] != defaultActorMemory || len(got) != 2 {
-		t.Errorf("resources.limits = %v, want cpu=%s memory=%s", got, defaultActorCPU, defaultActorMemory)
+	if got := template.GetResources().GetLimits(); got.GetCpuMillicores() != 2000 || got.GetMemoryBytes() != 4<<30 {
+		t.Errorf("resources.limits = %v, want 2000 millicores and 4Gi", got)
 	}
-	if got := template.GetSandboxConfig().GetSandboxClass(); got != "gvisor" {
-		t.Errorf("sandbox class = %q, want gvisor (Substrate accepts gvisor or microvm)", got)
-	}
-}
-
-func limits(tmpl *ateapipb.ActorTemplate) map[string]string {
-	m := map[string]string{}
-	for _, l := range tmpl.GetResources().GetLimits() {
-		m[l.GetName()] = l.GetQuantity()
-	}
-	return m
 }
 
 func TestBuildActorTemplateResources(t *testing.T) {
 	cfg := testTemplateConfig()
 	cfg.cpu, cfg.memory = "500m", "1Gi"
-	if got := limits(buildActorTemplate(cfg)); got["cpu"] != "500m" || got["memory"] != "1Gi" {
-		t.Errorf("resources.limits = %v, want cpu=500m memory=1Gi", got)
+	if got := buildActorTemplate(cfg).GetResources().GetLimits(); got.GetCpuMillicores() != 500 || got.GetMemoryBytes() != 1<<30 {
+		t.Errorf("resources.limits = %v, want 500 millicores and 1Gi", got)
 	}
 }
 
@@ -368,7 +352,7 @@ func TestManifestTemplateCommandExecution(t *testing.T) {
 	if !strings.Contains(out, "image: example.com/guest@sha256:aaaa") || !strings.Contains(out, "storageLocation: gs://bucket/prefix/") {
 		t.Errorf("expected guest image and storage location in output:\n%s", out)
 	}
-	for _, want := range []string{"sandboxClass: gvisor", "name: cpu\n    quantity: \"4\"", "name: memory\n    quantity: 8Gi"} {
+	for _, want := range []string{"workload: ate-env", "cpuMillicores: \"4000\"", "memoryBytes: \"8589934592\""} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

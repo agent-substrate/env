@@ -21,9 +21,10 @@ import (
 	"io"
 
 	"github.com/agent-substrate/env/internal/apiservice"
+	"github.com/agent-substrate/env/internal/ate"
 	"github.com/spf13/cobra"
-	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
-	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 )
 
@@ -41,6 +43,10 @@ const apiName = "ate-env-api"
 // ActorTemplate refer to. `ate-setup deploy ate-system` installs exactly this
 // one, so a pool declared with it is schedulable on a stock install.
 const sandboxConfigName = "gvisor-default"
+
+// workerPoolLabels label the WorkerPool, and the ActorTemplate's
+// workerSelector matches them so actors only land on this pool's workers.
+var workerPoolLabels = map[string]string{"workload": "ate-env"}
 
 // Default compute limits for each actor. Substrate requires both on every
 // ActorTemplate since substrate#2285: the scheduler books them against worker
@@ -361,17 +367,18 @@ func buildNamespace(cfg manifestConfig) *corev1.Namespace {
 	}
 }
 
-func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
-	return &atev1alpha1.WorkerPool{
+func buildWorkerPool(cfg manifestConfig) *atev1.WorkerPool {
+	return &atev1.WorkerPool{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: atev1alpha1.GroupVersion.String(),
+			APIVersion: atev1.GroupVersion.String(),
 			Kind:       "WorkerPool",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cfg.workerPool,
 			Namespace: cfg.namespace,
+			Labels:    workerPoolLabels,
 		},
-		Spec: atev1alpha1.WorkerPoolSpec{
+		Spec: atev1.WorkerPoolSpec{
 			Replicas:    cfg.replicas,
 			WorkerImage: cfg.workerImage,
 			// The CRD requires exactly one sandbox class per pool, and
@@ -379,9 +386,9 @@ func buildWorkerPool(cfg manifestConfig) *atev1alpha1.WorkerPool {
 			// so keep this in step with buildActorTemplate. The configRef is
 			// the SandboxConfig the workers run; the template names the same
 			// one in sandboxConfig.configName.
-			SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{
-				Name:      atev1alpha1.SandboxClassGvisor, // the template's sandboxConfig.sandboxClass is the same string
-				ConfigRef: &atev1alpha1.SandboxConfigReference{Name: sandboxConfigName},
+			SandboxClasses: []atev1.WorkerPoolSandboxClass{{
+				Name:      atev1.SandboxClassGvisor, // the template's sandboxConfig.sandboxClass is the same string
+				ConfigRef: &atev1.SandboxConfigReference{Name: sandboxConfigName},
 			}},
 		},
 	}
@@ -419,15 +426,19 @@ func buildActorTemplate(cfg templateConfig) *ateapipb.ActorTemplate {
 			// schema marks the field required, so say it explicitly.
 			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
 		},
-		SandboxConfig: &ateapipb.SandboxConfig{
-			SandboxClass: string(atev1alpha1.SandboxClassGvisor),
-			ConfigName:   sandboxConfigName,
-		},
-		Resources: &ateapipb.Resources{Limits: []*ateapipb.Limits{
-			{Name: "cpu", Quantity: orDefault(cfg.cpu, defaultActorCPU)},
-			{Name: "memory", Quantity: orDefault(cfg.memory, defaultActorMemory)},
+		WorkerSelector: &ateapipb.Selector{MatchLabels: workerPoolLabels},
+		Resources: &ateapipb.ResourceRequirements{Limits: &ateapipb.Resources{
+			CpuMillicores: quantity(cfg.cpu, defaultActorCPU).MilliValue(),
+			MemoryBytes:   quantity(cfg.memory, defaultActorMemory).Value(),
 		}},
 	}
+}
+
+// quantity parses v, or def if v is empty. validateResources has already
+// checked v.
+func quantity(v, def string) *resource.Quantity {
+	q := resource.MustParse(orDefault(v, def))
+	return &q
 }
 
 func orDefault(v, def string) string {
@@ -476,16 +487,29 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 					Containers: []corev1.Container{{
 						Name:  apiName,
 						Image: cfg.apiImage,
-						// ateapi/atenet default to the in-cluster
-						// Substrate service addresses.
+						// ateapi defaults to the in-cluster Substrate
+						// service address. The atenet router only admits
+						// mTLS clients with an allowed pod identity, so
+						// ate-env-api presents its pod certificate.
 						Args: []string{
 							"-listen", fmt.Sprintf("0.0.0.0:%d", cfg.apiPort),
 							"-ateapi-token-file=/var/run/secrets/ateapi/token",
+							"-atenet=" + ate.RouterServerName + ":443",
+							"-atenet-credential-bundle=/run/podidentity.podcert.ate.dev/credential-bundle.pem",
+							"-atenet-ca-file=/run/servicedns-ca/trust-bundle.pem",
 						},
 						Ports: []corev1.ContainerPort{{ContainerPort: cfg.apiPort}},
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "ateapi-token",
 							MountPath: "/var/run/secrets/ateapi",
+							ReadOnly:  true,
+						}, {
+							Name:      "podidentity",
+							MountPath: "/run/podidentity.podcert.ate.dev",
+							ReadOnly:  true,
+						}, {
+							Name:      "servicedns-ca",
+							MountPath: "/run/servicedns-ca",
 							ReadOnly:  true,
 						}},
 						ReadinessProbe: &corev1.Probe{
@@ -506,6 +530,32 @@ func buildAPIDeployment(cfg manifestConfig) *appsv1.Deployment {
 										Audience:          "api.ate-system.svc",
 										ExpirationSeconds: &tokenExpiration,
 										Path:              "token",
+									},
+								}},
+							},
+						},
+					}, {
+						Name: "podidentity",
+						VolumeSource: corev1.VolumeSource{
+							Projected: &corev1.ProjectedVolumeSource{
+								Sources: []corev1.VolumeProjection{{
+									PodCertificate: &corev1.PodCertificateProjection{
+										SignerName:           "podidentity.podcert.ate.dev/identity",
+										KeyType:              "ECDSAP256",
+										CredentialBundlePath: "credential-bundle.pem",
+									},
+								}},
+							},
+						},
+					}, {
+						Name: "servicedns-ca",
+						VolumeSource: corev1.VolumeSource{
+							Projected: &corev1.ProjectedVolumeSource{
+								Sources: []corev1.VolumeProjection{{
+									ClusterTrustBundle: &corev1.ClusterTrustBundleProjection{
+										SignerName:    ptr.To("servicedns.podcert.ate.dev/identity"),
+										LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"podcert.ate.dev/canarying": "live"}},
+										Path:          "trust-bundle.pem",
 									},
 								}},
 							},
