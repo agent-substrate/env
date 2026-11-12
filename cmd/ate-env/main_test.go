@@ -227,3 +227,44 @@ func TestManifestTemplateRootfsImageFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownCommandFails(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"unknown word alone", []string{"list"}, `unknown command "list"`},
+		{"id without subcommand", []string{"dev1"}, `unknown command "dev1"`},
+		{"id with unknown subcommand", []string{"dev1", "status"}, `unknown command "status" for environment "dev1"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newRootCommand(tc.args)
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetErr(&out)
+			root.SetArgs(tc.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) succeeded; want an error. Output:\n%s", tc.args, out.String())
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Execute(%v) error = %q; want it to contain %q", tc.args, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreateRejectsReservedIDs(t *testing.T) {
+	for _, id := range []string{"create", "delete", "suspend", "manifest", "help"} {
+		t.Run(id, func(t *testing.T) {
+			args := []string{"create", id}
+			root := newRootCommand(args)
+			root.SetArgs(args)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), "reserved") {
+				t.Errorf("create %q error = %v; want a reserved-name error", id, err)
+			}
+		})
+	}
+}
