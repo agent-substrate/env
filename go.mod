@@ -6,7 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
-	go.ate.dev/substrate v0.6.1-0.20261030223608-6ddb1934dd75
+	go.ate.dev/substrate v1.0.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	k8s.io/api v0.37.0

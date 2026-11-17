@@ -151,7 +151,7 @@ binaries default it to the ate-env-guest image published with the release
 (see docs/release.md), or build and push your own with make images`)
 	}
 	if c.snapshotsBucket == "" {
-		return errors.New("--snapshots-bucket is required; use an object-storage bucket (e.g. gs://bucket/prefix/)")
+		return errors.New("--snapshots-bucket is required")
 	}
 	if c.rootfsImage != "" {
 		if _, err := apiservice.ImageDigest(c.rootfsImage); err != nil {

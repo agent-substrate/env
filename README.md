@@ -46,9 +46,25 @@ go install github.com/agent-substrate/env/cmd/ate-env@latest
 ## Quickstart
 
 Prerequisites: a cluster running [Agent Substrate](https://github.com/agent-substrate/substrate)
-at or after [`63a17a92`](https://github.com/agent-substrate/substrate/commit/63a17a92), and a GCS
-bucket for snapshots. ate-env is built and tested against
-[`3a2ca623`](https://github.com/agent-substrate/substrate/commit/3a2ca623).
+
+### Substrate Setup for Local Kind
+
+From Substrate, create the cluster if needed and install
+Substrate with both the CLI proxy and ate-env-api identities allowed:
+
+```bash
+# Only needed when creating a new cluster.
+hack/create-kind-cluster.sh
+
+go run ./cmd/ate-setup deploy ate-system --kind \
+  --credential-provider='{"name":"k8s.io"}' \
+  --preview=PerTemplateSnapshotLocation \
+  --ingress-allowed-spiffe-ids=spiffe://cluster.local/ns/ate-system/sa/atenet-client,spiffe://cluster.local/ns/ate-env/sa/default
+```
+
+The ingress allowlist includes the CLI proxy and ate-env-api's default pod
+identity. Retain both, plus any other clients, on subsequent Substrate deployments.
+The preview flag enables per-template snapshot locations for the template below.
 
 ### 1. Build and Push the Images
 
@@ -66,14 +82,28 @@ build it from that Substrate checkout with `ate-setup publish worker-images` ins
 
 ### 2. Deploy the Kubernetes Resources
 
-Deploy the namespace, worker pool, and API service:
+First, using a Substrate administrator identity, create the atespace and grant
+the API service account access. For a new installation:
+
+```bash
+kubectl-ate create atespace ate-env
+kubectl-ate create access-policy -a ate-env -f - <<'EOF'
+bindings:
+  - role: editor
+    members:
+      - user:system:serviceaccount:ate-env:default
+EOF
+```
+
+Then deploy the namespace, worker pool, and API service using the printed image
+digests:
 
 ```bash
 ate-env manifest \
+  --api-image      $ATE_ENV_IMAGE_REPO/ate-env-api@sha256:<digest> \
   --worker-image   $ATE_ENV_IMAGE_REPO/ateworker-gvisor@sha256:<digest> | kubectl apply -f -
 
-# Ensure that the pods are running:
-kubectl get pods -n ate-env
+kubectl -n ate-env rollout status deployment/ate-env-api
 ```
 
 ### 3. Register the ActorTemplate in Substrate
