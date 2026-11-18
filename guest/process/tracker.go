@@ -412,6 +412,10 @@ func (t *Tracker) reap(state *ProcessState, cmd *exec.Cmd, stdoutFile, stderrFil
 	_ = stdoutFile.Close()
 	_ = stderrFile.Close()
 
+	// Free the slot before the exit is visible, so a client that sees the
+	// exit can start a replacement at once.
+	t.decrementActive()
+
 	state.mu.Lock()
 	if state.timer != nil {
 		state.timer.Stop()
@@ -427,7 +431,6 @@ func (t *Tracker) reap(state *ProcessState, cmd *exec.Cmd, stdoutFile, stderrFil
 
 	close(state.done)
 	state.output.notify()
-	t.decrementActive()
 }
 
 // exitStatus decodes how a waited process ended: (code, 0) for a normal
