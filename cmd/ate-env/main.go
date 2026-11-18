@@ -47,9 +47,21 @@ func newGuestCommand(id string) *cobra.Command {
 		client   *env.Client
 	)
 
+	// The root command registers this command for any first argument that is
+	// not a built-in, so a typo such as "ate-env list" lands here. Without a
+	// subcommand there is nothing to run: fail instead of printing help and
+	// exiting 0. Args runs before PersistentPreRunE, so no client is created.
+	guestCommandArgs := func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("unknown command %q for environment %q (expected read, write or shell)", args[0], id)
+		}
+		return fmt.Errorf("unknown command %q; to address environment %q, follow it with read, write or shell (see \"ate-env --help\")", id, id)
+	}
 	guestCmd := &cobra.Command{
 		Use:   id,
 		Short: fmt.Sprintf("Manage environment %s", id),
+		Args:  guestCommandArgs,
+		RunE:  guestCommandArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			client, err = env.NewClient(env.ClientOptions{
@@ -143,6 +155,11 @@ func newCreateCommand() *cobra.Command {
 		Short: "Create and start an environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// An environment named like a built-in could never be addressed
+			// as "ate-env <id> ...", because the built-in wins at dispatch.
+			if sub, _, err := cmd.Root().Find([]string{args[0]}); err == nil && sub != cmd.Root() {
+				return fmt.Errorf("%q is reserved for the %q command and cannot be used as an environment id", args[0], sub.Name())
+			}
 			client, err := env.NewClient(env.ClientOptions{
 				Endpoint: endpoint,
 			})
