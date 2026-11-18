@@ -161,3 +161,21 @@ func TestGuestCallRunningBudgetStartsAtRunning(t *testing.T) {
 		t.Errorf("call returned after %s, before the guest was listening", elapsed)
 	}
 }
+
+// A guest call on an environment the control plane does not know fails with
+// NotFound. The router answers a plain HTTP 404 for an actor it has no route
+// to, which grpc-go reports as Unimplemented; that must not be taken for an
+// answer from a live guest. A deleted environment takes the same path.
+func TestGuestCallOnMissingEnvironmentIsNotFound(t *testing.T) {
+	te := newFullTestEnv(t)
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "x-env-id", "does-not-exist", "x-env-atespace", apiservice.DefaultAtespace)
+
+	start := time.Now()
+	_, err := te.procClient.StartProcess(ctx, &ateenvv1alpha.StartProcessRequest{Command: []string{"sh", "-c", "true"}})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("StartProcess on a missing environment: code %v (%v), want NotFound", status.Code(err), err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("missing environment took %s to report; the wake budget must not apply", elapsed)
+	}
+}

@@ -54,7 +54,7 @@ const (
 // and repeats it while the router answers Unavailable, which is what an
 // expired parking budget and a guest that is not yet listening both look
 // like. It returns when the guest answers anything else, when the actor has
-// crashed, when ctx ends, or when a budget is spent: WakeBudget bounds the
+// crashed or no longer exists, when ctx ends, or when a budget is spent: WakeBudget bounds the
 // whole wait, and WakeRunningBudget bounds the part of it that starts with
 // the first attempt that sees the actor RUNNING, so a long suspended phase
 // does not eat the time the guest needs to start listening after the state
@@ -78,7 +78,15 @@ func (s *Server) ensureAwake(ctx context.Context, conn *grpc.ClientConn, atespac
 	backoff := wakeRetryInitialBackoff
 	for attempt := 1; ; attempt++ {
 		_, err := probe.GetProcess(ctx, &ateenvv1alpha.GetProcessRequest{ProcessId: "ate-env-wake-probe"})
-		if status.Code(err) != codes.Unavailable {
+		switch status.Code(err) {
+		case codes.Unavailable, codes.Unimplemented:
+			// Neither came from the guest. Unavailable is the router's 503
+			// for an actor that is not running yet. Unimplemented is how
+			// grpc-go reports the router's plain HTTP 404 for an actor it
+			// does not know, which is what a deleted or never-created
+			// environment looks like; the control plane read below turns
+			// that into NotFound.
+		default:
 			// Anything else, NotFound for the probe id included, came from
 			// the guest itself.
 			return nil
